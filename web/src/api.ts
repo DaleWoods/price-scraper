@@ -1,0 +1,272 @@
+export interface Product {
+  id: number;
+  internal_sku: string;
+  brand: string;
+  product_name: string;
+  ean_mpn: string | null;
+  our_price: number;
+  currency: string;
+  category: string | null;
+  our_product_url: string | null;
+  specs: Record<string, string>;
+}
+
+export type PricePosition = 'lower' | 'equal' | 'higher';
+
+export interface CompetitorPrice {
+  competitorId: number;
+  competitorName: string;
+  price: number | null;
+  wasPrice: number | null;
+  promo: boolean;
+  inStock: boolean | null;
+  position: PricePosition | null;
+  deltaAbs: number | null;
+  deltaPct: number | null;
+  sourceUrl: string;
+  observedAt: string;
+}
+
+export interface ComparisonRow {
+  product: Product;
+  bestCompetitorPrice: number | null;
+  bestCompetitorName: string | null;
+  position: PricePosition | null;
+  deltaAbs: number | null;
+  deltaPct: number | null;
+  observedAt: string | null;
+  competitorPrices: CompetitorPrice[];
+  matchStatus: { confirmed: number; pending: number };
+}
+
+export interface ComparisonResponse {
+  rows: ComparisonRow[];
+  total: number;
+  summary: {
+    products: number;
+    withCompetitorPrice: number;
+    lower: number;
+    equal: number;
+    higher: number;
+    unmatched: number;
+    matchCoveragePct: number;
+  };
+}
+
+export interface MatchEvidence {
+  tier?: string;
+  gatesPassed?: string[];
+  gatesFailed?: string[];
+  attributeHits?: { attribute: string; weight: string; ours: string; theirs: string }[];
+  attributeMisses?: { attribute: string; weight: string; ours: string; theirs: string }[];
+  nameSimilarity?: number;
+  notes?: string[];
+}
+
+export interface MatchRow {
+  id: number;
+  product_id: number;
+  competitor_id: number;
+  competitor_url: string;
+  competitor_title: string | null;
+  competitor_ean: string | null;
+  confidence: number;
+  match_tier: string;
+  status: 'pending' | 'confirmed' | 'rejected';
+  evidence: MatchEvidence;
+  internal_sku: string;
+  brand: string;
+  product_name: string;
+  our_price: number;
+  currency: string;
+  category: string | null;
+  ean_mpn: string | null;
+  specs: Record<string, string>;
+  competitor_name: string;
+  competitor_slug: string;
+}
+
+export interface Competitor {
+  id: number;
+  slug: string;
+  display_name: string;
+  base_url: string;
+  search_url_pattern: string;
+  brands: string[];
+  enabled: boolean;
+  scrape_frequency: string;
+}
+
+export interface ScrapeRun {
+  id: number;
+  trigger: string;
+  status: 'running' | 'completed' | 'failed';
+  competitor_name?: string | null;
+  ok_count: number;
+  error_count: number;
+  skipped_count: number;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface RunItem {
+  id: number;
+  url: string | null;
+  status: 'ok' | 'error' | 'skipped';
+  error_kind: string | null;
+  error: string | null;
+  duration_ms: number | null;
+  internal_sku: string | null;
+  product_name: string | null;
+  competitor_name: string | null;
+}
+
+export interface ImportResult {
+  totalRows: number;
+  created: number;
+  updated: number;
+  failed: number;
+  duplicateSkusCollapsed: number;
+  errors: { row: number; internalSku: string | null; errors: string[] }[];
+  specColumnsDetected: string[];
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly kind: string | undefined;
+
+  constructor(message: string, status: number, kind?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.kind = kind;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      ...(init?.body instanceof FormData ? {} : { 'content-type': 'application/json' }),
+      ...init?.headers,
+    },
+  });
+
+  const text = await response.text();
+  let payload: unknown = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { error: text };
+    }
+  }
+
+  if (!response.ok) {
+    const body = payload as { error?: string; kind?: string } | null;
+    throw new ApiError(body?.error ?? `Request failed (${response.status})`, response.status, body?.kind);
+  }
+
+  return payload as T;
+}
+
+const qs = (params: Record<string, string | number | null | undefined>): string => {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== null && value !== undefined && value !== '') search.set(key, String(value));
+  }
+  const query = search.toString();
+  return query ? `?${query}` : '';
+};
+
+export const api = {
+  session: () => request<{ authEnabled: boolean; authenticated: boolean }>('/api/auth/session'),
+  login: (password: string) =>
+    request<{ authenticated: boolean }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  logout: () => request<unknown>('/api/auth/logout', { method: 'POST' }),
+
+  comparison: (filters: Record<string, string | number | null | undefined>) =>
+    request<ComparisonResponse>(`/api/comparison${qs(filters)}`),
+
+  facets: () => request<{ brands: string[]; categories: string[] }>('/api/products/facets'),
+
+  productHistory: (productId: number) =>
+    request<{ observations: (CompetitorPrice & { id: number; competitor_name: string; price: number | null; observed_at: string })[] }>(
+      `/api/products/${productId}/history`,
+    ),
+
+  importCatalogue: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<ImportResult>('/api/products/import', { method: 'POST', body: form });
+  },
+
+  matches: (status: string) => request<{ matches: MatchRow[]; total: number }>(`/api/matches${qs({ status })}`),
+  confirmMatch: (id: number) => request<{ match: MatchRow }>(`/api/matches/${id}/confirm`, { method: 'POST' }),
+  rejectMatch: (id: number) => request<{ match: MatchRow }>(`/api/matches/${id}/reject`, { method: 'POST' }),
+  linkMatch: (productId: number, competitorId: number, url: string) =>
+    request<{ match: MatchRow }>('/api/matches', {
+      method: 'POST',
+      body: JSON.stringify({ productId, competitorId, url }),
+    }),
+
+  competitors: () => request<{ competitors: Competitor[] }>('/api/competitors'),
+  syncCompetitors: () => request<{ synced: { slug: string; action: string }[] }>('/api/competitors/sync', { method: 'POST' }),
+  toggleCompetitor: (slug: string, enabled: boolean) =>
+    request<{ competitor: Competitor }>(`/api/competitors/${slug}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+  testUrl: (slug: string, url: string) =>
+    request<{ ok: boolean; finalUrl: string; renderedWith: string; robots: { allowed: boolean; reason: string }; extracted: Record<string, unknown> }>(
+      `/api/competitors/${slug}/test-url`,
+      { method: 'POST', body: JSON.stringify({ url }) },
+    ),
+
+  runs: () => request<{ runs: ScrapeRun[]; activeRunId: number | null }>('/api/runs'),
+  run: (id: number) => request<{ run: ScrapeRun; items: RunItem[] }>(`/api/runs/${id}`),
+  startRun: (body: { mode: string; competitorId?: number | null; limit?: number | null }) =>
+    request<{ run: ScrapeRun }>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),
+  recentErrors: () =>
+    request<{ errors: (RunItem & { run_id: number; created_at: string })[] }>('/api/runs/errors/recent'),
+};
+
+export function formatMoney(value: number | null | undefined, currency = 'GBP'): string {
+  if (value == null) return '—';
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+export function formatPct(value: number | null | undefined): string {
+  if (value == null) return '—';
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+export function formatDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+export function relativeTime(value: string | null | undefined): string {
+  if (!value) return 'never';
+  const diffMs = Date.now() - new Date(value).getTime();
+  const minutes = Math.round(diffMs / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}

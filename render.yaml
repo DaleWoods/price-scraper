@@ -1,0 +1,53 @@
+# Render blueprint — single web service, external Postgres via DATABASE_URL.
+#
+# The database is deliberately NOT declared here: the spec calls for an external
+# free Postgres provider reached by connection string, so DATABASE_URL is set as
+# a secret in the Render dashboard and no credentials live in this repo.
+#
+# Migrations run automatically on boot (src/index.ts calls runMigrations), so a
+# deploy needs no separate release step. To run them by hand instead, see the
+# README's "Running migrations on Render" section.
+
+services:
+  - type: web
+    name: price-scraper
+    runtime: node
+    plan: starter # Playwright needs more memory than the free plan allows.
+    region: frankfurt # Closest region to UK traffic.
+    branch: main
+
+    # `playwright install --with-deps chromium` pulls the browser AND its system
+    # libraries. Without it, every scrape fails at browser launch.
+    buildCommand: npm ci && npx playwright install --with-deps chromium && npm run build
+    startCommand: npm start
+
+    healthCheckPath: /api/health
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Set in the Render dashboard — never committed.
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+
+      # Generated once by Render and kept stable across deploys.
+      - key: SESSION_SECRET
+        generateValue: true
+
+      - key: SCRAPER_USER_AGENT
+        value: WOSG-PriceMonitor/0.1 (+price monitoring; contact: trading@example.com)
+      - key: SCRAPER_MIN_DELAY_MS
+        value: "3000"
+      - key: SCRAPER_MAX_CONCURRENCY
+        value: "2"
+      - key: RESPECT_ROBOTS_TXT
+        value: "true"
+      - key: LOG_LEVEL
+        value: info
+
+      # Playwright caches browsers here so they survive between deploys.
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /opt/render/project/.cache/ms-playwright

@@ -1,0 +1,9 @@
+internal_sku,brand,product_name,ean_mpn,our_price,currency,category,our_product_url,model,case_size,dial_colour,case_material,strap_material,movement,water_resistance
+GS-1000123,TAG Heuer,Carrera Chronograph 42mm Blue Dial,7612345678901,4250.00,GBP,watches,https://www.goldsmiths.co.uk/p/1000123,Carrera,42mm,Blue,Stainless steel,Steel bracelet,Automatic,100m
+GS-1000124,TAG Heuer,Aquaracer Professional 300 43mm Black Dial,7612345678902,2800.00,GBP,watches,https://www.goldsmiths.co.uk/p/1000124,Aquaracer,43mm,Black,Stainless steel,Steel bracelet,Automatic,300m
+MW-2000501,Longines,Master Collection 40mm Silver Dial,7612345678903,1780.00,GBP,watches,https://www.mappinandwebb.com/p/2000501,Master Collection,40mm,Silver,Stainless steel,Leather,Automatic,30m
+WS-3000777,Tudor,Black Bay 58 39mm Black Dial,7612345678904,3300.00,GBP,watches,https://www.watches-of-switzerland.co.uk/p/3000777,Black Bay,39mm,Black,Stainless steel,Steel bracelet,Automatic,200m
+GS-1000200,Rado,Captain Cook 42mm Green Dial,,2150.00,GBP,watches,,Captain Cook,42mm,Green,Stainless steel,Steel bracelet,Automatic,300m
+GS-4000010,Goldsmiths,Platinum Round Diamond Solitaire Ring 0.50ct,,3950.00,GBP,rings,,Solitaire,,,Platinum,,,
+GS-4000011,Goldsmiths,18ct White Gold Diamond Halo Ring 0.75ct,,4600.00,GBP,rings,,Halo,,,18ct white gold,,,
+MW-5000030,Mappin & Webb,Sterling Silver Tennis Bracelet,,1250.00,GBP,jewellery,,Fortune,,,Sterling silver,,,

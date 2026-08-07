@@ -1,0 +1,76 @@
+{
+  "slug": "ernest-jones",
+  "displayName": "Ernest Jones",
+  "baseUrl": "https://www.ernestjones.co.uk",
+  "searchUrlPattern": "https://www.ernestjones.co.uk/search?q={query}",
+  "enabled": true,
+  "scrapeFrequency": "daily",
+  "brands": [
+    "TAG Heuer",
+    "Longines",
+    "Tissot",
+    "Gucci",
+    "Emporio Armani",
+    "Rado",
+    "Bremont",
+    "Michael Kors",
+    "Tudor"
+  ],
+  "config": {
+    "rendering": "browser",
+    "rateLimit": {
+      "minDelayMs": 5000,
+      "jitterMs": 3000,
+      "maxConcurrent": 1
+    },
+    "retry": {
+      "attempts": 3,
+      "backoffMs": 2000
+    },
+    "product": {
+      "useJsonLd": true,
+      "sanityContains": ["h1", "[itemtype*='Product'], script[type='application/ld+json'], .product-detail, .pdp-main"],
+      "selectors": {
+        "title": ["h1.product-name", "h1.product-detail__name", "h1[itemprop='name']", "h1"],
+        "price": [
+          "[data-testid='product-price']",
+          ".price .sales .value",
+          ".product-price .price-sales",
+          "span[itemprop='price']",
+          "meta[itemprop='price']",
+          ".price-now"
+        ],
+        "wasPrice": [
+          ".price .list .value",
+          ".price-standard",
+          ".price-was",
+          ".product-price .price-was"
+        ],
+        "availability": [
+          "[data-testid='availability']",
+          ".availability .value",
+          "link[itemprop='availability']",
+          ".product-availability"
+        ],
+        "promoBadge": [".promotion", ".product-promo", ".badge--sale", ".product-badge"],
+        "ean": ["[itemprop='gtin13']", "[data-product-ean]", ".product-number .value"]
+      }
+    },
+    "search": {
+      "resultItem": [".product-tile", ".product-grid__item", "[data-testid='product-tile']"],
+      "resultLink": ["a.product-tile__link", "a.thumb-link", "a[href*='/product']", "a"],
+      "resultTitle": [".product-tile__name", ".product-name", ".pdp-link a", "a"],
+      "resultPrice": [".price .sales .value", ".product-price", ".price"],
+      "maxCandidates": 10
+    }
+  },
+  "_notes": [
+    "JSON-LD is the primary extraction path: schema.org Product/Offer markup is far more stable than CSS classes.",
+    "The CSS selectors below it are FALLBACKS and are UNVERIFIED against the live site.",
+    "Before go-live, tune them with POST /api/competitors/ernest-jones/test-url — it runs a real",
+    "extraction against one URL and shows exactly what was parsed, without writing any observation.",
+    "'sanityContains' is the layout-change tripwire: if none of these match, the scrape fails loudly",
+    "as 'layout_changed' rather than recording a wrong price.",
+    "Spec s9: review this retailer's terms of use and confirm legal sign-off before enabling in production."
+  ]
+}

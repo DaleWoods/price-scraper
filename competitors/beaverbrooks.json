@@ -1,0 +1,46 @@
+{
+  "slug": "beaverbrooks",
+  "displayName": "Beaverbrooks",
+  "baseUrl": "https://www.beaverbrooks.co.uk",
+  "searchUrlPattern": "https://www.beaverbrooks.co.uk/search?q={query}",
+  "enabled": false,
+  "scrapeFrequency": "daily",
+  "brands": ["TAG Heuer", "Longines", "Tissot", "Gucci", "Emporio Armani", "Rado"],
+  "config": {
+    "rendering": "browser",
+    "rateLimit": {
+      "minDelayMs": 5000,
+      "jitterMs": 3000,
+      "maxConcurrent": 1
+    },
+    "retry": {
+      "attempts": 3,
+      "backoffMs": 2000
+    },
+    "product": {
+      "useJsonLd": true,
+      "sanityContains": ["h1", "script[type='application/ld+json'], .product-detail, .pdp"],
+      "selectors": {
+        "title": ["h1.product-title", "h1"],
+        "price": ["[data-testid='price']", ".product-price", "span[itemprop='price']", "meta[itemprop='price']"],
+        "wasPrice": [".was-price", ".price--was"],
+        "availability": ["link[itemprop='availability']", ".stock-status"],
+        "promoBadge": [".product-badge", ".sale-badge"],
+        "ean": ["[itemprop='gtin13']"]
+      }
+    },
+    "search": {
+      "resultItem": [".product-card", ".product-tile"],
+      "resultLink": ["a"],
+      "resultTitle": [".product-card__title", ".product-name", "a"],
+      "resultPrice": [".product-card__price", ".price"],
+      "maxCandidates": 10
+    }
+  },
+  "_notes": [
+    "Shipped DISABLED. This file exists to demonstrate that adding a competitor is configuration,",
+    "not code (Spec s5.2) — drop a JSON file in this directory, run `npm run seed`, flip enabled.",
+    "Selectors are unverified placeholders. Beaverbrooks is Phase 2 scope; do not enable without",
+    "tuning selectors and confirming legal sign-off first."
+  ]
+}
