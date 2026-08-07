@@ -151,15 +151,32 @@ service with the right build and start commands.
 | Setting | Value |
 | --- | --- |
 | Root directory | *(leave blank — the app is at the repo root)* |
-| Runtime | Node |
-| Build command | `npm ci && npx playwright install --with-deps chromium && npm run build` |
-| Start command | `npm start` |
+| Runtime | **Docker** |
+| Dockerfile path | `./Dockerfile` |
 | Health check path | `/api/health` |
 | Instance type | **Starter or larger** — Chromium exceeds the free plan's memory |
 
-The `playwright install --with-deps chromium` step is not optional. Without it
-Chromium and its system libraries are missing and every scrape fails at browser
-launch.
+There is no build or start command to set: the Dockerfile defines both.
+
+#### Why Docker rather than Render's native Node runtime
+
+Chromium needs a set of system libraries (`libnss3`, `libatk`, and friends) that
+aren't in Render's native Node image. The usual way to get them,
+`playwright install --with-deps`, shells out to `apt-get` as root — which
+Render's build sandbox does not permit, so the build fails with
+`Exited with status 1 while building your code`. Installing without
+`--with-deps` gets the browser but not the libraries, so it fails later at
+launch instead.
+
+The Dockerfile starts from `mcr.microsoft.com/playwright:v1.62.1-noble`, where
+the browser and its libraries are already installed and tested together.
+
+> **Keep the image tag and the Playwright version in step.** The tag in the
+> Dockerfile must match the `playwright` version resolved in `package-lock.json`.
+> If they drift, scrapes fail with "Executable doesn't exist at …".
+
+The first Docker build is slow (the base image is large); later builds reuse
+cached layers.
 
 ### 3. Set environment variables
 
@@ -172,9 +189,15 @@ In the service's **Environment** tab:
 | `SESSION_SECRET` | `openssl rand -base64 32` (the blueprint generates one) |
 | `NODE_ENV` | `production` |
 | `SCRAPER_USER_AGENT` | Include a real contact address |
-| `PLAYWRIGHT_BROWSERS_PATH` | `/opt/render/project/.cache/ms-playwright` |
 
-`PORT` is injected by Render — don't set it. Full list in `.env.example`.
+The blueprint marks `DATABASE_URL` and `APP_PASSWORD` as `sync: false`, so Render
+does **not** create them for you — set them by hand. The server refuses to start
+without `DATABASE_URL`, which shows up as a failed deploy.
+
+`PORT` is injected by Render — don't set it. Do **not** set
+`PLAYWRIGHT_BROWSERS_PATH`: the Docker image already points it at the right
+place, and overriding it sends Playwright looking in an empty directory. Full
+list in `.env.example`.
 
 > If `APP_PASSWORD` is left unset the app runs with **no login gate** and warns
 > loudly in the logs on boot.

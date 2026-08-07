@@ -11,15 +11,16 @@
 services:
   - type: web
     name: price-scraper
-    runtime: node
+    # Docker, not the native Node runtime: Chromium needs system libraries that
+    # `playwright install --with-deps` can only install as root, which Render's
+    # native build sandbox disallows. The Dockerfile starts from Playwright's own
+    # image, where the browser and its libraries are already in place.
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+
     plan: starter # Playwright needs more memory than the free plan allows.
     region: frankfurt # Closest region to UK traffic.
     branch: main
-
-    # `playwright install --with-deps chromium` pulls the browser AND its system
-    # libraries. Without it, every scrape fails at browser launch.
-    buildCommand: npm ci && npx playwright install --with-deps chromium && npm run build
-    startCommand: npm start
 
     healthCheckPath: /api/health
 
@@ -50,6 +51,6 @@ services:
       - key: LOG_LEVEL
         value: info
 
-      # Playwright caches browsers here so they survive between deploys.
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: /opt/render/project/.cache/ms-playwright
+      # PLAYWRIGHT_BROWSERS_PATH is deliberately NOT set here. The Playwright
+      # base image already points it at /ms-playwright, and overriding it sends
+      # the library looking for browsers in an empty directory.
