@@ -1,0 +1,117 @@
+{
+  "slug": "berrys-jewellers",
+  "displayName": "Berry's Jewellers",
+  "baseUrl": "https://www.berrysjewellers.co.uk",
+  "searchUrlPattern": "https://www.berrysjewellers.co.uk/search?q={query}",
+  "enabled": false,
+  "scrapeFrequency": "daily",
+  "brands": [],
+  "config": {
+    "rendering": "browser",
+    "rateLimit": {
+      "minDelayMs": 5000,
+      "jitterMs": 3000,
+      "maxConcurrent": 1
+    },
+    "retry": {
+      "attempts": 3,
+      "backoffMs": 2000
+    },
+    "product": {
+      "useJsonLd": true,
+      "sanityContains": [
+        "h1",
+        "script[type='application/ld+json'], .product-detail, .product-page, .pdp"
+      ],
+      "selectors": {
+        "title": [
+          "h1.product-title",
+          "h1.product-name",
+          "h1[itemprop='name']",
+          "h1"
+        ],
+        "price": [
+          "[data-testid='product-price']",
+          "meta[itemprop='price']",
+          "span[itemprop='price']",
+          ".price .sales .value",
+          ".product-price .price",
+          ".price--now",
+          ".price-now",
+          ".product-price",
+          ".price"
+        ],
+        "wasPrice": [
+          ".price--was",
+          ".was-price",
+          ".price-standard",
+          ".price-was",
+          ".rrp",
+          "del"
+        ],
+        "availability": [
+          "link[itemprop='availability']",
+          "[data-testid='availability']",
+          ".stock-status",
+          ".availability"
+        ],
+        "promoBadge": [
+          ".badge--sale",
+          ".product-badge",
+          ".promotion",
+          ".sale-flag",
+          ".product-promo"
+        ],
+        "ean": [
+          "[itemprop='gtin13']",
+          "[itemprop='gtin']",
+          "[itemprop='mpn']"
+        ]
+      }
+    },
+    "search": {
+      "resultItem": [
+        ".product-tile",
+        ".product-card",
+        ".product-item",
+        "li.item.product",
+        "[data-testid='product-tile']"
+      ],
+      "resultLink": [
+        "a.product-link",
+        "a.product-item-link",
+        "a[href*='/product']",
+        "a"
+      ],
+      "resultTitle": [
+        ".product-name",
+        ".product-title",
+        ".product-item-link",
+        ".product-card__title",
+        "a"
+      ],
+      "resultPrice": [
+        ".price",
+        ".product-price",
+        ".product-card__price"
+      ],
+      "maxCandidates": 10
+    }
+  },
+  "_notes": [
+    "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",
+    "selector below are informed guesses \u2014 they were written without network access to this",
+    "retailer, so none of them has been checked against the live site.",
+    "",
+    "Before enabling:",
+    "  1. Confirm baseUrl and searchUrlPattern by running a search on the site by hand and",
+    "     copying the resulting URL shape (the {query} placeholder is required).",
+    "  2. Run POST /api/competitors/<slug>/test-url (the 'Test a product URL' panel) against",
+    "     two or three real listings and check the extracted price matches the page.",
+    "  3. Review this retailer's terms of use and confirm legal sign-off (Spec s9).",
+    "",
+    "JSON-LD is the primary extraction path and usually works without selector tuning.",
+    "'sanityContains' is the layout-change tripwire: if none of those match, the scrape fails",
+    "loudly as 'layout_changed' rather than recording a wrong price."
+  ]
+}

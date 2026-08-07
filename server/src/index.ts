@@ -13,7 +13,7 @@ import { competitorsRouter } from './routes/competitors.js';
 import { matchesRouter } from './routes/matches.js';
 import { productsRouter } from './routes/products.js';
 import { runsRouter } from './routes/runs.js';
-import { closeBrowser } from './scraping/browser.js';
+import { closeBrowser, warnIfBrowsersPathMisconfigured } from './scraping/browser.js';
 import { syncCompetitorsToDatabase } from './scraping/competitorRegistry.js';
 
 const app = express();
@@ -68,6 +68,7 @@ async function start(): Promise<void> {
     if (!authEnabled()) {
       logger.warn('server', 'APP_PASSWORD is not set — the app is running without a login gate.');
     }
+    warnIfBrowsersPathMisconfigured();
   });
 
   const shutdown = async (signal: string): Promise<void> => {
