@@ -37,8 +37,10 @@ services:
       - key: SESSION_SECRET
         generateValue: true
 
+      # Quoted: the value contains ": ", which YAML would otherwise read as a
+      # nested mapping. Put a real contact address here before go-live.
       - key: SCRAPER_USER_AGENT
-        value: WOSG-PriceMonitor/0.1 (+price monitoring; contact: trading@example.com)
+        value: "WOSG-PriceMonitor/0.1 (+price monitoring; contact: trading@example.com)"
       - key: SCRAPER_MIN_DELAY_MS
         value: "3000"
       - key: SCRAPER_MAX_CONCURRENCY
