@@ -422,12 +422,16 @@ Only two condition types are priced from:
 | `VKP0` | UK RRP (regular price) |
 | `VKA0` | UK sale price |
 
-**`VKP1` is deliberately excluded.** It is the net (ex-VAT) twin of `VKP0` —
-£466.67 against £560 in the sample export — and carries `p_net = 1`. Treating it
-as a second regular price both corrupts the "was" figure and puts an ex-VAT
-number into comparisons against gross competitor prices. Any other condition
-type is counted and reported by name rather than guessed at, and a `p_net = 1`
-row is refused as a backstop whatever its type.
+**`VKP1` and `VKA1` are US condition types and are excluded.** This matters more
+than it looks: `VKP1` rows appear in the UK export too, and under an earlier
+rule of "anything that is not a sale is a regular price" they were equally
+specific to `VKP0` and won the tie-break — resolving the regular price to
+£466.67 instead of £560. That corrupted the "was" figure and put a value
+carrying `p_net = 1` into comparisons against gross competitor prices.
+
+Any condition type outside the two above is counted and reported by name rather
+than guessed at, and a `p_net = 1` row is refused as a backstop whatever its
+type.
 
 1. Take the rows matching that fascia's sales organisation and distribution
    channel, whose store code is either the fascia's own or `-`, and which are

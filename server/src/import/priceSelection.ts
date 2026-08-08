@@ -14,11 +14,16 @@ export const ANY_PRICE_LIST = '-';
 /**
  * The only condition types that describe what a UK customer pays.
  *
- * An allow-list rather than "anything that is not a sale": the export also
- * carries VKP1, which is the NET (ex-VAT) twin of VKP0 — £466.67 against
- * £560 — and treating it as another regular price both corrupts the was-price
- * and leaks an ex-VAT figure into comparisons against gross competitor prices.
- * Any other condition type is counted and skipped rather than guessed at.
+ * VKP0 is UK RRP and VKA0 is the UK sale price. VKP1 and VKA1 are US condition
+ * types and are out of scope here.
+ *
+ * Deliberately an allow-list rather than "anything that is not a sale". Under
+ * that earlier rule the VKP1 rows in the export counted as regular prices, and
+ * being equally specific they won the tie-break — resolving the regular price
+ * to £466.67 instead of £560, which both corrupted the was-price and put a
+ * figure carrying `p_net = 1` into comparisons against gross competitor prices.
+ * Any condition type outside this list is counted and reported rather than
+ * guessed at.
  */
 export const REGULAR_KSCHL = 'VKP0';
 export const SALE_KSCHL = 'VKA0';

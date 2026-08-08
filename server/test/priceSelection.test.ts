@@ -45,8 +45,8 @@ describe('isSaleKschl', () => {
   });
 
   it('does not treat VKA1 as an in-scope sale', () => {
-    // The UK sites price from VKA0 and VKP0 only. VKA1 is excluded by the
-    // allow-list rather than silently treated as a sale.
+    // The UK sites price from VKA0 and VKP0 only. VKA1 is a US condition type
+    // and is excluded by the allow-list rather than treated as a sale.
     assert.equal(isSaleKschl('VKA1'), false);
   });
 });
@@ -65,7 +65,7 @@ describe('selectFasciaPrice — the supplied loadsheet sample', () => {
     row({ kschl: 'VKA0', werks: '470', price: 445 }),
   ];
 
-  it('ignores VKP1 — it is the net twin of VKP0, not a shelf price', () => {
+  it('ignores VKP1 — a US condition type, not a UK shelf price', () => {
     // Regression: treating VKP1 as another regular price made it win the
     // tie-break at equal specificity, giving a was-price of £466.67 (the
     // ex-VAT figure) instead of £560.
@@ -266,8 +266,8 @@ describe('condition type allow-list', () => {
   it('accepts only the two UK pricing types', () => {
     assert.equal(isPricingKschl('VKP0'), true, 'UK RRP');
     assert.equal(isPricingKschl('VKA0'), true, 'UK sale');
-    assert.equal(isPricingKschl('VKP1'), false, 'net twin of VKP0');
-    assert.equal(isPricingKschl('VKA1'), false, 'not in scope for the UK sites');
+    assert.equal(isPricingKschl('VKP1'), false, 'US condition type');
+    assert.equal(isPricingKschl('VKA1'), false, 'US condition type');
     assert.equal(isPricingKschl(''), false);
   });
 
