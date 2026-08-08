@@ -14,7 +14,7 @@ export interface ComparisonFilters {
   brand?: string | null;
   category?: string | null;
   competitorId?: number | null;
-  position?: PricePosition | 'unmatched' | null;
+  position?: PricePosition | 'unmatched' | 'awaiting_price' | null;
   search?: string | null;
   limit?: number;
   offset?: number;
@@ -48,6 +48,8 @@ export interface ComparisonPage {
     equal: number;
     higher: number;
     unmatched: number;
+    /** Products we cannot compare because no price file has supplied ours yet. */
+    awaitingOurPrice: number;
     matchCoveragePct: number;
   };
 }
@@ -134,13 +136,18 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
     const { total_count: _ignored, ...productFields } = product;
     const productObservations = observationsByProduct.get(product.id) ?? [];
 
+    // Without a price of our own there is nothing to compare against. The
+    // competitor's price is still recorded and shown; no position or delta is
+    // invented for it.
+    const ourPrice = product.our_price;
+
     const competitorPrices = productObservations.map((observation) => {
-      const position =
-        observation.price != null ? classifyPosition(product.our_price, observation.price) : null;
-      const deltaAbs = observation.price != null ? round2(product.our_price - observation.price) : null;
+      const canCompare = ourPrice != null && observation.price != null;
+      const position = canCompare ? classifyPosition(ourPrice, observation.price!) : null;
+      const deltaAbs = canCompare ? round2(ourPrice - observation.price!) : null;
       const deltaPct =
-        observation.price != null && observation.price !== 0
-          ? round2(((product.our_price - observation.price) / observation.price) * 100)
+        canCompare && observation.price !== 0
+          ? round2(((ourPrice - observation.price!) / observation.price!) * 100)
           : null;
 
       return {
@@ -179,6 +186,7 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
       deltaAbs: cheapest?.deltaAbs ?? null,
       deltaPct: cheapest?.deltaPct ?? null,
       observedAt: cheapest?.observedAt ?? null,
+      ourPriceMissing: ourPrice == null,
       competitorPrices,
       matchStatus: {
         confirmed: counts?.confirmed ?? 0,
@@ -188,9 +196,11 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
   });
 
   const filtered = filters.position
-    ? rows.filter((row) =>
-        filters.position === 'unmatched' ? row.position === null : row.position === filters.position,
-      )
+    ? rows.filter((row) => {
+        if (filters.position === 'unmatched') return row.bestCompetitorPrice == null;
+        if (filters.position === 'awaiting_price') return row.ourPriceMissing;
+        return row.position === filters.position;
+      })
     : rows;
 
   return { rows: filtered, total, summary: summarise(rows) };
@@ -199,11 +209,13 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
 function summarise(rows: ComparisonRow[]): ComparisonPage['summary'] {
   const summary = { ...emptySummary(), products: rows.length };
   for (const row of rows) {
-    if (row.position === null) summary.unmatched += 1;
-    else {
-      summary.withCompetitorPrice += 1;
-      summary[row.position] += 1;
-    }
+    // A competitor price we found but cannot compare still counts as matched —
+    // it is the price file that is missing, not the match.
+    if (row.bestCompetitorPrice != null) summary.withCompetitorPrice += 1;
+    else summary.unmatched += 1;
+
+    if (row.ourPriceMissing) summary.awaitingOurPrice += 1;
+    else if (row.position !== null) summary[row.position] += 1;
   }
   summary.matchCoveragePct =
     rows.length === 0 ? 0 : round2((summary.withCompetitorPrice / rows.length) * 100);
@@ -218,6 +230,7 @@ function emptySummary(): ComparisonPage['summary'] {
     equal: 0,
     higher: 0,
     unmatched: 0,
+    awaitingOurPrice: 0,
     matchCoveragePct: 0,
   };
 }

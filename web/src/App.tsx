@@ -17,11 +17,11 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/comparison', label: 'Price comparison', icon: '◫', section: 'Monitor' },
-  { to: '/review', label: 'Match review', icon: '⚖', section: 'Monitor' },
-  { to: '/runs', label: 'Scrape runs', icon: '↻', section: 'Monitor' },
-  { to: '/import', label: 'Import catalogue', icon: '↑', section: 'Configure' },
-  { to: '/competitors', label: 'Competitors', icon: '⌗', section: 'Configure' },
+  { to: '/comparison', label: 'Price comparison', icon: '📊', section: 'Monitor' },
+  { to: '/review', label: 'Match review', icon: '🔍', section: 'Monitor' },
+  { to: '/runs', label: 'Scrape runs', icon: '🔄', section: 'Monitor' },
+  { to: '/import', label: 'Import catalogue', icon: '📥', section: 'Configure' },
+  { to: '/competitors', label: 'Competitors', icon: '🏬', section: 'Configure' },
 ];
 
 const PAGE_META: Record<string, { eyebrow: string; title: string }> = {

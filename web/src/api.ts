@@ -4,7 +4,8 @@ export interface Product {
   brand: string;
   product_name: string;
   ean_mpn: string | null;
-  our_price: number;
+  /** Null until a price file supplies it — the catalogue export carries no prices. */
+  our_price: number | null;
   currency: string;
   category: string | null;
   our_product_url: string | null;
@@ -35,6 +36,7 @@ export interface ComparisonRow {
   deltaAbs: number | null;
   deltaPct: number | null;
   observedAt: string | null;
+  ourPriceMissing: boolean;
   competitorPrices: CompetitorPrice[];
   matchStatus: { confirmed: number; pending: number };
 }
@@ -49,6 +51,7 @@ export interface ComparisonResponse {
     equal: number;
     higher: number;
     unmatched: number;
+    awaitingOurPrice: number;
     matchCoveragePct: number;
   };
 }
@@ -77,7 +80,7 @@ export interface MatchRow {
   internal_sku: string;
   brand: string;
   product_name: string;
-  our_price: number;
+  our_price: number | null;
   currency: string;
   category: string | null;
   ean_mpn: string | null;
@@ -130,6 +133,10 @@ export interface ImportResult {
   duplicateSkusCollapsed: number;
   errors: { row: number; internalSku: string | null; errors: string[] }[];
   specColumnsDetected: string[];
+  columnMapping: Record<string, string>;
+  ignoredColumns: { column: string; reason: string }[];
+  awaitingPrice: number;
+  priceColumnFound: boolean;
 }
 
 export class ApiError extends Error {

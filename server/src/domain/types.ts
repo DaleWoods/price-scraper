@@ -7,7 +7,8 @@ export interface Product {
   brand: string;
   product_name: string;
   ean_mpn: string | null;
-  our_price: number;
+  /** Null until a price file supplies it — the catalogue export carries no prices. */
+  our_price: number | null;
   currency: string;
   category: string | null;
   our_product_url: string | null;
@@ -124,11 +125,13 @@ export interface ComparisonRow {
   bestCompetitorPrice: number | null;
   bestCompetitorId: number | null;
   bestCompetitorName: string | null;
-  /** Our position relative to the cheapest competitor. */
+  /** Our position relative to the cheapest competitor. Null if either price is missing. */
   position: PricePosition | null;
   deltaAbs: number | null;
   deltaPct: number | null;
   observedAt: string | null;
+  /** True when we hold no price of our own yet, so no comparison is possible. */
+  ourPriceMissing: boolean;
   competitorPrices: {
     competitorId: number;
     competitorName: string;

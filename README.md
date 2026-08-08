@@ -15,7 +15,7 @@ The app never scrapes WOSG's own sites — our prices are imported.
 
 | Spec | Delivered |
 | --- | --- |
-| §5.1 Product import | CSV/Excel upload of the single master export; required-field validation, de-duplication on SKU, update-not-duplicate, per-row error report. Unrecognised columns import as **extensible spec attributes**. |
+| §5.1 Product import | CSV/Excel upload of the single master export; required-field validation, de-duplication on SKU, update-not-duplicate, per-row error report. Unrecognised columns import as **extensible spec attributes**. Adapts to a raw SAP loadsheet: brand derived from the category path, a populated MPN preferred over an empty EAN column, page title preferred over a collection name that repeats across variants, size/metal parsed from the title, and site-configuration columns skipped. **Price is optional** — it arrives as a separate file keyed on SKU. |
 | §5.2 Competitor config | Competitors are JSON files in `competitors/`. Adding a retailer is a config file plus a sync — **never a code change**. Ernest Jones ships enabled; Beaverbrooks ships disabled as a worked example. |
 | §5.3 Matching | Tiered scoring — EAN/MPN exact → brand + spec attributes → fuzzy name — with gate/high/medium/ignore weights per category (Appendix A). Anything below the threshold goes to a manual-confirm queue; confirmed matches persist as a stored URL. |
 | §5.4 Scraping | Playwright (or plain HTTP where a site allows) against the stored URL of confirmed matches; on-site search + candidate proposal for unmatched products. robots.txt respected, per-domain rate limiting with jitter, retry with backoff, and typed, loud failures. |

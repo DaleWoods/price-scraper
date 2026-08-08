@@ -6,14 +6,17 @@ export const comparisonRouter: Router = Router();
 
 function parseFilters(queryParams: Record<string, unknown>): ComparisonFilters {
   const position = typeof queryParams.position === 'string' ? queryParams.position : null;
-  const validPositions = ['lower', 'equal', 'higher', 'unmatched'];
+  const validPositions = ['lower', 'equal', 'higher', 'unmatched', 'awaiting_price'];
 
   return {
     brand: typeof queryParams.brand === 'string' && queryParams.brand ? queryParams.brand : null,
     category:
       typeof queryParams.category === 'string' && queryParams.category ? queryParams.category : null,
     competitorId: queryParams.competitorId ? Number(queryParams.competitorId) : null,
-    position: position && validPositions.includes(position) ? (position as PricePosition | 'unmatched') : null,
+    position:
+      position && validPositions.includes(position)
+        ? (position as PricePosition | 'unmatched' | 'awaiting_price')
+        : null,
     search: typeof queryParams.search === 'string' && queryParams.search ? queryParams.search : null,
     limit: queryParams.limit ? Number(queryParams.limit) : 100,
     offset: queryParams.offset ? Number(queryParams.offset) : 0,

@@ -12,6 +12,7 @@ import {
 } from '../api';
 import {
   Alert,
+  BrandChip,
   Card,
   EmptyState,
   PositionBadge,
@@ -20,7 +21,18 @@ import {
   useToast,
 } from '../components/ui';
 
-type PositionFilter = PricePosition | 'unmatched' | '';
+type PositionFilter = PricePosition | 'unmatched' | 'awaiting_price' | '';
+
+/**
+ * The distinguishing detail of a catalogue row — size, metal, reference — which
+ * otherwise sits at the far end of a long, near-identical product name.
+ */
+function productDetail(product: ComparisonRow['product']): string {
+  const specs = product.specs ?? {};
+  return [specs.case_size, specs.case_material, specs.carat_weight, product.ean_mpn]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 export function ComparisonPage() {
   const toast = useToast();
@@ -102,12 +114,14 @@ export function ComparisonPage() {
           value={summary?.products ?? '—'}
           meta={`${summary?.withCompetitorPrice ?? 0} with a competitor price`}
           tone="accent"
+          icon="◆"
         />
         <Stat
           label="We are cheaper"
           value={summary?.lower ?? '—'}
           meta="We undercut the market"
           tone="lower"
+          icon="▼"
           active={position === 'lower'}
           onClick={() => togglePosition('lower')}
         />
@@ -116,6 +130,7 @@ export function ComparisonPage() {
           value={summary?.equal ?? '—'}
           meta="Matched on price"
           tone="equal"
+          icon="="
           active={position === 'equal'}
           onClick={() => togglePosition('equal')}
         />
@@ -124,6 +139,7 @@ export function ComparisonPage() {
           value={summary?.higher ?? '—'}
           meta="Undercut by a competitor"
           tone="higher"
+          icon="▲"
           active={position === 'higher'}
           onClick={() => togglePosition('higher')}
         />
@@ -131,9 +147,22 @@ export function ComparisonPage() {
           label="Match coverage"
           value={`${summary?.matchCoveragePct?.toFixed(0) ?? 0}%`}
           meta={`${summary?.unmatched ?? 0} with no competitor price`}
+          tone="teal"
+          icon="◎"
           active={position === 'unmatched'}
           onClick={() => togglePosition('unmatched')}
         />
+        {(summary?.awaitingOurPrice ?? 0) > 0 && (
+          <Stat
+            label="Awaiting our price"
+            value={summary?.awaitingOurPrice ?? 0}
+            meta="Imported, no price loaded yet"
+            tone="info"
+            icon="⏳"
+            active={position === 'awaiting_price'}
+            onClick={() => togglePosition('awaiting_price')}
+          />
+        )}
       </div>
 
       {error && <Alert tone="danger" title="Could not load prices">{error}</Alert>}
@@ -213,6 +242,7 @@ export function ComparisonPage() {
                 <option value="equal">Level</option>
                 <option value="higher">They are cheaper</option>
                 <option value="unmatched">No competitor price</option>
+                <option value="awaiting_price">Awaiting our price</option>
               </select>
             </div>
             {(search || brand || category || position) && (
@@ -269,13 +299,30 @@ export function ComparisonPage() {
                     onClick={() => setSelected(row)}
                   >
                     <td>
-                      <div className="cell-primary truncate" style={{ maxWidth: 280 }}>
+                      <div className="cell-primary truncate" style={{ maxWidth: 300 }}>
                         {row.product.product_name}
                       </div>
-                      <div className="cell-secondary mono">{row.product.internal_sku}</div>
+                      <div className="cell-secondary">
+                        <span className="mono">{row.product.internal_sku}</span>
+                        {productDetail(row.product) && (
+                          <span> · {productDetail(row.product)}</span>
+                        )}
+                      </div>
                     </td>
-                    <td className="nowrap">{row.product.brand}</td>
-                    <td className="num price">{formatMoney(row.product.our_price, row.product.currency)}</td>
+                    <td className="nowrap">
+                      <BrandChip brand={row.product.brand} />
+                    </td>
+                    <td className="num">
+                      {row.product.our_price == null ? (
+                        <span className="price--missing" title="No price file loaded for this SKU yet">
+                          not loaded
+                        </span>
+                      ) : (
+                        <span className="price">
+                          {formatMoney(row.product.our_price, row.product.currency)}
+                        </span>
+                      )}
+                    </td>
                     <td className="nowrap muted small">{row.bestCompetitorName ?? '—'}</td>
                     <td className="num price">{formatMoney(row.bestCompetitorPrice, row.product.currency)}</td>
                     <td className="num price">
@@ -285,7 +332,10 @@ export function ComparisonPage() {
                     </td>
                     <td className="num">{formatPct(row.deltaPct)}</td>
                     <td>
-                      <PositionBadge position={row.position} />
+                      <PositionBadge
+                        position={row.position}
+                        reason={row.ourPriceMissing ? 'awaiting-our-price' : 'no-competitor-price'}
+                      />
                     </td>
                     <td className="nowrap">
                       <span className="badge badge--neutral" title={`${row.matchStatus.confirmed} confirmed match(es)`}>
@@ -355,12 +405,19 @@ function ProductDrawer({ row, onClose }: { row: ComparisonRow; onClose: () => vo
 
         <div className="drawer__body">
           <div className="stat-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <Stat label="Our price" value={formatMoney(row.product.our_price, row.product.currency)} tone="accent" />
+            <Stat
+              label="Our price"
+              value={row.product.our_price == null ? 'Not loaded' : formatMoney(row.product.our_price, row.product.currency)}
+              meta={row.product.our_price == null ? 'Awaiting a price file' : undefined}
+              tone="accent"
+              icon="£"
+            />
             <Stat
               label="Best competitor"
               value={formatMoney(row.bestCompetitorPrice, row.product.currency)}
               meta={row.bestCompetitorName ?? 'No competitor price'}
-              tone={row.position ?? undefined}
+              tone={row.position ?? 'teal'}
+              icon="◎"
             />
           </div>
 

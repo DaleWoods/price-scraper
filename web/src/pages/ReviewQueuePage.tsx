@@ -111,7 +111,8 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
                           {match.product_name}
                         </div>
                         <div className="cell-secondary mono">
-                          {match.internal_sku} · {formatMoney(match.our_price, match.currency)}
+                          {match.internal_sku} ·{' '}
+                          {match.our_price == null ? 'no price yet' : formatMoney(match.our_price, match.currency)}
                         </div>
                       </td>
                       <td>

@@ -12,24 +12,64 @@ const POSITION_COPY: Record<PricePosition, string> = {
   higher: 'They are cheaper',
 };
 
+/** A glyph as well as a colour — position never depends on hue alone. */
+const POSITION_GLYPH: Record<PricePosition, string> = {
+  lower: '▼',
+  equal: '=',
+  higher: '▲',
+};
+
 export function PositionBadge({
   position,
   compact = false,
+  reason = 'no-competitor-price',
 }: {
   position: PricePosition | null;
   compact?: boolean;
+  /** Why there is no position — two very different causes that must read differently. */
+  reason?: 'no-competitor-price' | 'awaiting-our-price';
 }) {
   if (!position) {
-    return (
+    return reason === 'awaiting-our-price' ? (
+      <span className="badge badge--warn" title="Imported, but no price of ours has been loaded yet">
+        <span className="badge__glyph" aria-hidden>
+          ⏳
+        </span>
+        No price yet
+      </span>
+    ) : (
       <span className="badge badge--neutral" title="No competitor price recorded yet">
-        No data
+        Not matched
       </span>
     );
   }
+
   return (
     <span className={`badge badge--${position}`} title={POSITION_COPY[position]}>
-      <span className="badge__dot" />
+      <span className="badge__glyph" aria-hidden>
+        {POSITION_GLYPH[position]}
+      </span>
       {compact ? position : POSITION_COPY[position]}
+    </span>
+  );
+}
+
+/**
+ * A stable colour per brand so the eye can group rows without reading them.
+ * Derived from the name rather than assigned by position, so filtering the table
+ * never repaints a brand.
+ */
+const BRAND_HUES = [265, 200, 158, 32, 340, 12, 190, 95];
+
+export function BrandChip({ brand }: { brand: string }) {
+  let hash = 0;
+  for (let i = 0; i < brand.length; i += 1) hash = (hash * 31 + brand.charCodeAt(i)) >>> 0;
+  const hue = BRAND_HUES[hash % BRAND_HUES.length] ?? 265;
+
+  return (
+    <span className="brand-chip">
+      <span className="brand-chip__dot" style={{ background: `hsl(${hue} 62% 52%)` }} aria-hidden />
+      {brand}
     </span>
   );
 }
@@ -80,13 +120,16 @@ export function Stat({
   value,
   meta,
   tone,
+  icon,
   active,
   onClick,
 }: {
   label: string;
   value: ReactNode;
   meta?: ReactNode;
-  tone?: 'lower' | 'equal' | 'higher' | 'accent';
+  tone?: 'lower' | 'equal' | 'higher' | 'accent' | 'teal' | 'info';
+  /** Paired with the label so a tinted tile never carries meaning by colour alone. */
+  icon?: ReactNode;
   active?: boolean;
   onClick?: () => void;
 }) {
@@ -101,7 +144,14 @@ export function Stat({
 
   const content = (
     <>
-      <div className="stat__label">{label}</div>
+      <div className="stat__head">
+        {icon && (
+          <span className="stat__icon" aria-hidden>
+            {icon}
+          </span>
+        )}
+        <span className="stat__label">{label}</span>
+      </div>
       <div className="stat__value">{value}</div>
       {meta && <div className="stat__meta">{meta}</div>}
     </>
@@ -109,7 +159,7 @@ export function Stat({
 
   if (!onClick) return <div className={className}>{content}</div>;
   return (
-    <button type="button" className={className} onClick={onClick} style={{ textAlign: 'left' }}>
+    <button type="button" className={className} onClick={onClick} aria-pressed={Boolean(active)}>
       {content}
     </button>
   );

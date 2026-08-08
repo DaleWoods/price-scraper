@@ -2,8 +2,8 @@ import { useRef, useState, type DragEvent } from 'react';
 import { api, ApiError, type ImportResult } from '../api';
 import { Alert, Card, Stat, useToast } from '../components/ui';
 
-const REQUIRED_COLUMNS = ['internal_sku', 'brand', 'product_name', 'our_price'];
-const OPTIONAL_COLUMNS = ['ean_mpn', 'currency', 'category', 'our_product_url'];
+const REQUIRED_COLUMNS = ['SKU', 'product name', 'brand (or a category column)'];
+const OPTIONAL_COLUMNS = ['EAN / MPN', 'price', 'currency', 'categories', 'product URL'];
 
 export function ImportPage() {
   const toast = useToast();
@@ -44,7 +44,8 @@ export function ImportPage() {
       <p className="page__intro">
         Upload the single master-catalogue export from SAP Commerce. There is no per-website split —
         one export covers Goldsmiths, Mappin &amp; Webb and Watches of Switzerland together. Existing
-        SKUs are updated rather than duplicated.
+        SKUs are updated rather than duplicated, and prices already loaded are never overwritten by a
+        content-only export.
       </p>
 
       <Card title="Upload export" subtitle="CSV or Excel (.xlsx), up to 25 MB">
@@ -56,17 +57,9 @@ export function ImportPage() {
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           onClick={() => inputRef.current?.click()}
-          style={{
-            border: `2px dashed ${dragging ? 'var(--brass-500)' : 'var(--border-strong)'}`,
-            background: dragging ? 'var(--brass-100)' : 'var(--surface-sunken)',
-            borderRadius: 'var(--radius)',
-            padding: 'var(--sp-10)',
-            textAlign: 'center',
-            cursor: 'pointer',
-            transition: 'all 160ms var(--ease)',
-          }}
+          className={`dropzone${dragging ? ' dropzone--active' : ''}`}
         >
-          <div style={{ fontSize: 28, opacity: 0.5, marginBottom: 'var(--sp-3)' }}>↑</div>
+          <div style={{ fontSize: 34, marginBottom: 'var(--sp-2)' }}>📥</div>
           <div style={{ fontWeight: 620, color: 'var(--text-strong)' }}>
             {file ? file.name : 'Drop your catalogue export here'}
           </div>
@@ -119,6 +112,17 @@ export function ImportPage() {
             export to a fixed list; the extra attributes are what make matching reliable when a
             competitor does not publish an EAN.
           </p>
+          <p className="small muted" style={{ marginTop: 'var(--sp-2)' }}>
+            The import adapts to a raw SAP loadsheet: the brand is derived from the category path when
+            there is no brand column, a populated MPN wins over an empty EAN column, the page title is
+            preferred over a collection name that repeats across variants, and size and metal are read
+            out of the title. Site-configuration flags and marketing copy are skipped.
+          </p>
+          <p className="small muted" style={{ marginTop: 'var(--sp-2)' }}>
+            <strong>Price is optional.</strong> The catalogue export carries product content; prices
+            arrive as their own file keyed on SKU. Products without one import as fully matchable
+            records and show as “no price yet” until a price file lands.
+          </p>
         </div>
       </Card>
 
@@ -131,16 +135,50 @@ export function ImportPage() {
       {result && (
         <>
           <div className="stat-grid">
-            <Stat label="Rows read" value={result.totalRows} tone="accent" />
-            <Stat label="Created" value={result.created} tone="lower" />
-            <Stat label="Updated" value={result.updated} />
+            <Stat label="Rows read" value={result.totalRows} tone="accent" icon="◆" />
+            <Stat label="Created" value={result.created} tone="lower" icon="+" />
+            <Stat label="Updated" value={result.updated} tone="teal" icon="↻" />
             <Stat
               label="Failed"
               value={result.failed}
-              tone={result.failed > 0 ? 'higher' : undefined}
+              tone={result.failed > 0 ? 'higher' : 'equal'}
+              icon={result.failed > 0 ? '▲' : '✓'}
               meta={result.failed > 0 ? 'Listed below' : 'All rows valid'}
             />
           </div>
+
+          {!result.priceColumnFound && (
+            <Alert tone="info" title="No price column in this file">
+              {result.awaitingPrice} product(s) now have no price of ours. Matching, discovery and
+              competitor scraping all work without it — the comparison shows “no price yet” until a
+              price file keyed on SKU is loaded.
+            </Alert>
+          )}
+
+          <Card title="How your columns were mapped" subtitle="What the importer decided, so nothing is a surprise">
+            <div className="spec-grid">
+              {Object.entries(result.columnMapping).map(([field, column]) => (
+                <div className="spec" key={field}>
+                  <div className="spec__key">{field.replace(/_/g, ' ')}</div>
+                  <div className="spec__value">{column}</div>
+                </div>
+              ))}
+            </div>
+            {result.ignoredColumns.length > 0 && (
+              <details style={{ marginTop: 'var(--sp-4)' }}>
+                <summary className="small muted" style={{ cursor: 'pointer' }}>
+                  {result.ignoredColumns.length} column(s) skipped — show why
+                </summary>
+                <ul className="small muted" style={{ marginTop: 'var(--sp-2)', paddingLeft: 'var(--sp-5)' }}>
+                  {result.ignoredColumns.map((entry) => (
+                    <li key={entry.column}>
+                      <span className="mono">{entry.column}</span> — {entry.reason}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </Card>
 
           {result.duplicateSkusCollapsed > 0 && (
             <Alert tone="warn" title="Duplicate SKUs in the file">

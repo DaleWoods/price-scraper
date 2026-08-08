@@ -58,6 +58,19 @@ export const JEWELLERY_RULES: CategoryRules = {
   ignore: ['adjustable_length', 'packaging'],
 };
 
+/**
+ * Watch winders, cufflinks, straps, care kits and gift lines. These are ordinary
+ * manufactured goods rather than jewellery: the model name does the work, and
+ * finish or colour is a variant rather than a different product.
+ */
+export const ACCESSORY_RULES: CategoryRules = {
+  categoryKeywords: ['winder', 'accessor', 'cufflink', 'strap', 'gift', 'care kit'],
+  gate: ['brand', 'product_type'],
+  high: ['model', 'collection', 'capacity'],
+  medium: ['material', 'colour', 'dimensions'],
+  ignore: ['packaging', 'gift_wrap', 'engraving', 'warranty'],
+};
+
 /** Fallback when the category is missing or unrecognised — brand gates, name carries. */
 export const DEFAULT_RULES: CategoryRules = {
   categoryKeywords: [],
@@ -67,7 +80,12 @@ export const DEFAULT_RULES: CategoryRules = {
   ignore: ['packaging'],
 };
 
-const ALL_RULES = [WATCH_RULES, RING_RULES, JEWELLERY_RULES];
+/**
+ * Order matters: the first rulebook whose keyword appears in the category wins.
+ * Accessories lead so "watch winders" is not captured by the watch rules, whose
+ * case-size and dial-colour attributes mean nothing for a winder.
+ */
+const ALL_RULES = [ACCESSORY_RULES, WATCH_RULES, RING_RULES, JEWELLERY_RULES];
 
 export function rulesForCategory(category: string | null | undefined): CategoryRules {
   if (!category) return DEFAULT_RULES;
@@ -114,6 +132,13 @@ const COLOUR_SYNONYMS: Record<string, string> = {
 };
 
 const MATERIAL_SYNONYMS: Array<[RegExp, string]> = [
+  // Marque-specific metal names, matched before the generic patterns. Rolex calls
+  // its steel "Oystersteel" and its rose gold "Everose"; competitors describe the
+  // same metal generically, so both sides must normalise to the same value or
+  // every case_material comparison misses.
+  [/\boystersteel\b/i, 'steel'],
+  [/\beverose\s*gold\b/i, 'rose gold'],
+  [/\bcerachrom\b/i, 'ceramic'],
   [/\b(stainless\s*steel|steel)\b/i, 'steel'],
   [/\btwo[\s-]?tone\b/i, 'two-tone'],
   [/\b(18\s*ct|18k|18\s*carat)\s*(yellow)\s*gold\b/i, '18ct yellow gold'],
