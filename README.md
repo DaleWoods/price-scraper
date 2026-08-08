@@ -353,12 +353,16 @@ back to `/favicon.ico`. A competitor definition may also pin an explicit
 
 ### Uploading a logo by hand
 
-**Click any competitor's badge** on the Competitors page to upload an image, or
+**Click any competitor's badge** in the Competitors table to upload an image, or
 drop one onto it. This is the path that needs no outbound network access at all
 — useful when egress to the competitor domains is blocked, and when a retailer's
 favicon is a poor 16px thing you would rather replace with a proper wordmark.
-PNG, SVG, JPEG, WebP, GIF and ICO are accepted, up to 2MB. **Remove** puts the
-monogram back.
+PNG, SVG, JPEG, WebP, GIF and ICO are accepted, up to 2MB.
+
+Replacing a logo is just another upload over the same badge. **Removing** one
+lives in the **Logo administration** card below the table, which lists only the
+competitors that actually have a logo — so the listing itself stays a listing,
+with no per-row buttons for an action that is rarely wanted.
 
 Uploads are identified by their bytes, never by the declared MIME type or the
 file extension, so a mislabelled or renamed file is refused rather than stored

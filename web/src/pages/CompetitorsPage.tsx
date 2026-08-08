@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type Competitor } from '../api';
 import { Alert, Card, TableSkeleton, useToast } from '../components/ui';
 import { CompetitorLogoUpload } from '../components/CompetitorLogoUpload';
+import { LogoAdminCard } from '../components/LogoAdminCard';
 
 export function CompetitorsPage() {
   const toast = useToast();
@@ -187,6 +188,8 @@ export function CompetitorsPage() {
           </div>
         )}
       </Card>
+
+      <LogoAdminCard competitors={competitors} onChange={load} />
 
       <Card
         title="Test a product URL"

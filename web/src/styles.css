@@ -1085,6 +1085,11 @@ code {
   align-items: center;
   gap: var(--sp-2);
   min-width: 0;
+  /* An inline-flex box takes its baseline from its first child, so a row whose
+     mark is an <img> would sit differently from one showing a text monogram —
+     which showed up as rows changing height once a logo was uploaded. Aligning
+     to the middle makes the box's position independent of what is inside it. */
+  vertical-align: middle;
 }
 
 .clogo-label > span:last-child {
@@ -1094,16 +1099,9 @@ code {
 }
 
 /* Logo as an upload control: the picture is the button. */
-/* A flex column, so the button contributes no inline baseline space — that gap
-   varies with content and made rows with a logo taller than rows without. */
-.clogo-upload {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
 .clogo-drop {
   position: relative;
+  vertical-align: middle;
   display: inline-flex;
   padding: 0;
   border: 0;
@@ -1132,30 +1130,27 @@ code {
   outline: none;
 }
 
-.clogo-actions {
-  display: flex;
-  gap: var(--sp-2);
-  align-items: center;
-  justify-content: center;
-  margin-top: 2px;
-  /* A fixed height, not a minimum: the space is reserved whether or not the
-     Remove button is present, so a row does not grow when a logo is added. */
-  height: 16px;
-}
+/* ---- Logo administration ---------------------------------------------- */
 
-.clogo-link {
-  border: 0;
-  background: none;
+.logo-admin {
+  list-style: none;
+  margin: 0 0 var(--sp-4);
   padding: 0;
-  font: inherit;
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--muted);
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  display: grid;
+  gap: var(--sp-2);
 }
 
-.clogo-link:hover {
-  color: var(--danger);
+.logo-admin__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.logo-admin__name {
+  flex: 1 1 auto;
+  min-width: 0;
 }
