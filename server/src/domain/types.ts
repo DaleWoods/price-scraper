@@ -67,6 +67,13 @@ export interface Competitor {
   enabled: boolean;
   scrape_frequency: string;
   config: CompetitorConfig;
+  /** Where the cached logo came from; null until one has been fetched. */
+  logo_url: string | null;
+  logo_fetched_at: string | null;
+  logo_error: string | null;
+  /** Whether bytes are cached. The bytes themselves are served by their own
+   *  endpoint rather than inlined into every competitor payload. */
+  has_logo: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -135,6 +142,8 @@ export interface ComparisonRow {
   competitorPrices: {
     competitorId: number;
     competitorName: string;
+    competitorSlug: string;
+    competitorHasLogo: boolean;
     price: number | null;
     wasPrice: number | null;
     promo: boolean;

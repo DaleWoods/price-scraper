@@ -1058,3 +1058,37 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---- Competitor logos ------------------------------------------------- */
+
+.clogo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  object-fit: contain;
+  /* Competitor favicons are often white-on-transparent, which vanishes on a
+     light card; the plate keeps every mark legible whatever it contains. */
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--border), var(--shadow-xs);
+}
+
+.clogo--monogram {
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: var(--shadow-xs);
+}
+
+.clogo-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.clogo-label > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -24,6 +24,8 @@ interface LatestObservationRow {
   product_id: number;
   competitor_id: number;
   competitor_name: string;
+  competitor_slug: string;
+  competitor_has_logo: boolean;
   price: number | null;
   was_price: number | null;
   promo: boolean;
@@ -104,6 +106,7 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
   const { rows: observations } = await query<LatestObservationRow>(
     `SELECT DISTINCT ON (o.product_id, o.competitor_id)
             o.product_id, o.competitor_id, c.display_name AS competitor_name,
+            c.slug AS competitor_slug, (c.logo_data IS NOT NULL) AS competitor_has_logo,
             o.price, o.was_price, o.promo, o.in_stock, o.source_url, o.observed_at
      FROM price_observations o
      JOIN competitors c ON c.id = o.competitor_id
@@ -153,6 +156,8 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
       return {
         competitorId: observation.competitor_id,
         competitorName: observation.competitor_name,
+        competitorSlug: observation.competitor_slug,
+        competitorHasLogo: observation.competitor_has_logo,
         price: observation.price,
         wasPrice: observation.was_price,
         promo: observation.promo,
@@ -242,8 +247,9 @@ function round2(value: number): number {
 /** Observation history for one product, for the drill-in panel. */
 export async function getProductHistory(productId: number, limit = 200) {
   const { rows } = await query(
-    `SELECT o.id, o.competitor_id, c.display_name AS competitor_name, o.price, o.was_price,
-            o.promo, o.in_stock, o.source_url, o.observed_at
+    `SELECT o.id, o.competitor_id, c.display_name AS competitor_name, c.slug AS competitor_slug,
+            (c.logo_data IS NOT NULL) AS competitor_has_logo,
+            o.price, o.was_price, o.promo, o.in_stock, o.source_url, o.observed_at
      FROM price_observations o
      JOIN competitors c ON c.id = o.competitor_id
      WHERE o.product_id = $1

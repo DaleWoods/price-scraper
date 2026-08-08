@@ -17,6 +17,8 @@ export type PricePosition = 'lower' | 'equal' | 'higher';
 export interface CompetitorPrice {
   competitorId: number;
   competitorName: string;
+  competitorSlug: string;
+  competitorHasLogo: boolean;
   price: number | null;
   wasPrice: number | null;
   promo: boolean;
@@ -98,6 +100,19 @@ export interface Competitor {
   brands: string[];
   enabled: boolean;
   scrape_frequency: string;
+  has_logo: boolean;
+  logo_url: string | null;
+  logo_fetched_at: string | null;
+  logo_error: string | null;
+}
+
+export interface LogoRefreshResult {
+  slug: string;
+  displayName: string;
+  status: 'fetched' | 'unchanged' | 'failed';
+  source?: string;
+  bytes?: number;
+  error?: string;
 }
 
 export interface ScrapeRun {
@@ -214,7 +229,16 @@ export const api = {
   facets: () => request<{ brands: string[]; categories: string[] }>('/api/products/facets'),
 
   productHistory: (productId: number) =>
-    request<{ observations: (CompetitorPrice & { id: number; competitor_name: string; price: number | null; observed_at: string })[] }>(
+    request<{
+      observations: (CompetitorPrice & {
+        id: number;
+        competitor_name: string;
+        competitor_slug: string;
+        competitor_has_logo: boolean;
+        price: number | null;
+        observed_at: string;
+      })[];
+    }>(
       `/api/products/${productId}/history`,
     ),
 
@@ -223,6 +247,12 @@ export const api = {
     form.append('file', file);
     return request<ImportResult>('/api/products/import', { method: 'POST', body: form });
   },
+
+  refreshLogos: (force = false) =>
+    request<{ results: LogoRefreshResult[]; fetched: number; failed: number; unchanged: number }>(
+      `/api/competitors/refresh-logos${force ? '?force=1' : ''}`,
+      { method: 'POST' },
+    ),
 
   importPrices: (file: File) => {
     const form = new FormData();

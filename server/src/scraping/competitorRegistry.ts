@@ -60,6 +60,8 @@ export const competitorFileSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/, 'slug must be lowercase, hyphenated'),
   displayName: z.string().min(1),
   baseUrl: z.string().url(),
+  /** Optional explicit logo; when absent the site's own icons are discovered. */
+  logoUrl: z.string().url().optional(),
   searchUrlPattern: z.string().min(1).includes('{query}', {
     message: 'searchUrlPattern must contain the {query} placeholder',
   }),
@@ -113,8 +115,8 @@ export async function syncCompetitorsToDatabase(): Promise<{ slug: string; actio
   for (const definition of definitions) {
     const { rows } = await query<{ existed: boolean }>(
       `INSERT INTO competitors
-         (slug, display_name, base_url, search_url_pattern, brands, enabled, scrape_frequency, config)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (slug, display_name, base_url, search_url_pattern, brands, enabled, scrape_frequency, config, logo_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (slug) DO UPDATE SET
          display_name       = EXCLUDED.display_name,
          base_url           = EXCLUDED.base_url,
@@ -122,6 +124,9 @@ export async function syncCompetitorsToDatabase(): Promise<{ slug: string; actio
          brands             = EXCLUDED.brands,
          scrape_frequency   = EXCLUDED.scrape_frequency,
          config             = EXCLUDED.config,
+         -- Only overwrite the logo source when the definition names one, so a
+         -- discovered icon is not wiped out by a routine re-sync.
+         logo_url           = COALESCE(EXCLUDED.logo_url, competitors.logo_url),
          updated_at         = now()
        RETURNING (xmax <> 0) AS existed`,
       [
@@ -133,6 +138,7 @@ export async function syncCompetitorsToDatabase(): Promise<{ slug: string; actio
         definition.enabled,
         definition.scrapeFrequency,
         JSON.stringify(definition.config),
+        definition.logoUrl ?? null,
       ],
     );
 
@@ -142,20 +148,38 @@ export async function syncCompetitorsToDatabase(): Promise<{ slug: string; actio
   return results;
 }
 
+/**
+ * Every competitor column except `logo_data`, plus a `has_logo` flag.
+ *
+ * Deliberately not `SELECT *`: the logo bytes would otherwise be base64'd into
+ * every competitor list response, for pictures the client fetches separately
+ * and caches anyway.
+ */
+const COMPETITOR_COLUMNS = `id, slug, display_name, base_url, search_url_pattern, brands,
+  enabled, scrape_frequency, config, logo_url, logo_fetched_at, logo_error,
+  (logo_data IS NOT NULL) AS has_logo, created_at, updated_at`;
+
 export async function listCompetitors(onlyEnabled = false): Promise<Competitor[]> {
   const { rows } = await query<Competitor>(
-    `SELECT * FROM competitors ${onlyEnabled ? 'WHERE enabled = TRUE' : ''} ORDER BY display_name`,
+    `SELECT ${COMPETITOR_COLUMNS} FROM competitors ${onlyEnabled ? 'WHERE enabled = TRUE' : ''}
+     ORDER BY display_name`,
   );
   return rows;
 }
 
 export async function getCompetitorBySlug(slug: string): Promise<Competitor | null> {
-  const { rows } = await query<Competitor>('SELECT * FROM competitors WHERE slug = $1', [slug]);
+  const { rows } = await query<Competitor>(
+    `SELECT ${COMPETITOR_COLUMNS} FROM competitors WHERE slug = $1`,
+    [slug],
+  );
   return rows[0] ?? null;
 }
 
 export async function getCompetitorById(id: number): Promise<Competitor | null> {
-  const { rows } = await query<Competitor>('SELECT * FROM competitors WHERE id = $1', [id]);
+  const { rows } = await query<Competitor>(
+    `SELECT ${COMPETITOR_COLUMNS} FROM competitors WHERE id = $1`,
+    [id],
+  );
   return rows[0] ?? null;
 }
 

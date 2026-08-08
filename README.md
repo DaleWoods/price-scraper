@@ -318,6 +318,8 @@ in the UI for per-target outcomes.
 | `GET` | `/api/health` | Database connectivity and auth state |
 | `POST` | `/api/products/import` | Upload a catalogue export (multipart `file`) |
 | `POST` | `/api/products/import-prices` | Upload a price file, joined on SKU (multipart `file`) |
+| `GET` | `/api/competitors/:slug/logo` | Cached competitor logo; 404 when none is stored |
+| `POST` | `/api/competitors/refresh-logos` | Fetch missing logos (`?force=1` re-fetches all) |
 | `GET` | `/api/products/:id/history` | Observation history for one product |
 | `GET` | `/api/comparison` | Comparison view; filter by brand, category, competitor, position, search |
 | `GET` | `/api/comparison/export.csv` | CSV export of the current view |
@@ -330,3 +332,24 @@ in the UI for per-target outcomes.
 | `POST` | `/api/runs` | Trigger a run (`mode`: `prices` \| `discover` \| `both`) |
 | `GET` | `/api/runs` \| `/api/runs/:id` | Run history and per-target detail |
 | `GET` | `/api/runs/errors/recent` | Recent scrape failures across all runs |
+
+## Competitor logos
+
+Each competitor is shown with its mark next to its name. Until a logo has been
+fetched — and permanently, for any retailer whose site offers no usable icon —
+a **monogram badge** stands in: initials on a colour derived from the slug, so
+the mark is stable and each competitor is distinguishable at a glance. The
+palette is restricted to 190°–330° (teals through violet) to stay clear of the
+red/green this app uses to mean dearer/cheaper; a logo must never read as a
+price signal.
+
+Press **Fetch logos** on the Competitors page to populate real logos. This
+reads each site's `<link rel="icon">` declarations (preferring
+`apple-touch-icon`, which is required to be a decent-sized square) and falls
+back to `/favicon.ico`. A competitor definition may also pin an explicit
+`logoUrl`.
+
+The bytes are cached in our own database and served from our own origin rather
+than hotlinked. Besides keeping the dashboard working without egress, this
+matters for a tool whose purpose is watching these retailers: hotlinking their
+favicons would send them a request every time you opened the page.

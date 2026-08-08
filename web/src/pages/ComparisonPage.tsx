@@ -20,6 +20,7 @@ import {
   TableSkeleton,
   useToast,
 } from '../components/ui';
+import { CompetitorLabel } from '../components/CompetitorLogo';
 
 type PositionFilter = PricePosition | 'unmatched' | 'awaiting_price' | '';
 
@@ -366,7 +367,16 @@ export function ComparisonPage() {
 }
 
 function ProductDrawer({ row, onClose }: { row: ComparisonRow; onClose: () => void }) {
-  const [history, setHistory] = useState<{ id: number; competitor_name: string; price: number | null; observed_at: string }[]>([]);
+  const [history, setHistory] = useState<
+    {
+      id: number;
+      competitor_name: string;
+      competitor_slug: string;
+      competitor_has_logo: boolean;
+      price: number | null;
+      observed_at: string;
+    }[]
+  >([]);
 
   useEffect(() => {
     void api
@@ -443,7 +453,12 @@ function ProductDrawer({ row, onClose }: { row: ComparisonRow; onClose: () => vo
                     {row.competitorPrices.map((entry) => (
                       <tr key={entry.competitorId}>
                         <td>
-                          <div className="cell-primary">{entry.competitorName}</div>
+                          <CompetitorLabel
+                            slug={entry.competitorSlug}
+                            displayName={entry.competitorName}
+                            hasLogo={entry.competitorHasLogo}
+                            className="cell-primary"
+                          />
                           <div className="cell-secondary">{formatDateTime(entry.observedAt)}</div>
                         </td>
                         <td className="num">
@@ -513,7 +528,14 @@ function ProductDrawer({ row, onClose }: { row: ComparisonRow; onClose: () => vo
                     {history.slice(0, 40).map((observation) => (
                       <tr key={observation.id}>
                         <td className="xs muted nowrap">{formatDateTime(observation.observed_at)}</td>
-                        <td className="small">{observation.competitor_name}</td>
+                        <td className="small">
+                          <CompetitorLabel
+                            slug={observation.competitor_slug}
+                            displayName={observation.competitor_name}
+                            hasLogo={observation.competitor_has_logo}
+                            size="sm"
+                          />
+                        </td>
                         <td className="num price">
                           {formatMoney(observation.price, row.product.currency)}
                         </td>

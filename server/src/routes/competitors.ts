@@ -10,6 +10,7 @@ import { extractListing } from '../scraping/extract.js';
 import { fetchPage } from '../scraping/fetcher.js';
 import { checkRobots } from '../scraping/robots.js';
 import { env } from '../config/env.js';
+import { refreshAllLogos } from '../competitors/logos.js';
 
 export const competitorsRouter: Router = Router();
 
@@ -18,6 +19,50 @@ competitorsRouter.get('/', async (_req, res, next) => {
     res.json({ competitors: await listCompetitors() });
   } catch (err) {
     next(err);
+  }
+});
+
+/**
+ * Serve a cached competitor logo from our own origin.
+ *
+ * A 404 here is a normal outcome, not an error: the UI falls back to a
+ * monogram badge, so a competitor with no reachable favicon still gets a mark
+ * next to its name.
+ */
+competitorsRouter.get('/:slug/logo', async (req, res, next) => {
+  try {
+    const { rows } = await query<{ logo_data: Buffer | null; logo_content_type: string | null }>(
+      'SELECT logo_data, logo_content_type FROM competitors WHERE slug = $1',
+      [req.params.slug],
+    );
+    const logo = rows[0];
+    if (!logo?.logo_data) {
+      res.status(404).json({ error: 'No logo cached for this competitor.' });
+      return;
+    }
+    res.setHeader('Content-Type', logo.logo_content_type ?? 'image/x-icon');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(logo.logo_data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Fetch logos for competitors that do not have one yet (`?force=1` re-fetches
+ * all). Requires egress to the competitor domains.
+ */
+competitorsRouter.post('/refresh-logos', async (req, res) => {
+  try {
+    const results = await refreshAllLogos(req.query.force === '1');
+    res.json({
+      results,
+      fetched: results.filter((r) => r.status === 'fetched').length,
+      failed: results.filter((r) => r.status === 'failed').length,
+      unchanged: results.filter((r) => r.status === 'unchanged').length,
+    });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
   }
 });
 
