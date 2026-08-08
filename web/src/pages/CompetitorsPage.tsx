@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type Competitor } from '../api';
 import { Alert, Card, TableSkeleton, useToast } from '../components/ui';
 import { CompetitorLogoUpload } from '../components/CompetitorLogoUpload';
-import { LogoAdminCard } from '../components/LogoAdminCard';
 
 export function CompetitorsPage() {
   const toast = useToast();
@@ -46,36 +45,6 @@ export function CompetitorsPage() {
     }
   };
 
-  const [logoBusy, setLogoBusy] = useState(false);
-
-  /**
-   * Logos are cached locally rather than hotlinked, so this needs egress to the
-   * competitor domains. Where that is blocked the monogram badges stay, which is
-   * a working state rather than a broken one — so a failure is reported as
-   * information, not as an error.
-   */
-  const fetchLogos = async () => {
-    setLogoBusy(true);
-    try {
-      const result = await api.refreshLogos();
-      await load();
-      if (result.fetched > 0) {
-        toast(`Fetched ${result.fetched} logo(s).`, 'ok');
-      } else {
-        toast(
-          result.failed > 0
-            ? `No logos reachable (${result.failed} failed) — monogram badges kept.`
-            : 'All logos already cached.',
-          result.failed > 0 ? 'info' : 'ok',
-        );
-      }
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'Logo fetch failed', 'error');
-    } finally {
-      setLogoBusy(false);
-    }
-  };
-
   const sync = async () => {
     try {
       const response = await api.syncCompetitors();
@@ -113,20 +82,9 @@ export function CompetitorsPage() {
         title="Configured competitors"
         subtitle="Loaded from the competitors directory"
         actions={
-          <>
-            <button
-              type="button"
-              className="btn btn--sm"
-              onClick={fetchLogos}
-              disabled={logoBusy}
-              title="Download each competitor's icon and cache it locally"
-            >
-              {logoBusy ? 'Fetching logos…' : 'Fetch logos'}
-            </button>
-            <button type="button" className="btn btn--sm" onClick={sync}>
-              Re-sync from config
-            </button>
-          </>
+          <button type="button" className="btn btn--sm" onClick={sync}>
+            Re-sync from config
+          </button>
         }
         bodyless
       >
@@ -188,8 +146,6 @@ export function CompetitorsPage() {
           </div>
         )}
       </Card>
-
-      <LogoAdminCard competitors={competitors} onChange={load} />
 
       <Card
         title="Test a product URL"

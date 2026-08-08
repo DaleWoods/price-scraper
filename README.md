@@ -318,6 +318,7 @@ in the UI for per-target outcomes.
 | `GET` | `/api/health` | Database connectivity and auth state |
 | `POST` | `/api/products/import` | Upload a catalogue export (multipart `file`) |
 | `POST` | `/api/products/import-prices` | Upload a price file, joined on SKU (multipart `file`) |
+| `GET` | `/api/admin/status` | Read-only counts and timestamps for the Admin page |
 | `GET` | `/api/competitors/:slug/logo` | Cached competitor logo; 404 when none is stored |
 | `POST` | `/api/competitors/refresh-logos` | Fetch missing logos (`?force=1` re-fetches all) |
 | `POST` | `/api/competitors/:slug/logo` | Upload a logo by hand (multipart `file`) |
@@ -353,16 +354,17 @@ back to `/favicon.ico`. A competitor definition may also pin an explicit
 
 ### Uploading a logo by hand
 
-**Click any competitor's badge** in the Competitors table to upload an image, or
-drop one onto it. This is the path that needs no outbound network access at all
+Logos are managed on the **Admin** page (Configure → Admin), which lists every
+competitor with its current mark. **Click a badge** there — or on the
+Competitors table, which keeps the same quick upload — to set one, or drop an
+image onto it. This is the path that needs no outbound network access at all
 — useful when egress to the competitor domains is blocked, and when a retailer's
 favicon is a poor 16px thing you would rather replace with a proper wordmark.
 PNG, SVG, JPEG, WebP, GIF and ICO are accepted, up to 2MB.
 
-Replacing a logo is just another upload over the same badge. **Removing** one
-lives in the **Logo administration** card below the table, which lists only the
-competitors that actually have a logo — so the listing itself stays a listing,
-with no per-row buttons for an action that is rarely wanted.
+Replacing a logo is just another upload over the same badge; **Remove** appears
+on Admin beside any competitor that has one. The Competitors table deliberately
+carries no Remove buttons — it stays a listing rather than a control panel.
 
 Uploads are identified by their bytes, never by the declared MIME type or the
 file extension, so a mislabelled or renamed file is refused rather than stored
@@ -374,3 +376,19 @@ The bytes are cached in our own database and served from our own origin rather
 than hotlinked. Besides keeping the dashboard working without egress, this
 matters for a tool whose purpose is watching these retailers: hotlinking their
 favicons would send them a request every time you opened the page.
+
+## Admin
+
+**Configure → Admin** is where setup and housekeeping live, separate from the
+monitoring pages. Nothing on it runs a scrape or changes a price.
+
+- **System status** — a read-only picture of what is actually in the database:
+  catalogue and pricing counts, how many products have a confirmed match, how
+  many observations exist and when the last one was taken, scrape run history,
+  and which migrations have been applied. Useful for answering "is the data what
+  I think it is" before trusting a comparison.
+- **Competitor logos** — upload, replace or remove a logo for any competitor,
+  and fetch them from the retailers' own sites.
+
+This page is intended to grow; new administrative tooling belongs here rather
+than bolted onto the monitoring pages.

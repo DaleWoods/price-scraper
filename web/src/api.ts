@@ -106,6 +106,21 @@ export interface Competitor {
   logo_error: string | null;
 }
 
+export interface SystemStatus {
+  catalogue: {
+    products: number;
+    withPrice: number;
+    awaitingPrice: number;
+    brands: number;
+    lastImportedAt: string | null;
+  };
+  competitors: { total: number; enabled: number; withLogo: number };
+  matching: { confirmed: number; pending: number; rejected: number; productsMatched: number };
+  observations: { total: number; lastObservedAt: string | null };
+  runs: { total: number; lastRunAt: string | null; lastRunStatus: string | null };
+  schema: { migrations: string[]; appliedAt: string | null };
+}
+
 export interface LogoRefreshResult {
   slug: string;
   displayName: string;
@@ -247,6 +262,8 @@ export const api = {
     form.append('file', file);
     return request<ImportResult>('/api/products/import', { method: 'POST', body: form });
   },
+
+  systemStatus: () => request<SystemStatus>('/api/admin/status'),
 
   uploadLogo: (slug: string, file: File) => {
     const form = new FormData();

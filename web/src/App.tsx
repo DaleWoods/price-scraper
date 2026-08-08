@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { api, ApiError } from './api';
 import { Alert } from './components/ui';
 import { ComparisonPage } from './pages/ComparisonPage';
+import { AdminPage } from './pages/AdminPage';
 import { CompetitorsPage } from './pages/CompetitorsPage';
 import { ImportPage } from './pages/ImportPage';
 import { LoginPage } from './pages/LoginPage';
@@ -22,6 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/runs', label: 'Scrape runs', icon: '🔄', section: 'Monitor' },
   { to: '/import', label: 'Import catalogue', icon: '📥', section: 'Configure' },
   { to: '/competitors', label: 'Competitors', icon: '🏬', section: 'Configure' },
+  { to: '/admin', label: 'Admin', icon: '⚙️', section: 'Configure' },
 ];
 
 const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
@@ -30,6 +32,7 @@ const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
   '/runs': { eyebrow: 'Monitor', title: 'Scrape runs' },
   '/import': { eyebrow: 'Configure', title: 'Import catalogue' },
   '/competitors': { eyebrow: 'Configure', title: 'Competitors' },
+  '/admin': { eyebrow: 'Configure', title: 'Admin' },
 };
 
 export function App() {
@@ -166,6 +169,7 @@ export function App() {
           <Route path="/runs" element={<RunsPage />} />
           <Route path="/import" element={<ImportPage />} />
           <Route path="/competitors" element={<CompetitorsPage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="*" element={<Navigate to="/comparison" replace />} />
         </Routes>
       </div>
