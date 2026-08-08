@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { query } from '../db/pool.js';
 import { importCatalogue } from '../import/catalogueImport.js';
+import { importPrices } from '../import/priceImport.js';
 import { getProductHistory } from '../services/comparison.js';
 
 export const productsRouter: Router = Router();
@@ -73,6 +74,22 @@ productsRouter.post('/import', upload.single('file'), async (req, res) => {
   } catch (err) {
     // Problems in the uploaded file are the user's to fix, not a server fault —
     // report them as 400 with the specific reason.
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Apply a price file, joined on SKU (Spec §5.1 — prices arrive separately from
+ * the product content export). Only updates existing products.
+ */
+productsRouter.post('/import-prices', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded. Attach a .csv or .xlsx price file as "file".' });
+      return;
+    }
+    res.json(await importPrices(req.file.buffer, req.file.originalname));
+  } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
 });

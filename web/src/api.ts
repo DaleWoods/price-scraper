@@ -139,6 +139,18 @@ export interface ImportResult {
   priceColumnFound: boolean;
 }
 
+export interface PriceImportResult {
+  totalRows: number;
+  updated: number;
+  unknownSkus: string[];
+  unknownSkuCount: number;
+  failed: number;
+  errors: { row: number; sku: string | null; error: string }[];
+  duplicateSkusCollapsed: number;
+  columnMapping: { sku: string; price: string; currency: string | null };
+  stillAwaitingPrice: number;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly kind: string | undefined;
@@ -210,6 +222,12 @@ export const api = {
     const form = new FormData();
     form.append('file', file);
     return request<ImportResult>('/api/products/import', { method: 'POST', body: form });
+  },
+
+  importPrices: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<PriceImportResult>('/api/products/import-prices', { method: 'POST', body: form });
   },
 
   matches: (status: string) => request<{ matches: MatchRow[]; total: number }>(`/api/matches${qs({ status })}`),

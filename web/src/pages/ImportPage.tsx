@@ -1,5 +1,5 @@
 import { useRef, useState, type DragEvent } from 'react';
-import { api, ApiError, type ImportResult } from '../api';
+import { api, ApiError, type ImportResult, type PriceImportResult } from '../api';
 import { Alert, Card, Stat, useToast } from '../components/ui';
 
 const REQUIRED_COLUMNS = ['SKU', 'product name', 'brand (or a category column)'];
@@ -132,6 +132,8 @@ export function ImportPage() {
         </Alert>
       )}
 
+      <PriceImportCard />
+
       {result && (
         <>
           <div className="stat-grid">
@@ -226,5 +228,176 @@ export function ImportPage() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Prices arrive as their own file keyed on SKU, on a different cadence from the
+ * content export. This only ever updates existing products — a price for a SKU
+ * that is not in the catalogue is reported rather than turned into a phantom
+ * product with no brand or name.
+ */
+function PriceImportCard() {
+  const toast = useToast();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<PriceImportResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+
+  const upload = async (selected: File) => {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const response = await api.importPrices(selected);
+      setResult(response);
+      toast(`Priced ${response.updated} product(s).`, 'ok');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Price import failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Card title="Load prices" subtitle="A separate file, joined to the catalogue on SKU">
+        <div
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            const dropped = event.dataTransfer.files?.[0];
+            if (dropped) {
+              setFile(dropped);
+              void upload(dropped);
+            }
+          }}
+          onClick={() => inputRef.current?.click()}
+          className={`dropzone${dragging ? ' dropzone--active' : ''}`}
+        >
+          <div style={{ fontSize: 34, marginBottom: 'var(--sp-2)' }}>💷</div>
+          <div style={{ fontWeight: 620, color: 'var(--text-strong)' }}>
+            {file ? file.name : 'Drop your price file here'}
+          </div>
+          <div className="small muted" style={{ marginTop: 4 }}>
+            or click to choose a file
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".csv,.xlsx,.xlsm,.xltx"
+            hidden
+            onChange={(event) => {
+              const selected = event.target.files?.[0];
+              if (selected) {
+                setFile(selected);
+                void upload(selected);
+              }
+            }}
+          />
+        </div>
+
+        {busy && (
+          <div className="row muted" style={{ marginTop: 'var(--sp-4)' }}>
+            <span className="spinner" /> Applying prices…
+          </div>
+        )}
+
+        <p className="small muted" style={{ marginTop: 'var(--sp-4)' }}>
+          Needs a <strong>SKU</strong> column and a <strong>price</strong> column; currency is
+          optional and defaults to what the product already carries. Header names are flexible —
+          SKU / Product Code / Item Code, and Price / Our Price / Retail Price / RRP are all
+          recognised. Only existing products are updated; unknown SKUs are listed back to you rather
+          than created.
+        </p>
+      </Card>
+
+      {error && (
+        <Alert tone="danger" title="Price import failed">
+          {error}
+        </Alert>
+      )}
+
+      {result && (
+        <>
+          <div className="stat-grid">
+            <Stat label="Rows read" value={result.totalRows} tone="accent" icon="◆" />
+            <Stat label="Priced" value={result.updated} tone="lower" icon="£" />
+            <Stat
+              label="Unknown SKUs"
+              value={result.unknownSkuCount}
+              tone={result.unknownSkuCount > 0 ? 'higher' : 'equal'}
+              icon={result.unknownSkuCount > 0 ? '▲' : '✓'}
+              meta={result.unknownSkuCount > 0 ? 'Not in the catalogue' : 'All matched'}
+            />
+            <Stat
+              label="Still awaiting"
+              value={result.stillAwaitingPrice}
+              tone="info"
+              icon="⏳"
+              meta="Products with no price"
+            />
+          </div>
+
+          <Card title="How your columns were read">
+            <div className="spec-grid">
+              <div className="spec">
+                <div className="spec__key">sku</div>
+                <div className="spec__value">{result.columnMapping.sku}</div>
+              </div>
+              <div className="spec">
+                <div className="spec__key">price</div>
+                <div className="spec__value">{result.columnMapping.price}</div>
+              </div>
+              <div className="spec">
+                <div className="spec__key">currency</div>
+                <div className="spec__value">{result.columnMapping.currency ?? 'not supplied'}</div>
+              </div>
+            </div>
+          </Card>
+
+          {result.unknownSkuCount > 0 && (
+            <Alert tone="warn" title={`${result.unknownSkuCount} SKU(s) are not in the catalogue`}>
+              These were priced but no matching product exists — import the catalogue export first,
+              or check the SKUs match.{' '}
+              <span className="mono">{result.unknownSkus.slice(0, 12).join(', ')}</span>
+              {result.unknownSkuCount > 12 ? ' …' : ''}
+            </Alert>
+          )}
+
+          {result.errors.length > 0 && (
+            <Card title="Rows that failed" subtitle="Fix these and re-upload" bodyless>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 90 }}>Row</th>
+                      <th style={{ width: 180 }}>SKU</th>
+                      <th>Problem</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.errors.map((row) => (
+                      <tr key={`${row.row}-${row.sku ?? ""}`}>
+                        <td className="num mono">{row.row}</td>
+                        <td className="mono">{row.sku ?? "—"}</td>
+                        <td className="small">{row.error}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+    </>
   );
 }

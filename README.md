@@ -99,6 +99,8 @@ Open <http://localhost:5173>.
 
 1. **Import catalogue** — upload `sample-data/sample-catalogue.csv` (or your own
    export). Every column beyond the known fields becomes a spec attribute.
+   Then, if you have one, drop a **price file** (SKU + price) on the second panel;
+   the catalogue export carries content, prices arrive separately.
 2. **Competitors** — check Ernest Jones is enabled. Before trusting it against
    the live site, use **Test a product URL** to dry-run one real listing and
    confirm the extracted price matches what the page shows.
@@ -315,6 +317,7 @@ in the UI for per-target outcomes.
 | --- | --- | --- |
 | `GET` | `/api/health` | Database connectivity and auth state |
 | `POST` | `/api/products/import` | Upload a catalogue export (multipart `file`) |
+| `POST` | `/api/products/import-prices` | Upload a price file, joined on SKU (multipart `file`) |
 | `GET` | `/api/products/:id/history` | Observation history for one product |
 | `GET` | `/api/comparison` | Comparison view; filter by brand, category, competitor, position, search |
 | `GET` | `/api/comparison/export.csv` | CSV export of the current view |
