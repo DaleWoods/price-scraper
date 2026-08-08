@@ -248,6 +248,21 @@ export const api = {
     return request<ImportResult>('/api/products/import', { method: 'POST', body: form });
   },
 
+  uploadLogo: (slug: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ slug: string; contentType: string; bytes: number }>(
+      `/api/competitors/${encodeURIComponent(slug)}/logo`,
+      { method: 'POST', body: form },
+    );
+  },
+
+  clearLogo: (slug: string) =>
+    request<{ slug: string; cleared: boolean }>(
+      `/api/competitors/${encodeURIComponent(slug)}/logo`,
+      { method: 'DELETE' },
+    ),
+
   refreshLogos: (force = false) =>
     request<{ results: LogoRefreshResult[]; fetched: number; failed: number; unchanged: number }>(
       `/api/competitors/refresh-logos${force ? '?force=1' : ''}`,

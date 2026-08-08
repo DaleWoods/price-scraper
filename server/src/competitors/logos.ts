@@ -2,6 +2,8 @@ import { query } from '../db/pool.js';
 
 /** Logos are small; anything larger is not a favicon and is refused. */
 const MAX_LOGO_BYTES = 512 * 1024;
+/** Uploads may be proper wordmarks rather than favicons, so allow more room. */
+export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 15_000;
 
 export interface LogoRefreshResult {
@@ -98,32 +100,60 @@ async function fetchWithTimeout(url: string): Promise<Response> {
   }
 }
 
-/** True when the bytes actually look like an image we can render. */
-function isRenderableImage(contentType: string | null, bytes: Buffer): boolean {
-  if (bytes.length === 0 || bytes.length > MAX_LOGO_BYTES) return false;
-
-  const type = (contentType ?? '').toLowerCase();
-  if (type.startsWith('image/')) return true;
-
-  // Some servers send favicons as application/octet-stream; sniff the magic
-  // numbers rather than discarding a perfectly good icon.
-  const header = bytes.subarray(0, 8);
-  const isPng = header.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  const isGif = header.subarray(0, 3).toString('latin1') === 'GIF';
-  const isJpeg = header[0] === 0xff && header[1] === 0xd8;
-  const isIco = header[0] === 0x00 && header[1] === 0x00 && (header[2] === 0x01 || header[2] === 0x02);
-  const isSvg = bytes.subarray(0, 512).toString('utf8').trimStart().startsWith('<svg');
-  return isPng || isGif || isJpeg || isIco || isSvg;
+/** An SVG may open with an XML declaration or comments before the <svg> tag. */
+export function looksLikeSvg(bytes: Buffer): boolean {
+  const head = bytes.subarray(0, 1024).toString('utf8').trimStart();
+  return head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'));
 }
 
-function contentTypeFor(declared: string | null, bytes: Buffer): string {
+/**
+ * Identify an image from its bytes alone, or null if these are not an image
+ * format we can display. The declared MIME type is deliberately not consulted:
+ * it is attacker- or mistake-controlled on upload, and simply wrong on plenty
+ * of servers that send favicons as application/octet-stream.
+ */
+export function sniffImageType(bytes: Buffer): string | null {
+  const header = bytes.subarray(0, 12);
+  if (header.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'image/png';
+  if (header.subarray(0, 3).toString('latin1') === 'GIF') return 'image/gif';
+  if (header[0] === 0xff && header[1] === 0xd8) return 'image/jpeg';
+  if (
+    header.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    header.subarray(8, 12).toString('latin1') === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  // .ico and .cur share a header; the third byte is the type field.
+  if (header[0] === 0x00 && header[1] === 0x00 && (header[2] === 0x01 || header[2] === 0x02)) {
+    return 'image/x-icon';
+  }
+  if (looksLikeSvg(bytes)) return 'image/svg+xml';
+  return null;
+}
+
+/**
+ * True when fetched bytes are worth caching.
+ *
+ * Lenient by design: a remote server that declares `image/*` is taken at its
+ * word even when the format is one we cannot sniff (AVIF, say), because the
+ * browser is the thing that ultimately has to render it. Uploads go through the
+ * stricter `sniffImageType` path instead — see `setUploadedLogo`.
+ */
+export function isRenderableImage(
+  contentType: string | null,
+  bytes: Buffer,
+  limit = MAX_LOGO_BYTES,
+): boolean {
+  if (bytes.length === 0 || bytes.length > limit) return false;
+  if ((contentType ?? '').toLowerCase().startsWith('image/')) return true;
+  return sniffImageType(bytes) !== null;
+}
+
+export function contentTypeFor(declared: string | null, bytes: Buffer): string {
+  const sniffed = sniffImageType(bytes);
+  if (sniffed) return sniffed;
   const type = (declared ?? '').split(';')[0]?.trim().toLowerCase();
-  if (type && type.startsWith('image/')) return type;
-  if (bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'image/png';
-  if (bytes.subarray(0, 3).toString('latin1') === 'GIF') return 'image/gif';
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
-  if (bytes.subarray(0, 512).toString('utf8').trimStart().startsWith('<svg')) return 'image/svg+xml';
-  return 'image/x-icon';
+  return type && type.startsWith('image/') ? type : 'image/x-icon';
 }
 
 /**
@@ -220,4 +250,56 @@ export async function refreshAllLogos(force = false): Promise<LogoRefreshResult[
     results.push(await refreshCompetitorLogo(row));
   }
   return results;
+}
+
+/**
+ * Store a logo supplied by the user rather than fetched from a site.
+ *
+ * The declared MIME type is not trusted on its own — the bytes are sniffed, so
+ * a mislabelled or renamed file is refused rather than cached as a broken image.
+ */
+export async function setUploadedLogo(
+  slug: string,
+  bytes: Buffer,
+  originalName: string,
+): Promise<{ contentType: string; bytes: number }> {
+  if (bytes.length === 0) throw new Error('That file is empty.');
+  if (bytes.length > MAX_UPLOAD_BYTES) {
+    throw new Error(
+      `That file is ${(bytes.length / 1024 / 1024).toFixed(1)}MB; the limit is ` +
+        `${MAX_UPLOAD_BYTES / 1024 / 1024}MB. A logo should be far smaller than this.`,
+    );
+  }
+  // Strictly the bytes, never the declared type or the file extension: a
+  // renamed file must be refused rather than stored as an image that will not
+  // render.
+  const contentType = sniffImageType(bytes);
+  if (!contentType) {
+    throw new Error(
+      `"${originalName}" is not an image this app can display. ` +
+        'Use PNG, SVG, JPEG, WebP, GIF or ICO.',
+    );
+  }
+  const { rowCount } = await query(
+    `UPDATE competitors
+     SET logo_data = $2, logo_content_type = $3, logo_url = NULL,
+         logo_fetched_at = now(), logo_error = NULL, updated_at = now()
+     WHERE slug = $1`,
+    [slug, bytes, contentType],
+  );
+  if (!rowCount) throw new Error(`No competitor with slug "${slug}".`);
+
+  return { contentType, bytes: bytes.length };
+}
+
+/** Drop a logo, returning the competitor to its monogram badge. */
+export async function clearLogo(slug: string): Promise<void> {
+  const { rowCount } = await query(
+    `UPDATE competitors
+     SET logo_data = NULL, logo_content_type = NULL, logo_url = NULL,
+         logo_fetched_at = NULL, logo_error = NULL, updated_at = now()
+     WHERE slug = $1`,
+    [slug],
+  );
+  if (!rowCount) throw new Error(`No competitor with slug "${slug}".`);
 }

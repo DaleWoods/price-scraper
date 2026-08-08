@@ -48,12 +48,15 @@ export function CompetitorLogo({
   displayName,
   hasLogo = true,
   size = 'md',
+  cacheBust,
 }: {
   slug: string;
   displayName: string;
   /** Skip the network request entirely when we already know none is cached. */
   hasLogo?: boolean;
   size?: LogoSize;
+  /** Changes the URL after an upload so the browser refetches the new image. */
+  cacheBust?: number;
 }) {
   const [failed, setFailed] = useState(false);
   const pixels = PIXELS[size];
@@ -85,7 +88,7 @@ export function CompetitorLogo({
     <img
       className="clogo"
       style={style}
-      src={`/api/competitors/${encodeURIComponent(slug)}/logo`}
+      src={`/api/competitors/${encodeURIComponent(slug)}/logo${cacheBust ? `?v=${cacheBust}` : ''}`}
       alt=""
       aria-hidden="true"
       loading="lazy"

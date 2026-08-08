@@ -320,6 +320,8 @@ in the UI for per-target outcomes.
 | `POST` | `/api/products/import-prices` | Upload a price file, joined on SKU (multipart `file`) |
 | `GET` | `/api/competitors/:slug/logo` | Cached competitor logo; 404 when none is stored |
 | `POST` | `/api/competitors/refresh-logos` | Fetch missing logos (`?force=1` re-fetches all) |
+| `POST` | `/api/competitors/:slug/logo` | Upload a logo by hand (multipart `file`) |
+| `DELETE` | `/api/competitors/:slug/logo` | Remove a logo, reverting to the monogram |
 | `GET` | `/api/products/:id/history` | Observation history for one product |
 | `GET` | `/api/comparison` | Comparison view; filter by brand, category, competitor, position, search |
 | `GET` | `/api/comparison/export.csv` | CSV export of the current view |
@@ -348,6 +350,21 @@ reads each site's `<link rel="icon">` declarations (preferring
 `apple-touch-icon`, which is required to be a decent-sized square) and falls
 back to `/favicon.ico`. A competitor definition may also pin an explicit
 `logoUrl`.
+
+### Uploading a logo by hand
+
+**Click any competitor's badge** on the Competitors page to upload an image, or
+drop one onto it. This is the path that needs no outbound network access at all
+— useful when egress to the competitor domains is blocked, and when a retailer's
+favicon is a poor 16px thing you would rather replace with a proper wordmark.
+PNG, SVG, JPEG, WebP, GIF and ICO are accepted, up to 2MB. **Remove** puts the
+monogram back.
+
+Uploads are identified by their bytes, never by the declared MIME type or the
+file extension, so a mislabelled or renamed file is refused rather than stored
+as an image that will not render. Because an SVG is an active document, logos
+are served with `default-src 'none'; sandbox` and `nosniff`, so opening one
+directly cannot execute anything against this app's origin.
 
 The bytes are cached in our own database and served from our own origin rather
 than hotlinked. Besides keeping the dashboard working without egress, this

@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
+import multer from 'multer';
 import { query } from '../db/pool.js';
 import {
   getCompetitorBySlug,
@@ -10,9 +11,37 @@ import { extractListing } from '../scraping/extract.js';
 import { fetchPage } from '../scraping/fetcher.js';
 import { checkRobots } from '../scraping/robots.js';
 import { env } from '../config/env.js';
-import { refreshAllLogos } from '../competitors/logos.js';
+import {
+  MAX_UPLOAD_BYTES,
+  clearLogo,
+  refreshAllLogos,
+  setUploadedLogo,
+} from '../competitors/logos.js';
 
 export const competitorsRouter: Router = Router();
+
+const logoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+});
+
+/**
+ * Multer's own limit message is just "File too large", which does not say what
+ * the limit is. Translate it into something the person uploading can act on.
+ */
+const uploadLogoFile: RequestHandler = (req, res, next) => {
+  logoUpload.single('file')(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      const message =
+        err.code === 'LIMIT_FILE_SIZE'
+          ? `That file is larger than the ${MAX_UPLOAD_BYTES / 1024 / 1024}MB limit. A logo should be a few KB.`
+          : err.message;
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(err);
+  });
+};
 
 competitorsRouter.get('/', async (_req, res, next) => {
   try {
@@ -41,7 +70,15 @@ competitorsRouter.get('/:slug/logo', async (req, res, next) => {
       return;
     }
     res.setHeader('Content-Type', logo.logo_content_type ?? 'image/x-icon');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    // These bytes can be user-supplied, and an SVG is an active document: were
+    // someone to open this URL directly, script inside it would run on our
+    // origin. Locking the response down to no subresources and no sniffing
+    // keeps it an image wherever it is opened.
+    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // Logos change rarely, but not never — revalidate rather than pinning a day.
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('ETag', `W/"${logo.logo_data.length}-${req.params.slug}"`);
     res.send(logo.logo_data);
   } catch (err) {
     next(err);
@@ -61,6 +98,33 @@ competitorsRouter.post('/refresh-logos', async (req, res) => {
       failed: results.filter((r) => r.status === 'failed').length,
       unchanged: results.filter((r) => r.status === 'unchanged').length,
     });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Upload a logo by hand. This is the path that does not need egress: fetch the
+ * image yourself and put it in directly.
+ */
+competitorsRouter.post('/:slug/logo', uploadLogoFile, async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded. Attach an image as "file".' });
+      return;
+    }
+    const stored = await setUploadedLogo(req.params.slug!, req.file.buffer, req.file.originalname);
+    res.json({ slug: req.params.slug, ...stored });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/** Remove a logo, returning the competitor to its monogram badge. */
+competitorsRouter.delete('/:slug/logo', async (req, res) => {
+  try {
+    await clearLogo(req.params.slug!);
+    res.json({ slug: req.params.slug, cleared: true });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

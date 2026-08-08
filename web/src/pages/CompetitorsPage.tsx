@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type Competitor } from '../api';
 import { Alert, Card, TableSkeleton, useToast } from '../components/ui';
-import { CompetitorLogo } from '../components/CompetitorLogo';
+import { CompetitorLogoUpload } from '../components/CompetitorLogoUpload';
 
 export function CompetitorsPage() {
   const toast = useToast();
@@ -149,11 +149,11 @@ export function CompetitorsPage() {
                   <tr key={competitor.id}>
                     <td>
                       <div className="clogo-label">
-                        <CompetitorLogo
+                        <CompetitorLogoUpload
                           slug={competitor.slug}
                           displayName={competitor.display_name}
                           hasLogo={competitor.has_logo}
-                          size="lg"
+                          onChange={load}
                         />
                         <div style={{ minWidth: 0 }}>
                           <div className="cell-primary">{competitor.display_name}</div>

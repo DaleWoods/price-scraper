@@ -1092,3 +1092,70 @@ code {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Logo as an upload control: the picture is the button. */
+/* A flex column, so the button contributes no inline baseline space — that gap
+   varies with content and made rows with a logo taller than rows without. */
+.clogo-upload {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.clogo-drop {
+  position: relative;
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.clogo-drop::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 9px;
+  border: 1.5px dashed transparent;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.clogo-drop:hover::after,
+.clogo-drop:focus-visible::after,
+.clogo-drop[data-dragging='true']::after {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.clogo-drop:focus-visible {
+  outline: none;
+}
+
+.clogo-actions {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  /* A fixed height, not a minimum: the space is reserved whether or not the
+     Remove button is present, so a row does not grow when a logo is added. */
+  height: 16px;
+}
+
+.clogo-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.clogo-link:hover {
+  color: var(--danger);
+}
