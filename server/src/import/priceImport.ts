@@ -1,5 +1,5 @@
 import { withTransaction } from '../db/pool.js';
-import { countFilled, parseTabularFile } from './parseTabular.js';
+import { countFilled, normaliseHeader, parseTabularFile } from './parseTabular.js';
 
 export interface PriceImportResult {
   totalRows: number;
@@ -49,10 +49,6 @@ const PRICE_ALIASES = [
 ];
 
 const CURRENCY_ALIASES = ['currency', 'currency code', 'ccy'];
-
-function normaliseHeader(header: string): string {
-  return header.trim().toLowerCase().replace(/[\s_-]+/g, ' ');
-}
 
 /** Pick the best column for a role: best alias rank first, then the one with data. */
 function pickColumn(

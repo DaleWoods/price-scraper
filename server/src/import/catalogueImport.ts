@@ -1,7 +1,7 @@
 import { withTransaction } from '../db/pool.js';
 import type { SpecAttributes } from '../domain/types.js';
 import { canonicalAttributeName } from '../matching/attributes.js';
-import { countFilled, parseTabularFile } from './parseTabular.js';
+import { countFilled, normaliseHeader, parseTabularFile } from './parseTabular.js';
 
 export interface ImportRowError {
   row: number;
@@ -40,9 +40,32 @@ export interface ImportResult {
  *   - `description` is NOT a name alias: in these exports it holds marketing HTML.
  */
 const FIELD_ALIASES: Record<string, string[]> = {
-  internal_sku: ['internal_sku', 'sku', 'internal sku', 'product code', 'productcode', 'item code', 'item number'],
+  internal_sku: [
+    'internal_sku',
+    'sku',
+    'internal sku',
+    'article number',
+    'articlenumber',
+    'article',
+    'product code',
+    'productcode',
+    'item code',
+    'item number',
+    // Generic, so it ranks last: a file with both "SKU" and "Code" should use SKU.
+    'code',
+  ],
   brand: ['brand', 'brand name'],
-  product_name: ['product_name', 'product name', 'page title', 'title', 'name'],
+  product_name: [
+    'product_name',
+    'product name',
+    'page title',
+    'title',
+    // hybris exports the localised display name as "Identifier[en]"; more
+    // specific than a bare "name", which in SAP loadsheets repeats the
+    // collection across every variant.
+    'identifier',
+    'name',
+  ],
   ean_mpn: ['ean_mpn', 'ean', 'gtin', 'ean/mpn', 'ean mpn', 'barcode', 'mpn', 'reference number', 'reference'],
   our_price: ['our_price', 'price', 'our price', 'rrp', 'selling price', 'retail price'],
   currency: ['currency', 'currency code', 'ccy'],
@@ -55,7 +78,7 @@ const FIELD_ALIASES: Record<string, string[]> = {
    * candidate. Used as the brand only when nothing better is available; otherwise
    * it is stored as the `model` spec attribute, which is itself a watch gate.
    */
-  manufacturer: ['manufacturer', 'manufacturer name'],
+  manufacturer: ['manufacturer', 'manufacturer name', 'manufacturername'],
 };
 
 /** Product-type keywords, most specific first (winder before watch, engagement before ring). */
@@ -99,10 +122,6 @@ const NON_ATTRIBUTE_COLUMNS: RegExp[] = [
   /^unit\b/i,
   /^type\b/i,
 ];
-
-function normaliseHeader(header: string): string {
-  return header.trim().toLowerCase().replace(/[\s_-]+/g, ' ');
-}
 
 /**
  * Mangled headers from a double-encoded export ("Name ÃƒÆ’Ã†â€™Ãƒâ€ …").

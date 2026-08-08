@@ -469,3 +469,42 @@ NULL never matches, so a price-list row cannot be picked up by accident.
 The export's own `p_currency` column is not used — it arrives as a hybris PK
 mangled into scientific notation (`8.79609E+12`), so each fascia's configured
 currency is authoritative.
+
+## File formats and column names
+
+### What can be uploaded
+
+`.csv`, `.tsv`, `.txt`, `.xlsx`, `.xlsm`, `.xltx` and `.xls`.
+
+The format is identified from the file's **magic bytes**, not its extension,
+because extensions are unreliable here: exports routinely arrive as `.xls` that
+are really tab-separated text, or a plain `.xlsx` renamed. A zip header is read
+as a workbook, an OLE2 header as a genuine legacy binary `.xls`, and anything
+else as delimited text with the delimiter detected from the header line
+(comma, tab, semicolon or pipe).
+
+A **genuine Excel 97-2003 binary `.xls`** cannot be read and is refused with a
+message saying to re-save as `.xlsx` or `.csv`. Reading it would mean adding
+SheetJS, whose npm release is pinned at 0.18.5 with unpatched advisories.
+
+### Column headings
+
+Headings are matched after stripping export decorations. hybris Backoffice marks
+mandatory and unique columns and appends locale qualifiers, so `Article
+Number*^`, `Identifier[en]` and `Supercategories†` all match as though written
+plainly.
+
+Recognised names, in priority order — where two columns could serve the same
+field, the earlier alias wins, and a column holding data beats an empty one:
+
+| Field | Accepted headings |
+| --- | --- |
+| SKU | `SKU`, `Internal SKU`, `Article Number`, `Article`, `Product Code`, `Item Code`, `Item Number`, `Code` |
+| Product name | `Product Name`, `Page Title`, `Title`, `Identifier`, `Name` |
+| Brand | `Brand`, `Brand Name` — falling back to `Manufacturer` / `Manufacturer Name` |
+| EAN / MPN | `EAN`, `GTIN`, `Barcode`, `MPN`, `Reference Number` |
+
+`Code` sits last among the SKU aliases deliberately: a file carrying both `SKU`
+and `Code` should use `SKU`. Likewise `Page Title` outranks `Identifier` and
+`Name`, because SAP loadsheets repeat the collection name across every variant
+while the page title is unique per product.

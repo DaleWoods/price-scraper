@@ -1,5 +1,5 @@
 import { withTransaction } from '../db/pool.js';
-import { countFilled, parseTabularFile } from './parseTabular.js';
+import { countFilled, normaliseHeader, parseTabularFile } from './parseTabular.js';
 import {
   ANY_PRICE_LIST,
   ANY_STORE,
@@ -54,10 +54,6 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   startTime: ['p_starttime', 'starttime', 'valid from', 'datab', 'start date', 'valid_from'],
   endTime: ['p_endtime', 'endtime', 'valid to', 'datbi', 'end date', 'valid_to'],
 };
-
-function normaliseHeader(header: string): string {
-  return header.trim().toLowerCase().replace(/[\s_-]+/g, ' ');
-}
 
 function mapColumns(headers: string[], fillCounts: Map<string, number>): Record<string, string> {
   const mapping: Record<string, string> = {};

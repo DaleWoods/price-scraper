@@ -11,11 +11,28 @@ export interface ParsedTable {
   rows: ParsedRow[];
 }
 
+/**
+ * Work out the delimiter from the header line rather than assuming a comma.
+ *
+ * Exports saved as ".xls" from older tools are frequently tab-separated text,
+ * and a European locale export may use semicolons.
+ */
+export function detectDelimiter(text: string): string {
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? '';
+  const counts = [',', '\t', ';', '|'].map((delimiter) => ({
+    delimiter,
+    count: firstLine.split(delimiter).length - 1,
+  }));
+  counts.sort((a, b) => b.count - a.count);
+  return counts[0] && counts[0].count > 0 ? counts[0].delimiter : ',';
+}
+
 export function parseCsvBuffer(buffer: Buffer): { headers: string[]; rows: ParsedRow[] } {
   // Strip a UTF-8 BOM — Excel writes one and it corrupts the first header.
   const text = buffer.toString('utf8').replace(/^﻿/, '');
   const records = parseCsv(text, {
     columns: false,
+    delimiter: detectDelimiter(text),
     skip_empty_lines: true,
     relax_column_count: true,
     relax_quotes: true,
@@ -84,10 +101,66 @@ export async function parseExcelBuffer(buffer: Buffer): Promise<{ headers: strin
 }
 
 
+export type TabularFormat = 'xlsx' | 'legacy-xls' | 'html' | 'text';
+
+/**
+ * Identify a file from its contents rather than its extension.
+ *
+ * Extensions lie constantly in this domain: exports land as ".xls" that are
+ * really tab-separated text, or an HTML table, or a plain .xlsx renamed. The
+ * magic bytes are the only reliable signal.
+ */
+export function detectFormat(buffer: Buffer): TabularFormat {
+  const header = buffer.subarray(0, 8);
+  // Zip container — every modern Office format.
+  if (header.subarray(0, 2).toString('latin1') === 'PK') return 'xlsx';
+  // OLE2 compound document — the genuine legacy binary .xls.
+  if (header.equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))) {
+    return 'legacy-xls';
+  }
+  const start = buffer.subarray(0, 512).toString('utf8').trimStart().toLowerCase();
+  if (start.startsWith('<html') || start.startsWith('<?xml') || start.startsWith('<table')) {
+    return 'html';
+  }
+  return 'text';
+}
+
 /** Parse an uploaded CSV or Excel file into headers plus trimmed string rows. */
 export async function parseTabularFile(buffer: Buffer, filename: string): Promise<ParsedTable> {
-  const isExcel = /\.(xlsx|xlsm|xltx)$/i.test(filename);
-  return isExcel ? parseExcelBuffer(buffer) : parseCsvBuffer(buffer);
+  switch (detectFormat(buffer)) {
+    case 'xlsx':
+      return parseExcelBuffer(buffer);
+    case 'legacy-xls':
+      throw new Error(
+        `"${filename}" is a legacy binary Excel file (Excel 97-2003). Open it and ` +
+          'use File → Save As to save it as .xlsx or .csv, then upload that. ' +
+          'The format cannot be read directly.',
+      );
+    case 'html':
+      throw new Error(
+        `"${filename}" is an HTML table saved with a spreadsheet extension, not a ` +
+          'real workbook. Open it in Excel and save as .xlsx or .csv, then upload that.',
+      );
+    default:
+      return parseCsvBuffer(buffer);
+  }
+}
+
+/**
+ * Reduce a column heading to something comparable.
+ *
+ * Export tools decorate headings: hybris Backoffice marks mandatory and unique
+ * columns ("Article Number*^") and appends locale qualifiers ("Identifier[en]").
+ * Those decorations are not part of the column's meaning, so they are stripped
+ * before matching — otherwise a perfectly ordinary SKU column goes unrecognised.
+ */
+export function normaliseHeader(header: string): string {
+  return header
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/[*^†‡§¶#~]/g, ' ')
+    .toLowerCase()
+    .replace(/[\s_-]+/g, ' ')
+    .trim();
 }
 
 /** How many rows actually hold a value in each column. */

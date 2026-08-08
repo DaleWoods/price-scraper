@@ -54,7 +54,7 @@ export function ImportPage() {
         content-only export.
       </p>
 
-      <Card title="Upload export" subtitle="CSV or Excel (.xlsx), up to 25 MB">
+      <Card title="Upload export" subtitle="CSV or Excel (.xls / .xlsx), up to 25 MB">
         <div
           onDragOver={(event) => {
             event.preventDefault();
@@ -75,7 +75,7 @@ export function ImportPage() {
           <input
             ref={inputRef}
             type="file"
-            accept=".csv,.xlsx,.xlsm,.xltx"
+            accept=".csv,.tsv,.txt,.xls,.xlsx,.xlsm,.xltx"
             hidden
             onChange={(event) => {
               const selected = event.target.files?.[0];
@@ -300,7 +300,7 @@ function PriceImportCard() {
           <input
             ref={inputRef}
             type="file"
-            accept=".csv,.xlsx,.xlsm,.xltx"
+            accept=".csv,.tsv,.txt,.xls,.xlsx,.xlsm,.xltx"
             hidden
             onChange={(event) => {
               const selected = event.target.files?.[0];
@@ -473,7 +473,7 @@ function LoadsheetImportCard() {
           <input
             ref={inputRef}
             type="file"
-            accept=".csv,.xlsx,.xlsm,.xltx"
+            accept=".csv,.tsv,.txt,.xls,.xlsx,.xlsm,.xltx"
             hidden
             onChange={(event) => {
               const selected = event.target.files?.[0];

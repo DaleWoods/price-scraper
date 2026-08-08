@@ -12,8 +12,11 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (_req, file, callback) => {
-    if (/\.(csv|xlsx|xlsm|xltx)$/i.test(file.originalname)) callback(null, true);
-    else callback(new Error('Only .csv, .xlsx, .xlsm and .xltx files are accepted'));
+    // The extension only gates obviously wrong uploads; the parser identifies
+    // the real format from the file's magic bytes, since ".xls" in this domain
+    // is frequently tab-separated text or a renamed .xlsx.
+    if (/\.(csv|tsv|txt|xls|xlsx|xlsm|xltx)$/i.test(file.originalname)) callback(null, true);
+    else callback(new Error('Accepted file types: .csv, .tsv, .txt, .xls, .xlsx, .xlsm, .xltx'));
   },
 });
 
