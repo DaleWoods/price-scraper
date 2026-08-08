@@ -409,17 +409,32 @@ filtering them out in Excel removes the data the selection depends on.
 
 Resolved separately for each of our three UK fascias (`fascias` table):
 
-| Fascia | `werks` | Sales org |
-| --- | --- | --- |
-| Goldsmiths | 197 | GS01 |
-| Mappin & Webb | 439 | GS01 |
-| Watches of Switzerland | 470 | GS01 |
+| Fascia | `werks` | Sales org | Channel |
+| --- | --- | --- | --- |
+| Goldsmiths | 197 | GS01 | G1 |
+| Mappin & Webb | 439 | GS01 | G1 |
+| Watches of Switzerland | 470 | GS01 | G1 |
 
-1. Take the rows for that fascia's sales organisation whose store code is either
-   the fascia's own or `-`, and which are valid today.
+Only two condition types are priced from:
+
+| `kschl` | Meaning |
+| --- | --- |
+| `VKP0` | UK RRP (regular price) |
+| `VKA0` | UK sale price |
+
+**`VKP1` is deliberately excluded.** It is the net (ex-VAT) twin of `VKP0` —
+£466.67 against £560 in the sample export — and carries `p_net = 1`. Treating it
+as a second regular price both corrupts the "was" figure and puts an ex-VAT
+number into comparisons against gross competitor prices. Any other condition
+type is counted and reported by name rather than guessed at, and a `p_net = 1`
+row is refused as a backstop whatever its type.
+
+1. Take the rows matching that fascia's sales organisation and distribution
+   channel, whose store code is either the fascia's own or `-`, and which are
+   valid today.
 2. Resolve a regular price and a sale price independently, each by precedence:
-   **store-specific beats sales-org-wide**, and among equally specific rows the
-   most recently started wins.
+   **store/fascia, then price list, then sales organisation**; among equally
+   specific rows the most recently started wins.
 3. Use the sale price only where it is genuinely cheaper than the regular price.
    A "sale" at or above the regular price is reported and the regular used —
    that is what a customer pays.
@@ -443,6 +458,10 @@ selling price, the regular price as a "was" figure when on sale, and the
 - **"Sales" that are not cheaper**, unknown SKUs, and unparseable prices, each
   with the row number.
 
-The `pltyp` (price list) level of precedence sits between store and sales
-organisation, but the loadsheet carries no such column, so only the outer two
-levels are applied.
+The `pltyp` (price list) level sits between store and sales organisation and is
+applied when a fascia has a `price_list_type` set. It is NULL by default, and a
+NULL never matches, so a price-list row cannot be picked up by accident.
+
+The export's own `p_currency` column is not used — it arrives as a hybris PK
+mangled into scientific notation (`8.79609E+12`), so each fascia's configured
+currency is authoritative.

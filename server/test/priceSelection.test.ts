@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  isPricingKschl,
   isSaleKschl,
   pickByPrecedence,
   selectFasciaPrice,
@@ -9,8 +10,14 @@ import {
 } from '../src/import/priceSelection.ts';
 import { parseLoadsheetDate, parsePrice } from '../src/import/loadsheetImport.ts';
 
-const GOLDSMITHS: FasciaDefinition = { code: '197', name: 'Goldsmiths', salesOrg: 'GS01' };
-const MAPPIN: FasciaDefinition = { code: '439', name: 'Mappin & Webb', salesOrg: 'GS01' };
+const GOLDSMITHS: FasciaDefinition = {
+  code: '197',
+  name: 'Goldsmiths',
+  salesOrg: 'GS01',
+  distributionChannel: 'G1',
+  priceListType: null,
+};
+const MAPPIN: FasciaDefinition = { ...GOLDSMITHS, code: '439', name: 'Mappin & Webb' };
 
 let nextRow = 1;
 function row(partial: Partial<LoadsheetRow> & { price: number }): LoadsheetRow {
@@ -19,7 +26,9 @@ function row(partial: Partial<LoadsheetRow> & { price: number }): LoadsheetRow {
     code: '17361430',
     kschl: 'VKP0',
     vkorg: 'GS01',
+    vtweg: 'G1',
     werks: '-',
+    pltyp: '-',
     validFrom: null,
     validTo: null,
     ...partial,
@@ -29,24 +38,41 @@ function row(partial: Partial<LoadsheetRow> & { price: number }): LoadsheetRow {
 const NOW = new Date('2026-08-08T00:00:00Z');
 
 describe('isSaleKschl', () => {
-  it('treats the VKA condition types as sales', () => {
+  it('treats VKA0 as the sale type', () => {
     assert.equal(isSaleKschl('VKA0'), true);
-    assert.equal(isSaleKschl('VKA1'), true);
     assert.equal(isSaleKschl('vka0'), true, 'case should not matter');
     assert.equal(isSaleKschl('VKP0'), false);
+  });
+
+  it('does not treat VKA1 as an in-scope sale', () => {
+    // The UK sites price from VKA0 and VKP0 only. VKA1 is excluded by the
+    // allow-list rather than silently treated as a sale.
+    assert.equal(isSaleKschl('VKA1'), false);
   });
 });
 
 describe('selectFasciaPrice — the supplied loadsheet sample', () => {
-  // The real six rows from priceLoadsheet.csv.
+  // All nine rows of the full export, VKP1 included.
   const sample = [
     row({ kschl: 'VKP0', werks: '433', price: 466.67 }),
+    row({ kschl: 'VKP1', werks: '433', price: 466.67 }),
     row({ kschl: 'VKP0', werks: '192', price: 490 }),
+    row({ kschl: 'VKP1', werks: '192', price: 466.67 }),
     row({ kschl: 'VKP0', werks: '-', price: 560 }),
+    row({ kschl: 'VKP1', werks: '-', price: 466.67 }),
     row({ kschl: 'VKA0', werks: '197', price: 445 }),
     row({ kschl: 'VKA0', werks: '439', price: 445 }),
     row({ kschl: 'VKA0', werks: '470', price: 445 }),
   ];
+
+  it('ignores VKP1 — it is the net twin of VKP0, not a shelf price', () => {
+    // Regression: treating VKP1 as another regular price made it win the
+    // tie-break at equal specificity, giving a was-price of £466.67 (the
+    // ex-VAT figure) instead of £560.
+    const selected = selectFasciaPrice(sample, GOLDSMITHS, NOW);
+    assert.equal(selected?.regularPrice, 560);
+    assert.notEqual(selected?.regularPrice, 466.67);
+  });
 
   it('prices Goldsmiths at the fascia sale, with the org-wide regular as the was-price', () => {
     const selected = selectFasciaPrice(sample, GOLDSMITHS, NOW);
@@ -233,5 +259,53 @@ describe('parsePrice', () => {
     assert.equal(parsePrice(''), null);
     assert.equal(parsePrice('POA'), null);
     assert.equal(parsePrice('-5'), null);
+  });
+});
+
+describe('condition type allow-list', () => {
+  it('accepts only the two UK pricing types', () => {
+    assert.equal(isPricingKschl('VKP0'), true, 'UK RRP');
+    assert.equal(isPricingKschl('VKA0'), true, 'UK sale');
+    assert.equal(isPricingKschl('VKP1'), false, 'net twin of VKP0');
+    assert.equal(isPricingKschl('VKA1'), false, 'not in scope for the UK sites');
+    assert.equal(isPricingKschl(''), false);
+  });
+
+  it('leaves a fascia unpriced when only excluded types are present', () => {
+    const rows = [row({ kschl: 'VKP1', werks: '197', price: 466.67 })];
+    assert.equal(selectFasciaPrice(rows, GOLDSMITHS, NOW), null);
+  });
+});
+
+describe('distribution channel and price list', () => {
+  it('ignores a row from another distribution channel', () => {
+    const rows = [row({ kschl: 'VKP0', werks: '197', vtweg: 'G2', price: 400 })];
+    assert.equal(selectFasciaPrice(rows, GOLDSMITHS, NOW), null);
+  });
+
+  it('ignores a price-list row when the fascia uses no price list', () => {
+    const rows = [
+      row({ kschl: 'VKP0', werks: '-', pltyp: 'PriceListTest', price: 400 }),
+      row({ kschl: 'VKP0', werks: '-', price: 560 }),
+    ];
+    assert.equal(selectFasciaPrice(rows, GOLDSMITHS, NOW)?.price, 560);
+  });
+
+  it('uses a price-list row when the fascia is on that list', () => {
+    const onList = { ...GOLDSMITHS, priceListType: 'PriceListTest' };
+    const rows = [
+      row({ kschl: 'VKP0', werks: '-', pltyp: 'PriceListTest', price: 400 }),
+      row({ kschl: 'VKP0', werks: '-', price: 560 }),
+    ];
+    assert.equal(selectFasciaPrice(rows, onList, NOW)?.price, 400);
+  });
+
+  it('still lets a store-specific price beat the price list', () => {
+    const onList = { ...GOLDSMITHS, priceListType: 'PriceListTest' };
+    const rows = [
+      row({ kschl: 'VKP0', werks: '-', pltyp: 'PriceListTest', price: 400 }),
+      row({ kschl: 'VKP0', werks: '197', price: 520 }),
+    ];
+    assert.equal(selectFasciaPrice(rows, onList, NOW)?.price, 520);
   });
 });

@@ -525,6 +525,30 @@ function LoadsheetImportCard() {
             />
           </div>
 
+          <Card title="What was left out" subtitle="Every row is accounted for">
+            <div className="spec-grid">
+              <div className="spec">
+                <div className="spec__key">Other org, channel or store</div>
+                <div className="spec__value">{result.rowsNotOurs}</div>
+              </div>
+              <div className="spec">
+                <div className="spec__key">Net (ex-VAT) rows</div>
+                <div className="spec__value">{result.rowsNet}</div>
+              </div>
+              {result.rowsByIgnoredKschl.map((entry) => (
+                <div className="spec" key={entry.kschl}>
+                  <div className="spec__key">Condition type {entry.kschl}</div>
+                  <div className="spec__value">{entry.rows}</div>
+                </div>
+              ))}
+            </div>
+            <p className="small muted" style={{ marginBottom: 0, marginTop: 'var(--sp-3)' }}>
+              Prices come from <strong>VKP0</strong> (UK RRP) and <strong>VKA0</strong> (UK sale)
+              only. <strong>VKP1</strong> is the net twin of VKP0 and is excluded — treating it as a
+              second regular price would put an ex-VAT figure into a gross comparison.
+            </p>
+          </Card>
+
           <Card title="Per fascia" subtitle="How many products each of our sites now has a price for">
             <div className="spec-grid">
               {result.fascias.map((fascia) => (

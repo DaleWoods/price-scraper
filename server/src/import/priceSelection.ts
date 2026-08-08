@@ -8,16 +8,34 @@
 
 /** Sales-organisation-wide rows carry '-' rather than a store code. */
 export const ANY_STORE = '-';
+/** Rows that are not tied to a price list also carry '-'. */
+export const ANY_PRICE_LIST = '-';
 
-/** Condition types that mark a row as a sale price rather than a regular one. */
-const SALE_KSCHL = new Set(['VKA0', 'VKA1']);
+/**
+ * The only condition types that describe what a UK customer pays.
+ *
+ * An allow-list rather than "anything that is not a sale": the export also
+ * carries VKP1, which is the NET (ex-VAT) twin of VKP0 — £466.67 against
+ * £560 — and treating it as another regular price both corrupts the was-price
+ * and leaks an ex-VAT figure into comparisons against gross competitor prices.
+ * Any other condition type is counted and skipped rather than guessed at.
+ */
+export const REGULAR_KSCHL = 'VKP0';
+export const SALE_KSCHL = 'VKA0';
+
+export function isPricingKschl(kschl: string): boolean {
+  const value = kschl.trim().toUpperCase();
+  return value === REGULAR_KSCHL || value === SALE_KSCHL;
+}
 
 export interface LoadsheetRow {
   rowNumber: number;
   code: string;
   kschl: string;
   vkorg: string;
+  vtweg: string;
   werks: string;
+  pltyp: string;
   price: number;
   validFrom: Date | null;
   validTo: Date | null;
@@ -27,6 +45,9 @@ export interface FasciaDefinition {
   code: string;
   name: string;
   salesOrg: string;
+  distributionChannel: string;
+  /** The fascia's SAP price list, or null when it does not use one. */
+  priceListType: string | null;
 }
 
 export type SelectionWarning =
@@ -46,15 +67,34 @@ export interface SelectedPrice {
 }
 
 export function isSaleKschl(kschl: string): boolean {
-  return SALE_KSCHL.has(kschl.trim().toUpperCase());
+  return kschl.trim().toUpperCase() === SALE_KSCHL;
 }
 
-/** Rows that could apply to this fascia: its own store code, or org-wide. */
+/**
+ * How specific a row is to this fascia — lower is more specific. Null means the
+ * row does not apply at all.
+ *
+ * This is the documented precedence: store/fascia, then price list, then the
+ * sales organisation as a whole.
+ */
+export function specificityFor(row: LoadsheetRow, fascia: FasciaDefinition): number | null {
+  if (row.vkorg !== fascia.salesOrg) return null;
+  if (row.vtweg !== fascia.distributionChannel) return null;
+
+  // A price list row only applies when this fascia actually uses that list.
+  const priceListMatches =
+    row.pltyp === ANY_PRICE_LIST ||
+    (fascia.priceListType !== null && row.pltyp === fascia.priceListType);
+  if (!priceListMatches) return null;
+
+  if (row.werks === fascia.code) return 0;
+  if (row.werks !== ANY_STORE) return null;
+  return row.pltyp === ANY_PRICE_LIST ? 2 : 1;
+}
+
+/** Rows that could apply to this fascia at all. */
 export function rowsForFascia(rows: LoadsheetRow[], fascia: FasciaDefinition): LoadsheetRow[] {
-  return rows.filter(
-    (row) =>
-      row.vkorg === fascia.salesOrg && (row.werks === fascia.code || row.werks === ANY_STORE),
-  );
+  return rows.filter((row) => isPricingKschl(row.kschl) && specificityFor(row, fascia) !== null);
 }
 
 /** A row is live if `asOf` falls inside its validity window; no dates means unknown, not expired. */
@@ -66,11 +106,8 @@ export function isValidAt(row: LoadsheetRow, asOf: Date): boolean {
 
 /**
  * Pick the winning row from a set of candidates, by the documented precedence:
- * a store-specific price beats a sales-organisation-wide one, and among rows of
+ * store/fascia, then price list, then sales organisation; and among rows of
  * equal specificity the most recently started price wins.
- *
- * (Price-list precedence sits between the two, but the loadsheet carries no
- * `pltyp` column, so only the outer two levels can be applied here.)
  */
 export function pickByPrecedence(
   candidates: LoadsheetRow[],
@@ -79,7 +116,9 @@ export function pickByPrecedence(
   if (candidates.length === 0) return null;
 
   const ranked = [...candidates].sort((a, b) => {
-    const specificity = Number(b.werks === fascia.code) - Number(a.werks === fascia.code);
+    const specificity =
+      (specificityFor(a, fascia) ?? Number.MAX_SAFE_INTEGER) -
+      (specificityFor(b, fascia) ?? Number.MAX_SAFE_INTEGER);
     if (specificity !== 0) return specificity;
 
     // Most recent start date wins; rows without dates rank last so a dated
@@ -127,7 +166,11 @@ export function selectFasciaPrice(
   // Documented quirk: where a sale is only sales-org-wide but the regular price
   // is fascia-specific, the live site may return the regular price instead of
   // the sale. We apply the intended rule and flag it for checking.
-  if (sale && regular && sale.werks === ANY_STORE && regular.werks === fascia.code) {
+  if (
+    sale &&
+    regular &&
+    (specificityFor(sale, fascia) ?? 0) > (specificityFor(regular, fascia) ?? 0)
+  ) {
     warnings.push('precedence_ambiguous');
   }
 

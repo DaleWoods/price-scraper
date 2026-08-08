@@ -1,7 +1,9 @@
 import { withTransaction } from '../db/pool.js';
 import { countFilled, parseTabularFile } from './parseTabular.js';
 import {
+  ANY_PRICE_LIST,
   ANY_STORE,
+  isPricingKschl,
   selectFasciaPrice,
   type FasciaDefinition,
   type LoadsheetRow,
@@ -9,8 +11,12 @@ import {
 
 export interface LoadsheetImportResult {
   totalRows: number;
-  /** Rows for another sales org, or a store that is not one of our fascias. */
+  /** Rows for another sales org/channel, or a store that is not one of our fascias. */
   rowsNotOurs: number;
+  /** Condition types we do not price from, and how many rows each accounted for. */
+  rowsByIgnoredKschl: { kschl: string; rows: number }[];
+  /** Rows flagged as net (ex-VAT) and therefore not a shelf price. */
+  rowsNet: number;
   /** Rows we kept and fed into price selection. */
   rowsConsidered: number;
   productsPriced: number;
@@ -39,6 +45,9 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   code: ['p_code', 'code', 'sku', 'material', 'product code', 'internal_sku'],
   kschl: ['p_kschl', 'kschl', 'condition type', 'condition'],
   vkorg: ['p_vkorg', 'vkorg', 'sales org', 'sales organisation', 'sales organization'],
+  vtweg: ['p_vtweg', 'vtweg', 'distribution channel', 'channel'],
+  pltyp: ['p_pltyp', 'pltyp', 'price list type', 'price list'],
+  net: ['p_net', 'net'],
   werks: ['p_werks', 'werks', 'plant', 'store', 'store code', 'site'],
   price: ['p_price', 'price', 'amount', 'value', 'rate'],
   salePrice: ['p_saleprice', 'saleprice', 'sale price', 'is sale'],
@@ -112,6 +121,10 @@ export function parsePrice(raw: string): number | null {
  *
  * Prices are taken as gross (VAT inclusive) and stored unchanged, so they are
  * directly comparable with the competitor website prices we scrape.
+ *
+ * The export's own `p_currency` column is not used: it arrives as a hybris PK
+ * mangled into scientific notation ("8.79609E+12"), so each fascia's configured
+ * currency is authoritative instead.
  */
 export async function importLoadsheet(
   buffer: Buffer,
@@ -136,8 +149,17 @@ export async function importLoadsheet(
   }
 
   const fasciaRows = await withTransaction(async (client) =>
-    client.query<{ id: number; code: string; name: string; sales_org: string; currency: string }>(
-      'SELECT id, code, name, sales_org, currency FROM fascias WHERE enabled ORDER BY code',
+    client.query<{
+      id: number;
+      code: string;
+      name: string;
+      sales_org: string;
+      currency: string;
+      distribution_channel: string;
+      price_list_type: string | null;
+    }>(
+      `SELECT id, code, name, sales_org, currency, distribution_channel, price_list_type
+       FROM fascias WHERE enabled ORDER BY code`,
     ),
   );
   const fascias = fasciaRows.rows;
@@ -145,17 +167,22 @@ export async function importLoadsheet(
     throw new Error('No fascias are configured, so there is nothing to price.');
   }
   const salesOrgs = new Set(fascias.map((fascia) => fascia.sales_org));
+  const channels = new Set(fascias.map((fascia) => fascia.distribution_channel));
   const ourStores = new Set([...fascias.map((fascia) => fascia.code), ANY_STORE]);
 
   const errors: LoadsheetImportResult['errors'] = [];
   const byProduct = new Map<string, LoadsheetRow[]>();
+  const ignoredKschl = new Map<string, number>();
   let rowsNotOurs = 0;
+  let rowsNet = 0;
 
   for (const { rowNumber, values } of rows) {
     const code = (values[columnMapping.code!] ?? '').trim();
     const kschl = (values[columnMapping.kschl!] ?? '').trim().toUpperCase();
     const vkorg = (values[columnMapping.vkorg!] ?? '').trim().toUpperCase();
+    const vtweg = (values[columnMapping.vtweg ?? ''] ?? '').trim().toUpperCase();
     const werks = (values[columnMapping.werks!] ?? '').trim();
+    const pltyp = (values[columnMapping.pltyp ?? ''] ?? '').trim() || ANY_PRICE_LIST;
     const rawPrice = (values[columnMapping.price!] ?? '').trim();
 
     if (!code) {
@@ -163,10 +190,31 @@ export async function importLoadsheet(
       continue;
     }
 
-    // Discard other countries and other people's stores before validating the
-    // price — a malformed row we were never going to use is not an error.
+    // Discard other countries, channels and other people's stores before
+    // validating the price — a malformed row we were never going to use is not
+    // an error.
     if (!salesOrgs.has(vkorg) || !ourStores.has(werks)) {
       rowsNotOurs += 1;
+      continue;
+    }
+    if (columnMapping.vtweg && !channels.has(vtweg)) {
+      rowsNotOurs += 1;
+      continue;
+    }
+
+    // Only VKP0 and VKA0 describe UK RRP and UK sale. Checked before the net
+    // guard so an excluded type is reported by name (VKP1) rather than as the
+    // less recognisable "net row".
+    if (!isPricingKschl(kschl)) {
+      ignoredKschl.set(kschl || '(blank)', (ignoredKschl.get(kschl || '(blank)') ?? 0) + 1);
+      continue;
+    }
+
+    // Backstop: a net row is the ex-VAT twin of a gross one, never a price a
+    // customer pays. Guarded independently of the condition type so that a net
+    // figure cannot reach the comparison even under an expected kschl.
+    if ((values[columnMapping.net ?? ''] ?? '').trim() === '1') {
+      rowsNet += 1;
       continue;
     }
 
@@ -182,7 +230,9 @@ export async function importLoadsheet(
       code,
       kschl,
       vkorg,
+      vtweg,
       werks,
+      pltyp,
       price,
       validFrom: parseLoadsheetDate(values[columnMapping.startTime ?? '']),
       validTo: parseLoadsheetDate(values[columnMapping.endTime ?? '']),
@@ -219,6 +269,8 @@ export async function importLoadsheet(
           code: fascia.code,
           name: fascia.name,
           salesOrg: fascia.sales_org,
+          distributionChannel: fascia.distribution_channel,
+          priceListType: fascia.price_list_type,
         };
         const selected = selectFasciaPrice(productRows, definition, asOf);
         const counters = perFascia.get(fascia.code)!;
@@ -283,6 +335,10 @@ export async function importLoadsheet(
   return {
     totalRows: rows.length,
     rowsNotOurs,
+    rowsByIgnoredKschl: [...ignoredKschl.entries()]
+      .map(([kschl, count]) => ({ kschl, rows: count }))
+      .sort((a, b) => b.rows - a.rows),
+    rowsNet,
     rowsConsidered,
     productsPriced,
     pricesWritten,

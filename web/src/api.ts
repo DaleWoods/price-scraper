@@ -109,6 +109,8 @@ export interface Competitor {
 export interface LoadsheetImportResult {
   totalRows: number;
   rowsNotOurs: number;
+  rowsByIgnoredKschl: { kschl: string; rows: number }[];
+  rowsNet: number;
   rowsConsidered: number;
   productsPriced: number;
   pricesWritten: number;
