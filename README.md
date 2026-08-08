@@ -318,6 +318,7 @@ in the UI for per-target outcomes.
 | `GET` | `/api/health` | Database connectivity and auth state |
 | `POST` | `/api/products/import` | Upload a catalogue export (multipart `file`) |
 | `POST` | `/api/products/import-prices` | Upload a price file, joined on SKU (multipart `file`) |
+| `POST` | `/api/products/import-loadsheet` | Upload the SAP price loadsheet (multipart `file`) |
 | `GET` | `/api/admin/status` | Read-only counts and timestamps for the Admin page |
 | `GET` | `/api/competitors/:slug/logo` | Cached competitor logo; 404 when none is stored |
 | `POST` | `/api/competitors/refresh-logos` | Fetch missing logos (`?force=1` re-fetches all) |
@@ -392,3 +393,56 @@ monitoring pages. Nothing on it runs a scrape or changes a price.
 
 This page is intended to grow; new administrative tooling belongs here rather
 than bolted onto the monitoring pages.
+
+## SAP price loadsheet
+
+The loadsheet carries one row per SAP condition record, so a single product has
+many rows: a regular price (`VKP0`) and often a sale price (`VKA0`/`VKA1`), each
+either specific to a store (`p_werks`) or applying across the sales organisation
+(`p_werks = '-'`).
+
+**Upload it unfiltered.** Rows for other sales organisations and other stores are
+discarded here, and the sales-org-wide rows are needed as the fallback price —
+filtering them out in Excel removes the data the selection depends on.
+
+### Which price wins
+
+Resolved separately for each of our three UK fascias (`fascias` table):
+
+| Fascia | `werks` | Sales org |
+| --- | --- | --- |
+| Goldsmiths | 197 | GS01 |
+| Mappin & Webb | 439 | GS01 |
+| Watches of Switzerland | 470 | GS01 |
+
+1. Take the rows for that fascia's sales organisation whose store code is either
+   the fascia's own or `-`, and which are valid today.
+2. Resolve a regular price and a sale price independently, each by precedence:
+   **store-specific beats sales-org-wide**, and among equally specific rows the
+   most recently started wins.
+3. Use the sale price only where it is genuinely cheaper than the regular price.
+   A "sale" at or above the regular price is reported and the regular used —
+   that is what a customer pays.
+
+Prices are treated as **gross (VAT inclusive)** and stored unchanged, so they
+compare directly with the competitor website prices we scrape.
+
+The result is one row per (product, fascia) in `fascia_prices`, holding the
+selling price, the regular price as a "was" figure when on sale, and the
+`kschl`/`werks` of the winning row so a surprising price can be traced back.
+
+### What the import reports rather than hides
+
+- **Prices with no usable validity dates.** A start/end column holding `00:00.0`
+  is Excel formatting a datetime as a time. Those rows still import, but an
+  expired price cannot be told from a live one until the export carries real
+  dates.
+- **Sales-org-wide sale against a fascia-specific regular.** The Pricing page
+  notes the live site may return the regular price here. The sale is applied and
+  the case listed, so it can be checked against the real website.
+- **"Sales" that are not cheaper**, unknown SKUs, and unparseable prices, each
+  with the row number.
+
+The `pltyp` (price list) level of precedence sits between store and sales
+organisation, but the loadsheet carries no such column, so only the outer two
+levels are applied.

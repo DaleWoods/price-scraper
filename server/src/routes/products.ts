@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { query } from '../db/pool.js';
 import { importCatalogue } from '../import/catalogueImport.js';
+import { importLoadsheet } from '../import/loadsheetImport.js';
 import { importPrices } from '../import/priceImport.js';
 import { getProductHistory } from '../services/comparison.js';
 
@@ -89,6 +90,22 @@ productsRouter.post('/import-prices', upload.single('file'), async (req, res) =>
       return;
     }
     res.json(await importPrices(req.file.buffer, req.file.originalname));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Import a SAP price loadsheet, resolving one selling price per UK fascia
+ * (Spec: store-specific beats sales-org-wide; sale beats regular when cheaper).
+ */
+productsRouter.post('/import-loadsheet', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'No file uploaded. Attach the loadsheet as "file".' });
+      return;
+    }
+    res.json(await importLoadsheet(req.file.buffer, req.file.originalname));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

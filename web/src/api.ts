@@ -106,6 +106,26 @@ export interface Competitor {
   logo_error: string | null;
 }
 
+export interface LoadsheetImportResult {
+  totalRows: number;
+  rowsNotOurs: number;
+  rowsConsidered: number;
+  productsPriced: number;
+  pricesWritten: number;
+  unknownSkus: string[];
+  unknownSkuCount: number;
+  failed: number;
+  errors: { row: number; code: string | null; error: string }[];
+  columnMapping: Record<string, string>;
+  fascias: { code: string; name: string; priced: number; missing: number }[];
+  warnings: {
+    noValidityDates: number;
+    saleNotCheaper: { sku: string; fascia: string }[];
+    precedenceAmbiguous: { sku: string; fascia: string }[];
+  };
+  productsWithoutAnyPrice: number;
+}
+
 export interface SystemStatus {
   catalogue: {
     products: number;
@@ -285,6 +305,15 @@ export const api = {
       `/api/competitors/refresh-logos${force ? '?force=1' : ''}`,
       { method: 'POST' },
     ),
+
+  importLoadsheet: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<LoadsheetImportResult>('/api/products/import-loadsheet', {
+      method: 'POST',
+      body: form,
+    });
+  },
 
   importPrices: (file: File) => {
     const form = new FormData();
