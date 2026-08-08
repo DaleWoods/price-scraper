@@ -128,6 +128,31 @@ export interface LoadsheetImportResult {
   productsWithoutAnyPrice: number;
 }
 
+export interface RobotsCheckRow {
+  slug: string;
+  name: string;
+  enabled?: boolean;
+  error?: string;
+  origin?: string;
+  status?: 'ok' | 'absent' | 'unreachable';
+  failureDetail?: string | null;
+  probe?: { url: string; allowed: boolean }[];
+  crawlDelaySeconds?: number | null;
+  sitemaps?: string[];
+  disallowRules?: string[];
+}
+
+export interface RobotsCheckResult {
+  userAgent: string;
+  results: RobotsCheckRow[];
+  summary: {
+    searchAllowed: number;
+    searchBlocked: number;
+    unreachable: number;
+    withSitemaps: number;
+  };
+}
+
 export interface SystemStatus {
   catalogue: {
     products: number;
@@ -286,6 +311,8 @@ export const api = {
   },
 
   systemStatus: () => request<SystemStatus>('/api/admin/status'),
+
+  robotsCheck: () => request<RobotsCheckResult>('/api/admin/robots-check', { method: 'POST' }),
 
   uploadLogo: (slug: string, file: File) => {
     const form = new FormData();

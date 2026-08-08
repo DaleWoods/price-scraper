@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError, formatDateTime, type Competitor, type SystemStatus } from '../api';
+import {
+  api,
+  ApiError,
+  formatDateTime,
+  type Competitor,
+  type RobotsCheckResult,
+  type SystemStatus,
+} from '../api';
 import { CompetitorLogoUpload } from '../components/CompetitorLogoUpload';
 import { Alert, Card, Stat, TableSkeleton, useToast } from '../components/ui';
 
@@ -49,6 +56,7 @@ export function AdminPage() {
       )}
 
       <SystemStatusSection status={status} loading={loading} />
+      <RobotsSection toast={toast} />
       <LogoSection competitors={competitors} loading={loading} onChange={load} toast={toast} />
     </div>
   );
@@ -281,4 +289,141 @@ function hostOf(url: string): string {
   } catch {
     return url;
   }
+}
+
+/**
+ * What each competitor's robots.txt actually permits.
+ *
+ * A run reporting "blocked" for every source does not distinguish a site that
+ * refuses us outright from one that merely closes the route we chose. This reads
+ * the rules and shows both the search decision and any sitemaps the site
+ * publishes — a sitemap being the crawler-sanctioned way to the same product
+ * pages when search is disallowed.
+ */
+function RobotsSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | 'info') => void }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<RobotsCheckResult | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const response = await api.robotsCheck();
+      setResult(response);
+      toast(
+        `${response.summary.searchAllowed} of ${response.results.length} allow the search route.`,
+        response.summary.searchAllowed > 0 ? 'ok' : 'info',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'robots.txt check failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card
+      title="Crawl permissions"
+      subtitle="What each competitor's robots.txt allows — reads the rules only, scrapes nothing"
+      actions={
+        <button type="button" className="btn btn--sm" onClick={() => void run()} disabled={busy}>
+          {busy ? 'Checking…' : 'Check robots.txt'}
+        </button>
+      }
+    >
+      {!result ? (
+        <p className="small muted" style={{ margin: 0 }}>
+          Run this to see which sources are usable and by what route. It needs outbound access to
+          the competitor domains, so it reports what your deployment can reach.
+        </p>
+      ) : (
+        <>
+          <div className="stat-grid" style={{ marginBottom: 'var(--sp-4)' }}>
+            <Stat
+              label="Search allowed"
+              value={result.summary.searchAllowed}
+              tone={result.summary.searchAllowed > 0 ? 'lower' : 'higher'}
+              icon={result.summary.searchAllowed > 0 ? '✓' : '▲'}
+            />
+            <Stat label="Search blocked" value={result.summary.searchBlocked} tone="higher" icon="⛔" />
+            <Stat label="Unreachable" value={result.summary.unreachable} tone="info" icon="?" />
+            <Stat
+              label="Publish sitemaps"
+              value={result.summary.withSitemaps}
+              tone="accent"
+              icon="🗺"
+              meta="Alternative route"
+            />
+          </div>
+
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Competitor</th>
+                  <th>robots.txt</th>
+                  <th>Search route</th>
+                  <th>Sitemaps</th>
+                  <th>Disallowed paths</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.results.map((row) => (
+                  <tr key={row.slug}>
+                    <td>
+                      <div className="cell-primary">{row.name}</div>
+                      <div className="cell-secondary mono xs">{row.origin ?? row.slug}</div>
+                    </td>
+                    <td className="small">
+                      {row.error ? (
+                        <span className="badge badge--higher">error</span>
+                      ) : row.status === 'ok' ? (
+                        <span className="badge badge--lower">read</span>
+                      ) : row.status === 'absent' ? (
+                        <span className="badge badge--neutral">none published</span>
+                      ) : (
+                        <span className="badge badge--higher">unreachable</span>
+                      )}
+                      {row.failureDetail && (
+                        <div className="cell-secondary xs">{row.failureDetail}</div>
+                      )}
+                      {row.crawlDelaySeconds != null && (
+                        <div className="cell-secondary xs">crawl-delay {row.crawlDelaySeconds}s</div>
+                      )}
+                    </td>
+                    <td className="small">
+                      {row.probe?.[0] ? (
+                        <span className={`badge badge--${row.probe[0].allowed ? 'lower' : 'higher'}`}>
+                          {row.probe[0].allowed ? 'allowed' : 'disallowed'}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="xs">
+                      {row.sitemaps && row.sitemaps.length > 0 ? (
+                        <span className="mono">{row.sitemaps.length} declared</span>
+                      ) : (
+                        <span className="muted">none</span>
+                      )}
+                    </td>
+                    <td className="xs mono muted" style={{ maxWidth: 280 }}>
+                      {row.disallowRules && row.disallowRules.length > 0
+                        ? row.disallowRules.slice(0, 6).join('  ')
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="small muted" style={{ marginTop: 'var(--sp-4)', marginBottom: 0 }}>
+            Checked as <span className="mono">{result.userAgent}</span>. A disallowed search route
+            does not necessarily mean the source is unusable — most retailers close internal search
+            while leaving product pages open, and publish a sitemap listing them.
+          </p>
+        </>
+      )}
+    </Card>
+  );
 }

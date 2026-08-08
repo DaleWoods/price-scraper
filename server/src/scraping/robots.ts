@@ -18,6 +18,10 @@ interface CachedRobots {
   fetchedAt: number;
   /** True when robots.txt could not be retrieved at all. */
   unavailable: boolean;
+  /** Why it could not be retrieved — an HTTP status, or the network error. */
+  failureDetail: string | null;
+  /** The raw file, kept so the diagnostic can show the actual rules. */
+  body: string | null;
 }
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -38,12 +42,27 @@ async function loadRobots(origin: string, userAgent: string): Promise<CachedRobo
     // 401/403/429 are access denials, NOT an absent file — assuming permission
     // there would be exactly backwards, so they fall through to unavailable.
     if (response.status === 404 || response.status === 410) {
-      const entry: CachedRobots = { robots: null, fetchedAt: Date.now(), unavailable: false };
+      const entry: CachedRobots = {
+        robots: null,
+        fetchedAt: Date.now(),
+        unavailable: false,
+        failureDetail: null,
+        body: null,
+      };
       cache.set(origin, entry);
       return entry;
     }
     if (!response.ok) {
-      const entry: CachedRobots = { robots: null, fetchedAt: Date.now(), unavailable: true };
+      const entry: CachedRobots = {
+        robots: null,
+        fetchedAt: Date.now(),
+        unavailable: true,
+        // The status distinguishes a site refusing us (403, often bot
+        // protection) from one that is merely broken (5xx) — very different
+        // signals about whether the source is viable at all.
+        failureDetail: `HTTP ${response.status}`,
+        body: null,
+      };
       cache.set(origin, entry);
       return entry;
     }
@@ -53,12 +72,21 @@ async function loadRobots(origin: string, userAgent: string): Promise<CachedRobo
       robots: robotsParser(robotsUrl, body),
       fetchedAt: Date.now(),
       unavailable: false,
+      failureDetail: null,
+      body,
     };
     cache.set(origin, entry);
     return entry;
   } catch (err) {
-    logger.warn('robots', `could not fetch ${robotsUrl}: ${(err as Error).message}`);
-    const entry: CachedRobots = { robots: null, fetchedAt: Date.now(), unavailable: true };
+    const detail = (err as Error).message;
+    logger.warn('robots', `could not fetch ${robotsUrl}: ${detail}`);
+    const entry: CachedRobots = {
+      robots: null,
+      fetchedAt: Date.now(),
+      unavailable: true,
+      failureDetail: detail,
+      body: null,
+    };
     cache.set(origin, entry);
     return entry;
   }
@@ -88,12 +116,14 @@ export async function checkRobots(url: string, userAgent: string): Promise<Robot
     return { allowed: false, reason: `Invalid URL: ${url}`, crawlDelayMs: null };
   }
 
-  const { robots, unavailable } = await loadRobots(origin, userAgent);
+  const { robots, unavailable, failureDetail } = await loadRobots(origin, userAgent);
 
   if (unavailable) {
     return {
       allowed: false,
-      reason: `robots.txt for ${origin} could not be retrieved — skipping rather than assuming permission`,
+      reason:
+        `robots.txt for ${origin} could not be retrieved` +
+        `${failureDetail ? ` (${failureDetail})` : ''} — skipping rather than assuming permission`,
       crawlDelayMs: null,
     };
   }
@@ -115,4 +145,90 @@ export async function checkRobots(url: string, userAgent: string): Promise<Robot
 
 export function clearRobotsCache(): void {
   cache.clear();
+}
+
+export interface RobotsInspection {
+  origin: string;
+  /** 'ok' when rules were read, 'absent' when none is published, 'unreachable' otherwise. */
+  status: 'ok' | 'absent' | 'unreachable';
+  failureDetail: string | null;
+  /** The URL the scraper would actually request, and whether it is permitted. */
+  probe: { url: string; allowed: boolean }[];
+  crawlDelaySeconds: number | null;
+  /**
+   * Sitemaps the site declares. These matter: a sitemap is published *for*
+   * crawlers, so where search is disallowed it is usually the sanctioned route
+   * to the same product URLs.
+   */
+  sitemaps: string[];
+  /** Disallow rules that apply to us, for seeing what is actually restricted. */
+  disallowRules: string[];
+}
+
+/**
+ * Read a site's robots.txt and report what it permits, without scraping
+ * anything. Answers "is this source usable at all, and by what route" — which a
+ * run that simply reports 'blocked' cannot.
+ */
+export async function inspectRobots(
+  origin: string,
+  userAgent: string,
+  probeUrls: string[],
+): Promise<RobotsInspection> {
+  const { robots, unavailable, failureDetail, body } = await loadRobots(origin, userAgent);
+
+  const status: RobotsInspection['status'] = unavailable
+    ? 'unreachable'
+    : robots
+      ? 'ok'
+      : 'absent';
+
+  const probe = probeUrls.map((url) => ({
+    url,
+    // No rules published means nothing is forbidden.
+    allowed: unavailable ? false : !robots || robots.isAllowed(url, userAgent) !== false,
+  }));
+
+  const crawlDelay = robots?.getCrawlDelay(userAgent);
+
+  return {
+    origin,
+    status,
+    failureDetail,
+    probe,
+    crawlDelaySeconds: typeof crawlDelay === 'number' ? crawlDelay : null,
+    sitemaps: robots?.getSitemaps() ?? [],
+    disallowRules: body ? extractDisallowRules(body, userAgent) : [],
+  };
+}
+
+/**
+ * Pull the Disallow paths that apply to us out of the raw file.
+ *
+ * Read directly rather than via the parser, which exposes decisions but not the
+ * rules behind them — and here the point is to show a person what the site
+ * actually restricts.
+ */
+export function extractDisallowRules(body: string, userAgent: string): string[] {
+  const agent = userAgent.toLowerCase();
+  const rules: string[] = [];
+  let applies = false;
+
+  for (const rawLine of body.split(/\r?\n/)) {
+    const line = rawLine.replace(/#.*$/, '').trim();
+    if (!line) continue;
+
+    const [rawKey, ...rest] = line.split(':');
+    const key = (rawKey ?? '').trim().toLowerCase();
+    const value = rest.join(':').trim();
+
+    if (key === 'user-agent') {
+      const target = value.toLowerCase();
+      applies = target === '*' || agent.includes(target);
+      continue;
+    }
+    if (applies && key === 'disallow' && value) rules.push(value);
+  }
+
+  return [...new Set(rules)];
 }

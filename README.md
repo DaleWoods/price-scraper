@@ -320,6 +320,7 @@ in the UI for per-target outcomes.
 | `POST` | `/api/products/import-prices` | Upload a price file, joined on SKU (multipart `file`) |
 | `POST` | `/api/products/import-loadsheet` | Upload the SAP price loadsheet (multipart `file`) |
 | `GET` | `/api/admin/status` | Read-only counts and timestamps for the Admin page |
+| `POST` | `/api/admin/robots-check` | Report what each competitor's robots.txt permits |
 | `GET` | `/api/competitors/:slug/logo` | Cached competitor logo; 404 when none is stored |
 | `POST` | `/api/competitors/refresh-logos` | Fetch missing logos (`?force=1` re-fetches all) |
 | `POST` | `/api/competitors/:slug/logo` | Upload a logo by hand (multipart `file`) |
@@ -508,3 +509,30 @@ field, the earlier alias wins, and a column holding data beats an empty one:
 and `Code` should use `SKU`. Likewise `Page Title` outranks `Identifier` and
 `Name`, because SAP loadsheets repeat the collection name across every variant
 while the page title is unique per product.
+
+## Crawl permissions
+
+**Admin → Crawl permissions** reads each competitor's robots.txt and reports what
+it allows. It fetches only `/robots.txt` — nothing is scraped — and shows, per
+competitor: whether the file could be read (with the HTTP status when not),
+whether the configured **search URL** is permitted, any **Crawl-delay**, the
+**sitemaps** the site declares, and the disallow rules that apply to us.
+
+This exists because a run that reports "blocked" for every source cannot tell
+you *why*. There are three quite different situations behind that word:
+
+- **The search route is disallowed.** Every competitor here is configured to hit
+  `/search`, and retailers almost universally close internal search to crawlers
+  while leaving product pages open — they want those indexed. The source may
+  still be usable by another route.
+- **robots.txt cannot be read at all** (typically HTTP 403). That is the site
+  refusing us, not an absent file, and we fail closed rather than assume
+  permission.
+- **No robots.txt is published** (404/410), which permits crawling.
+
+Where search is closed, the **sitemaps** column matters most: a sitemap is
+published *for* crawlers and usually lists the same product pages, so it is the
+sanctioned route to them.
+
+If a site actively blocks automated access, that is a signal to drop the source
+— not something to work around.
