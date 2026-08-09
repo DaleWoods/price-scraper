@@ -106,28 +106,6 @@ export interface Competitor {
   logo_error: string | null;
 }
 
-export interface LoadsheetImportResult {
-  totalRows: number;
-  rowsNotOurs: number;
-  rowsByIgnoredKschl: { kschl: string; rows: number }[];
-  rowsNet: number;
-  rowsConsidered: number;
-  productsPriced: number;
-  pricesWritten: number;
-  unknownSkus: string[];
-  unknownSkuCount: number;
-  failed: number;
-  errors: { row: number; code: string | null; error: string }[];
-  columnMapping: Record<string, string>;
-  fascias: { code: string; name: string; priced: number; missing: number }[];
-  warnings: {
-    noValidityDates: number;
-    saleNotCheaper: { sku: string; fascia: string }[];
-    precedenceAmbiguous: { sku: string; fascia: string }[];
-  };
-  productsWithoutAnyPrice: number;
-}
-
 export interface RobotsCheckRow {
   slug: string;
   name: string;
@@ -168,6 +146,31 @@ export interface SitemapCheckResult {
   userAgent: string;
   results: SitemapCheckRow[];
   summary: { withUsableSitemap: number; declaringSitemaps: number; failed: number };
+}
+
+export interface Fascia {
+  code: string;
+  name: string;
+  currency: string;
+  priced: number;
+}
+
+export interface FeedImportResult {
+  totalRows: number;
+  skippedBlank: number;
+  skippedHeaderRepeat: number;
+  productsCreated: number;
+  productsUpdated: number;
+  pricesWritten: number;
+  onSale: number;
+  failed: number;
+  errors: { row: number; id: string | null; error: string }[];
+  damagedGtin: number;
+  damagedMpn: number;
+  withUsableIdentifier: number;
+  priceHidden: number;
+  availability: Record<string, number>;
+  fascia: { code: string; name: string };
 }
 
 export interface SystemStatus {
@@ -231,18 +234,6 @@ export interface ImportResult {
   ignoredColumns: { column: string; reason: string }[];
   awaitingPrice: number;
   priceColumnFound: boolean;
-}
-
-export interface PriceImportResult {
-  totalRows: number;
-  updated: number;
-  unknownSkus: string[];
-  unknownSkuCount: number;
-  failed: number;
-  errors: { row: number; sku: string | null; error: string }[];
-  duplicateSkusCollapsed: number;
-  columnMapping: { sku: string; price: string; currency: string | null };
-  stillAwaitingPrice: number;
 }
 
 export class ApiError extends Error {
@@ -333,6 +324,17 @@ export const api = {
   deleteFinishedRuns: () =>
     request<{ deleted: number; skippedRunning: boolean }>('/api/runs', { method: 'DELETE' }),
 
+  fascias: () => request<{ fascias: Fascia[] }>('/api/admin/fascias'),
+
+  importFeed: (file: File, fasciaCode: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<FeedImportResult>(
+      `/api/products/import-feed?fascia=${encodeURIComponent(fasciaCode)}`,
+      { method: 'POST', body: form },
+    );
+  },
+
   systemStatus: () => request<SystemStatus>('/api/admin/status'),
 
   robotsCheck: () => request<RobotsCheckResult>('/api/admin/robots-check', { method: 'POST' }),
@@ -361,20 +363,7 @@ export const api = {
       { method: 'POST' },
     ),
 
-  importLoadsheet: (file: File) => {
-    const form = new FormData();
-    form.append('file', file);
-    return request<LoadsheetImportResult>('/api/products/import-loadsheet', {
-      method: 'POST',
-      body: form,
-    });
-  },
 
-  importPrices: (file: File) => {
-    const form = new FormData();
-    form.append('file', file);
-    return request<PriceImportResult>('/api/products/import-prices', { method: 'POST', body: form });
-  },
 
   matches: (status: string) => request<{ matches: MatchRow[]; total: number }>(`/api/matches${qs({ status })}`),
   confirmMatch: (id: number) => request<{ match: MatchRow }>(`/api/matches/${id}/confirm`, { method: 'POST' }),

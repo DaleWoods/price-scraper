@@ -9,6 +9,8 @@ function parseFilters(queryParams: Record<string, unknown>): ComparisonFilters {
   const validPositions = ['lower', 'equal', 'higher', 'unmatched', 'awaiting_price'];
 
   return {
+    fasciaCode:
+      typeof queryParams.fascia === 'string' && queryParams.fascia ? queryParams.fascia : null,
     brand: typeof queryParams.brand === 'string' && queryParams.brand ? queryParams.brand : null,
     category:
       typeof queryParams.category === 'string' && queryParams.category ? queryParams.category : null,

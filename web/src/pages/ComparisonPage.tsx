@@ -9,6 +9,7 @@ import {
   type ComparisonResponse,
   type ComparisonRow,
   type PricePosition,
+  type Fascia,
 } from '../api';
 import {
   Alert,
@@ -48,13 +49,34 @@ export function ComparisonPage() {
 
   const [search, setSearch] = useState('');
   const [brand, setBrand] = useState('');
+  // Prices are per fascia, so this chooses whose price the whole page compares.
+  const [fascia, setFascia] = useState('');
+  const [fascias, setFascias] = useState<Fascia[]>([]);
   const [category, setCategory] = useState('');
   const [position, setPosition] = useState<PositionFilter>('');
 
   const filters = useMemo(
-    () => ({ search: search || null, brand: brand || null, category: category || null, position: position || null }),
-    [search, brand, category, position],
+    () => ({
+      fascia: fascia || null,
+      search: search || null,
+      brand: brand || null,
+      category: category || null,
+      position: position || null,
+    }),
+    [fascia, search, brand, category, position],
   );
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const response = await api.fascias();
+        setFascias(response.fascias);
+        setFascia((current) => current || (response.fascias[0]?.code ?? ''));
+      } catch {
+        /* the page still works against the default fascia */
+      }
+    })();
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -185,6 +207,24 @@ export function ComparisonPage() {
       >
         <div className="card__body" style={{ paddingBottom: 'var(--sp-4)' }}>
           <div className="filter-bar">
+            <div className="field">
+              <label className="label" htmlFor="fascia">
+                Our site
+              </label>
+              <select
+                id="fascia"
+                className="select"
+                value={fascia}
+                onChange={(event) => setFascia(event.target.value)}
+              >
+                {fascias.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.name}
+                    {option.priced === 0 ? ' — no prices loaded' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="field field--grow">
               <label className="label" htmlFor="search">
                 Search

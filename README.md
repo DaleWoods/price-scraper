@@ -317,8 +317,8 @@ in the UI for per-target outcomes.
 | --- | --- | --- |
 | `GET` | `/api/health` | Database connectivity and auth state |
 | `POST` | `/api/products/import` | Upload a catalogue export (multipart `file`) |
-| `POST` | `/api/products/import-prices` | Upload a price file, joined on SKU (multipart `file`) |
-| `POST` | `/api/products/import-loadsheet` | Upload the SAP price loadsheet (multipart `file`) |
+| `POST` | `/api/products/import-feed` | Upload a Google feed for one fascia (`?fascia=<code>`) |
+| `GET` | `/api/admin/fascias` | Our sites, for the fascia selectors |
 | `GET` | `/api/admin/status` | Read-only counts and timestamps for the Admin page |
 | `POST` | `/api/admin/robots-check` | Report what each competitor's robots.txt permits |
 | `POST` | `/api/admin/sitemap-check` | Survey the sitemaps each competitor declares |
@@ -397,82 +397,6 @@ monitoring pages. Nothing on it runs a scrape or changes a price.
 
 This page is intended to grow; new administrative tooling belongs here rather
 than bolted onto the monitoring pages.
-
-## SAP price loadsheet
-
-The loadsheet carries one row per SAP condition record, so a single product has
-many rows: a regular price (`VKP0`) and often a sale price (`VKA0`/`VKA1`), each
-either specific to a store (`p_werks`) or applying across the sales organisation
-(`p_werks = '-'`).
-
-**Upload it unfiltered.** Rows for other sales organisations and other stores are
-discarded here, and the sales-org-wide rows are needed as the fallback price —
-filtering them out in Excel removes the data the selection depends on.
-
-### Which price wins
-
-Resolved separately for each of our three UK fascias (`fascias` table):
-
-| Fascia | `werks` | Sales org | Channel |
-| --- | --- | --- | --- |
-| Goldsmiths | 197 | GS01 | G1 |
-| Mappin & Webb | 439 | GS01 | G1 |
-| Watches of Switzerland | 470 | GS01 | G1 |
-
-Only two condition types are priced from:
-
-| `kschl` | Meaning |
-| --- | --- |
-| `VKP0` | UK RRP (regular price) |
-| `VKA0` | UK sale price |
-
-**`VKP1` and `VKA1` are US condition types and are excluded.** This matters more
-than it looks: `VKP1` rows appear in the UK export too, and under an earlier
-rule of "anything that is not a sale is a regular price" they were equally
-specific to `VKP0` and won the tie-break — resolving the regular price to
-£466.67 instead of £560. That corrupted the "was" figure and put a value
-carrying `p_net = 1` into comparisons against gross competitor prices.
-
-Any condition type outside the two above is counted and reported by name rather
-than guessed at, and a `p_net = 1` row is refused as a backstop whatever its
-type.
-
-1. Take the rows matching that fascia's sales organisation and distribution
-   channel, whose store code is either the fascia's own or `-`, and which are
-   valid today.
-2. Resolve a regular price and a sale price independently, each by precedence:
-   **store/fascia, then price list, then sales organisation**; among equally
-   specific rows the most recently started wins.
-3. Use the sale price only where it is genuinely cheaper than the regular price.
-   A "sale" at or above the regular price is reported and the regular used —
-   that is what a customer pays.
-
-Prices are treated as **gross (VAT inclusive)** and stored unchanged, so they
-compare directly with the competitor website prices we scrape.
-
-The result is one row per (product, fascia) in `fascia_prices`, holding the
-selling price, the regular price as a "was" figure when on sale, and the
-`kschl`/`werks` of the winning row so a surprising price can be traced back.
-
-### What the import reports rather than hides
-
-- **Prices with no usable validity dates.** A start/end column holding `00:00.0`
-  is Excel formatting a datetime as a time. Those rows still import, but an
-  expired price cannot be told from a live one until the export carries real
-  dates.
-- **Sales-org-wide sale against a fascia-specific regular.** The Pricing page
-  notes the live site may return the regular price here. The sale is applied and
-  the case listed, so it can be checked against the real website.
-- **"Sales" that are not cheaper**, unknown SKUs, and unparseable prices, each
-  with the row number.
-
-The `pltyp` (price list) level sits between store and sales organisation and is
-applied when a fascia has a `price_list_type` set. It is NULL by default, and a
-NULL never matches, so a price-list row cannot be picked up by accident.
-
-The export's own `p_currency` column is not used — it arrives as a hybris PK
-mangled into scientific notation (`8.79609E+12`), so each fascia's configured
-currency is authoritative.
 
 ## File formats and column names
 
@@ -565,3 +489,46 @@ Deleting a run removes the run and its per-target detail rows. **Price
 observations survive** — they reference the run with `ON DELETE SET NULL`, so
 clearing out noisy runs never destroys price history. The response reports how
 many observations were kept.
+
+## Google Shopping feed
+
+The feed each site sends to Google is now the single source for **both product
+content and price**. It replaced the SAP price loadsheet and the SKU+price
+importer, which are gone: the feed's prices are the ones live on the website, so
+no condition-record precedence has to be reconstructed to arrive at them, and
+every row carries the product URL and rich attributes for matching.
+
+**Upload one feed per fascia** (Import → Import Google feed, choosing the site).
+A product sold by more than one site keeps a price per site; the product content
+is shared and refreshed by whichever feed was imported last.
+
+| Feed column | Used as |
+| --- | --- |
+| `id` | SKU (`internal_sku`) |
+| `title` | Product name |
+| `brand` | Brand |
+| `gtin`, else `mpn` | EAN/MPN, when not damaged (see below) |
+| `link` | Our product URL |
+| `product_type` | Category |
+| `price`, `sale_price` | The fascia's price; a sale only when genuinely cheaper |
+| `price_visible=FALSE` | No price recorded — customers are not shown one |
+| everything else | Spec attributes for matching |
+
+### What it reports rather than hides
+
+- **Identifiers destroyed by Excel.** Long numbers arrive as scientific notation
+  (`7.32E+11`). These are refused rather than stored: a mangled barcode cannot
+  match a real one and could collide with another. In the first Goldsmiths feed
+  this was **263 of 266 GTINs**. Exporting without opening the file in Excel
+  would restore the strongest matching key available.
+- **Blank padding rows.** That feed carried 1,999 products followed by 201,456
+  empty rows — an Excel "used range" artefact, skipped silently but counted.
+- **Repeated header rows** embedded part-way through the file.
+- Rows with no title, and prices that could not be read.
+
+## Comparison is per fascia
+
+Because prices are per site, the comparison page has an **Our site** selector,
+and every figure on the page — position, deltas, summary — is measured against
+that site's price. A product with no price at the selected fascia shows as
+awaiting a price rather than silently borrowing another site's.

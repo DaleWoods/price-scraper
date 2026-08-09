@@ -29,6 +29,20 @@ export interface SystemStatus {
  * data what I think it is" before trusting a comparison, so nothing here
  * changes state.
  */
+/** Our own sites, for the comparison page's fascia selector. */
+adminRouter.get('/fascias', async (_req, res, next) => {
+  try {
+    const { rows } = await query<{ code: string; name: string; currency: string; priced: number }>(
+      `SELECT f.code, f.name, f.currency,
+              (SELECT count(*)::int FROM fascia_prices fp WHERE fp.fascia_id = f.id) AS priced
+       FROM fascias f WHERE f.enabled ORDER BY f.code`,
+    );
+    res.json({ fascias: rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
 adminRouter.get('/status', async (_req, res, next) => {
   try {
     const [catalogue, competitors, matching, observations, runs, schema] = await Promise.all([

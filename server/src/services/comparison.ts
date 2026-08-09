@@ -11,6 +11,8 @@ export function classifyPosition(ourPrice: number, competitorPrice: number): Pri
 }
 
 export interface ComparisonFilters {
+  /** Which of our fascias to price against. Defaults to the first enabled one. */
+  fasciaCode?: string | null;
   brand?: string | null;
   category?: string | null;
   competitorId?: number | null;
@@ -86,9 +88,30 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Prices are per fascia, so which one we are comparing against decides
+  // "our price" for every row on the page.
+  const { rows: fasciaRows } = await query<{ id: number; code: string; name: string }>(
+    `SELECT id, code, name FROM fascias
+     WHERE enabled AND ($1::text IS NULL OR code = $1)
+     ORDER BY code LIMIT 1`,
+    [filters.fasciaCode ?? null],
+  );
+  const fascia = fasciaRows[0] ?? null;
+
+  const fasciaParam = params.length + 1;
+  params.push(fascia?.id ?? null);
+
   const { rows: products } = await query<Product & { total_count: number }>(
-    `SELECT p.*, count(*) OVER () AS total_count
+    `SELECT p.id, p.internal_sku, p.brand, p.product_name, p.ean_mpn, p.category,
+            p.our_product_url, p.specs, p.created_at, p.updated_at,
+            fp.price          AS our_price,
+            fp.regular_price  AS our_was_price,
+            fp.on_sale        AS our_on_sale,
+            COALESCE(fp.currency, p.currency) AS currency,
+            count(*) OVER () AS total_count
      FROM products p
+     LEFT JOIN fascia_prices fp
+       ON fp.product_id = p.id AND fp.fascia_id = $${fasciaParam}
      ${where}
      ORDER BY p.brand, p.product_name
      LIMIT ${limit} OFFSET ${offset}`,

@@ -1,11 +1,5 @@
-import { useRef, useState, type DragEvent } from 'react';
-import {
-  api,
-  ApiError,
-  type ImportResult,
-  type LoadsheetImportResult,
-  type PriceImportResult,
-} from '../api';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { api, ApiError, type Fascia, type FeedImportResult, type ImportResult } from '../api';
 import { Alert, Card, Stat, useToast } from '../components/ui';
 
 const REQUIRED_COLUMNS = ['SKU', 'product name', 'brand (or a category column)'];
@@ -138,9 +132,9 @@ export function ImportPage() {
         </Alert>
       )}
 
-      <LoadsheetImportCard />
 
-      <PriceImportCard />
+
+      <FeedImportCard />
 
       {result && (
         <>
@@ -239,204 +233,57 @@ export function ImportPage() {
   );
 }
 
-/**
- * Prices arrive as their own file keyed on SKU, on a different cadence from the
- * content export. This only ever updates existing products — a price for a SKU
- * that is not in the catalogue is reported rather than turned into a phantom
- * product with no brand or name.
- */
-function PriceImportCard() {
-  const toast = useToast();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<PriceImportResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
 
-  const upload = async (selected: File) => {
-    setBusy(true);
-    setError(null);
-    setResult(null);
-    try {
-      const response = await api.importPrices(selected);
-      setResult(response);
-      toast(`Priced ${response.updated} product(s).`, 'ok');
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Price import failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <Card title="Load prices" subtitle="A separate file, joined to the catalogue on SKU">
-        <div
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDragging(false);
-            const dropped = event.dataTransfer.files?.[0];
-            if (dropped) {
-              setFile(dropped);
-              void upload(dropped);
-            }
-          }}
-          onClick={() => inputRef.current?.click()}
-          className={`dropzone${dragging ? ' dropzone--active' : ''}`}
-        >
-          <div style={{ fontSize: 34, marginBottom: 'var(--sp-2)' }}>💷</div>
-          <div style={{ fontWeight: 620, color: 'var(--text-strong)' }}>
-            {file ? file.name : 'Drop your price file here'}
-          </div>
-          <div className="small muted" style={{ marginTop: 4 }}>
-            or click to choose a file
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".csv,.tsv,.txt,.xls,.xlsx,.xlsm,.xltx"
-            hidden
-            onChange={(event) => {
-              const selected = event.target.files?.[0];
-              if (selected) {
-                setFile(selected);
-                void upload(selected);
-              }
-            }}
-          />
-        </div>
-
-        {busy && (
-          <div className="row muted" style={{ marginTop: 'var(--sp-4)' }}>
-            <span className="spinner" /> Applying prices…
-          </div>
-        )}
-
-        <p className="small muted" style={{ marginTop: 'var(--sp-4)' }}>
-          Needs a <strong>SKU</strong> column and a <strong>price</strong> column; currency is
-          optional and defaults to what the product already carries. Header names are flexible —
-          SKU / Product Code / Item Code, and Price / Our Price / Retail Price / RRP are all
-          recognised. Only existing products are updated; unknown SKUs are listed back to you rather
-          than created.
-        </p>
-      </Card>
-
-      {error && (
-        <Alert tone="danger" title="Price import failed">
-          {error}
-        </Alert>
-      )}
-
-      {result && (
-        <>
-          <div className="stat-grid">
-            <Stat label="Rows read" value={result.totalRows} tone="accent" icon="◆" />
-            <Stat label="Priced" value={result.updated} tone="lower" icon="£" />
-            <Stat
-              label="Unknown SKUs"
-              value={result.unknownSkuCount}
-              tone={result.unknownSkuCount > 0 ? 'higher' : 'equal'}
-              icon={result.unknownSkuCount > 0 ? '▲' : '✓'}
-              meta={result.unknownSkuCount > 0 ? 'Not in the catalogue' : 'All matched'}
-            />
-            <Stat
-              label="Still awaiting"
-              value={result.stillAwaitingPrice}
-              tone="info"
-              icon="⏳"
-              meta="Products with no price"
-            />
-          </div>
-
-          <Card title="How your columns were read">
-            <div className="spec-grid">
-              <div className="spec">
-                <div className="spec__key">sku</div>
-                <div className="spec__value">{result.columnMapping.sku}</div>
-              </div>
-              <div className="spec">
-                <div className="spec__key">price</div>
-                <div className="spec__value">{result.columnMapping.price}</div>
-              </div>
-              <div className="spec">
-                <div className="spec__key">currency</div>
-                <div className="spec__value">{result.columnMapping.currency ?? 'not supplied'}</div>
-              </div>
-            </div>
-          </Card>
-
-          {result.unknownSkuCount > 0 && (
-            <Alert tone="warn" title={`${result.unknownSkuCount} SKU(s) are not in the catalogue`}>
-              These were priced but no matching product exists — import the catalogue export first,
-              or check the SKUs match.{' '}
-              <span className="mono">{result.unknownSkus.slice(0, 12).join(', ')}</span>
-              {result.unknownSkuCount > 12 ? ' …' : ''}
-            </Alert>
-          )}
-
-          {result.errors.length > 0 && (
-            <Card title="Rows that failed" subtitle="Fix these and re-upload" bodyless>
-              <div className="table-wrap">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 90 }}>Row</th>
-                      <th style={{ width: 180 }}>SKU</th>
-                      <th>Problem</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.errors.map((row) => (
-                      <tr key={`${row.row}-${row.sku ?? ""}`}>
-                        <td className="num mono">{row.row}</td>
-                        <td className="mono">{row.sku ?? "—"}</td>
-                        <td className="small">{row.error}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
-        </>
-      )}
-    </>
-  );
-}
 
 /**
- * The SAP price loadsheet: one row per condition record, many rows per product.
+ * Google Shopping feed import — one feed per fascia, carrying both the product
+ * content and the price that site actually shows.
  *
- * Unlike the simple SKU+price file, this needs no pre-filtering — the rules for
- * which row wins (store-specific over sales-org-wide, sale over regular when it
- * is genuinely cheaper) are applied here rather than in a spreadsheet, so they
- * are consistent and can be checked against the Pricing documentation.
+ * Replaces the catalogue price column and the SAP price loadsheet: these are the
+ * prices live on the website, so no condition-record precedence has to be
+ * reconstructed to arrive at them.
  */
-function LoadsheetImportCard() {
+function FeedImportCard() {
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [fascias, setFascias] = useState<Fascia[]>([]);
+  const [fasciaCode, setFasciaCode] = useState('');
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<LoadsheetImportResult | null>(null);
+  const [result, setResult] = useState<FeedImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const response = await api.fascias();
+        setFascias(response.fascias);
+        setFasciaCode((current) => current || (response.fascias[0]?.code ?? ''));
+      } catch {
+        /* the selector stays empty; the upload attempt explains why */
+      }
+    })();
+  }, []);
+
   const upload = async (selected: File) => {
+    if (!fasciaCode) {
+      setError('Choose which site this feed is for before uploading.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setResult(null);
     try {
-      const response = await api.importLoadsheet(selected);
+      const response = await api.importFeed(selected, fasciaCode);
       setResult(response);
-      toast(`Priced ${response.productsPriced} product(s) across ${response.fascias.length} fascias.`, 'ok');
+      toast(
+        `${response.fascia.name}: ${response.pricesWritten} price(s) from ` +
+          `${response.productsCreated + response.productsUpdated} product(s).`,
+        'ok',
+      );
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Loadsheet import failed');
+      setError(err instanceof ApiError ? err.message : 'Feed import failed');
     } finally {
       setBusy(false);
     }
@@ -444,14 +291,36 @@ function LoadsheetImportCard() {
 
   return (
     <>
-      <Card title="Load SAP price loadsheet" subtitle="One selling price per UK fascia, worked out here">
+      <Card title="Import Google feed" subtitle="Products and prices together — one feed per site">
+        <div className="filter-bar" style={{ marginBottom: 'var(--sp-4)' }}>
+          <div className="field">
+            <label className="label" htmlFor="feed-fascia">
+              Which site is this feed for?
+            </label>
+            <select
+              id="feed-fascia"
+              className="select"
+              value={fasciaCode}
+              onChange={(event) => setFasciaCode(event.target.value)}
+            >
+              {fascias.length === 0 && <option value="">No sites configured</option>}
+              {fascias.map((fascia) => (
+                <option key={fascia.code} value={fascia.code}>
+                  {fascia.name} ({fascia.code})
+                  {fascia.priced > 0 ? ` — ${fascia.priced} priced` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <div
-          onDragOver={(event) => {
+          onDragOver={(event: DragEvent) => {
             event.preventDefault();
             setDragging(true);
           }}
           onDragLeave={() => setDragging(false)}
-          onDrop={(event) => {
+          onDrop={(event: DragEvent) => {
             event.preventDefault();
             setDragging(false);
             const dropped = event.dataTransfer.files?.[0];
@@ -463,9 +332,9 @@ function LoadsheetImportCard() {
           onClick={() => inputRef.current?.click()}
           className={`dropzone${dragging ? ' dropzone--active' : ''}`}
         >
-          <div style={{ fontSize: 34, marginBottom: 'var(--sp-2)' }}>🏷️</div>
+          <div style={{ fontSize: 34, marginBottom: 'var(--sp-2)' }}>🛒</div>
           <div style={{ fontWeight: 620, color: 'var(--text-strong)' }}>
-            {file ? file.name : 'Drop the price loadsheet here'}
+            {file ? file.name : 'Drop the Google feed here'}
           </div>
           <div className="small muted" style={{ marginTop: 4 }}>
             or click to choose a file
@@ -473,7 +342,7 @@ function LoadsheetImportCard() {
           <input
             ref={inputRef}
             type="file"
-            accept=".csv,.tsv,.txt,.xls,.xlsx,.xlsm,.xltx"
+            accept=".tsv,.csv,.txt,.xls,.xlsx"
             hidden
             onChange={(event) => {
               const selected = event.target.files?.[0];
@@ -487,19 +356,20 @@ function LoadsheetImportCard() {
 
         {busy && (
           <div className="row muted" style={{ marginTop: 'var(--sp-4)' }}>
-            <span className="spinner" /> Working out prices…
+            <span className="spinner" /> Importing feed…
           </div>
         )}
 
         <p className="small muted" style={{ marginTop: 'var(--sp-4)' }}>
-          Send it <strong>unfiltered</strong> — rows for other sales organisations and other stores
-          are discarded here, and the sales-org-wide rows are needed as the fallback price. Prices
-          are taken as gross (VAT inclusive), so they compare directly with competitor site prices.
+          Upload each site's feed separately — the price recorded is the one that site shows, so a
+          product sold by more than one keeps a price per site. Where a{' '}
+          <span className="mono">sale_price</span> is present and genuinely cheaper it becomes the
+          price, with the regular price kept as the "was" figure.
         </p>
       </Card>
 
       {error && (
-        <Alert tone="danger" title="Loadsheet import failed">
+        <Alert tone="danger" title="Feed import failed">
           {error}
         </Alert>
       )}
@@ -507,113 +377,66 @@ function LoadsheetImportCard() {
       {result && (
         <>
           <div className="stat-grid">
-            <Stat label="Rows read" value={result.totalRows} tone="accent" icon="◆" />
             <Stat
-              label="Rows used"
-              value={result.rowsConsidered}
-              tone="info"
-              icon="✓"
-              meta={`${result.rowsNotOurs} for other orgs or stores`}
+              label="Products"
+              value={result.productsCreated + result.productsUpdated}
+              tone="accent"
+              icon="◆"
+              meta={`${result.productsCreated} new, ${result.productsUpdated} updated`}
             />
-            <Stat label="Products priced" value={result.productsPriced} tone="lower" icon="£" />
             <Stat
-              label="Still unpriced"
-              value={result.productsWithoutAnyPrice}
-              tone={result.productsWithoutAnyPrice > 0 ? 'higher' : 'equal'}
-              icon={result.productsWithoutAnyPrice > 0 ? '▲' : '✓'}
-              meta="No price at any fascia"
+              label="Prices written"
+              value={result.pricesWritten}
+              tone="lower"
+              icon="£"
+              meta={`${result.fascia.name}${result.onSale > 0 ? ` · ${result.onSale} on sale` : ''}`}
+            />
+            <Stat
+              label="Usable EAN / MPN"
+              value={result.withUsableIdentifier}
+              tone={result.damagedGtin + result.damagedMpn > 0 ? 'higher' : 'equal'}
+              icon={result.damagedGtin + result.damagedMpn > 0 ? '▲' : '✓'}
+              meta="Strongest matching key"
+            />
+            <Stat
+              label="Rows skipped"
+              value={result.skippedBlank + result.skippedHeaderRepeat}
+              tone="info"
+              icon="⊘"
+              meta="Blank padding and repeated headers"
             />
           </div>
 
-          <Card title="What was left out" subtitle="Every row is accounted for">
-            <div className="spec-grid">
-              <div className="spec">
-                <div className="spec__key">Other org, channel or store</div>
-                <div className="spec__value">{result.rowsNotOurs}</div>
-              </div>
-              <div className="spec">
-                <div className="spec__key">Net (ex-VAT) rows</div>
-                <div className="spec__value">{result.rowsNet}</div>
-              </div>
-              {result.rowsByIgnoredKschl.map((entry) => (
-                <div className="spec" key={entry.kschl}>
-                  <div className="spec__key">Condition type {entry.kschl}</div>
-                  <div className="spec__value">{entry.rows}</div>
-                </div>
-              ))}
-            </div>
-            <p className="small muted" style={{ marginBottom: 0, marginTop: 'var(--sp-3)' }}>
-              Prices come from <strong>VKP0</strong> (UK RRP) and <strong>VKA0</strong> (UK sale)
-              only. <strong>VKP1</strong> is the net twin of VKP0 and is excluded — treating it as a
-              second regular price would put an ex-VAT figure into a gross comparison.
-            </p>
-          </Card>
-
-          <Card title="Per fascia" subtitle="How many products each of our sites now has a price for">
-            <div className="spec-grid">
-              {result.fascias.map((fascia) => (
-                <div className="spec" key={fascia.code}>
-                  <div className="spec__key">
-                    {fascia.name} ({fascia.code})
-                  </div>
-                  <div className="spec__value">
-                    {fascia.priced} priced
-                    {fascia.missing > 0 ? `, ${fascia.missing} without` : ''}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {result.warnings.noValidityDates > 0 && (
-            <Alert tone="warn" title={`${result.warnings.noValidityDates} price(s) had no usable validity dates`}>
-              The start/end columns held a time such as <span className="mono">00:00.0</span> rather
-              than a date — usually Excel formatting a datetime as a time on export. These prices
-              were imported anyway, but an expired price cannot be told from a live one until the
-              export carries real dates.
-            </Alert>
-          )}
-
-          {result.warnings.precedenceAmbiguous.length > 0 && (
+          {result.damagedGtin + result.damagedMpn > 0 && (
             <Alert
               tone="warn"
-              title={`${result.warnings.precedenceAmbiguous.length} price(s) worth checking against the live site`}
+              title={`${result.damagedGtin + result.damagedMpn} identifier(s) were destroyed before upload`}
             >
-              These have a sales-organisation-wide sale price but a fascia-specific regular price.
-              The sale was applied, but the Pricing documentation notes the live site may return the
-              regular price instead in this case.{' '}
-              <span className="mono">
-                {result.warnings.precedenceAmbiguous
-                  .slice(0, 8)
-                  .map((entry) => `${entry.sku} (${entry.fascia})`)
-                  .join(', ')}
-              </span>
+              {result.damagedGtin} GTIN and {result.damagedMpn} MPN values arrived as scientific
+              notation such as <span className="mono">7.32E+11</span> — what Excel does to long
+              numbers. They were not stored: a mangled barcode cannot match a real one, and could
+              collide with another mangled one. Exporting the feed without opening it in Excel would
+              give us the strongest matching key available.
             </Alert>
           )}
 
-          {result.warnings.saleNotCheaper.length > 0 && (
-            <Alert
-              tone="info"
-              title={`${result.warnings.saleNotCheaper.length} "sale" price(s) were not actually cheaper`}
-            >
-              A VKA0 sale row was priced at or above the regular price, so the regular price was
-              used — that is what a customer would pay.{' '}
-              <span className="mono">
-                {result.warnings.saleNotCheaper
-                  .slice(0, 8)
-                  .map((entry) => `${entry.sku} (${entry.fascia})`)
-                  .join(', ')}
-              </span>
+          {result.priceHidden > 0 && (
+            <Alert tone="info" title={`${result.priceHidden} product(s) have no visible price`}>
+              Marked <span className="mono">price_visible=FALSE</span>, so no price is shown to
+              customers and none was recorded — there is nothing to compare against.
             </Alert>
           )}
 
-          {result.unknownSkuCount > 0 && (
-            <Alert tone="warn" title={`${result.unknownSkuCount} SKU(s) are not in the catalogue`}>
-              Priced in the loadsheet but no matching product — import the catalogue first, or check
-              these are products we list.{' '}
-              <span className="mono">{result.unknownSkus.slice(0, 12).join(', ')}</span>
-            </Alert>
-          )}
+          <Card title="Stock position" subtitle="As stated by the feed">
+            <div className="spec-grid">
+              {Object.entries(result.availability).map(([state, count]) => (
+                <div className="spec" key={state}>
+                  <div className="spec__key">{state}</div>
+                  <div className="spec__value">{count}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
 
           {result.errors.length > 0 && (
             <Card title="Rows that failed" subtitle="Fix these and re-upload" bodyless>
@@ -622,15 +445,15 @@ function LoadsheetImportCard() {
                   <thead>
                     <tr>
                       <th style={{ width: 90 }}>Row</th>
-                      <th style={{ width: 180 }}>SKU</th>
+                      <th style={{ width: 180 }}>ID</th>
                       <th>Problem</th>
                     </tr>
                   </thead>
                   <tbody>
                     {result.errors.map((row) => (
-                      <tr key={`${row.row}-${row.code ?? ""}`}>
+                      <tr key={`${row.row}-${row.id ?? ''}`}>
                         <td className="num mono">{row.row}</td>
-                        <td className="mono">{row.code ?? "—"}</td>
+                        <td className="mono">{row.id ?? '—'}</td>
                         <td className="small">{row.error}</td>
                       </tr>
                     ))}

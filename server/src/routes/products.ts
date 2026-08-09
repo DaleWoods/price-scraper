@@ -2,8 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { query } from '../db/pool.js';
 import { importCatalogue } from '../import/catalogueImport.js';
-import { importLoadsheet } from '../import/loadsheetImport.js';
-import { importPrices } from '../import/priceImport.js';
+import { importFeed } from '../import/feedImport.js';
 import { getProductHistory } from '../services/comparison.js';
 
 export const productsRouter: Router = Router();
@@ -82,33 +81,27 @@ productsRouter.post('/import', upload.single('file'), async (req, res) => {
   }
 });
 
-/**
- * Apply a price file, joined on SKU (Spec §5.1 — prices arrive separately from
- * the product content export). Only updates existing products.
- */
-productsRouter.post('/import-prices', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      res.status(400).json({ error: 'No file uploaded. Attach a .csv or .xlsx price file as "file".' });
-      return;
-    }
-    res.json(await importPrices(req.file.buffer, req.file.originalname));
-  } catch (err) {
-    res.status(400).json({ error: (err as Error).message });
-  }
-});
+
 
 /**
- * Import a SAP price loadsheet, resolving one selling price per UK fascia
- * (Spec: store-specific beats sales-org-wide; sale beats regular when cheaper).
+ * Import a Google Shopping feed for one fascia.
+ *
+ * The feed carries product content and the price that fascia shows, so it is
+ * the single source for both — replacing the separate catalogue price column
+ * and the SAP loadsheet.
  */
-productsRouter.post('/import-loadsheet', upload.single('file'), async (req, res) => {
+productsRouter.post('/import-feed', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
-      res.status(400).json({ error: 'No file uploaded. Attach the loadsheet as "file".' });
+      res.status(400).json({ error: 'No file uploaded. Attach the feed as "file".' });
       return;
     }
-    res.json(await importLoadsheet(req.file.buffer, req.file.originalname));
+    const fascia = String(req.query.fascia ?? req.body?.fascia ?? '').trim();
+    if (!fascia) {
+      res.status(400).json({ error: 'Which fascia is this feed for? Pass ?fascia=<code>.' });
+      return;
+    }
+    res.json(await importFeed(req.file.buffer, req.file.originalname, fascia));
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
