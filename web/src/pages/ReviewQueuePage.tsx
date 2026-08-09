@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { api, ApiError, formatMoney, type MatchRow } from '../api';
+import { api, ApiError, formatMoney, type Fascia, type MatchRow } from '../api';
 import { Alert, Card, ConfidenceMeter, EmptyState, TableSkeleton, useToast } from '../components/ui';
 
 const TIER_LABELS: Record<string, string> = {
@@ -16,20 +16,35 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  // Our price is per site, so the queue has to say whose price it is showing.
+  const [fascia, setFascia] = useState('');
+  const [fascias, setFascias] = useState<Fascia[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.matches(status);
+      const response = await api.matches(status, fascia || null);
       setMatches(response.matches);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load the review queue');
     } finally {
       setLoading(false);
     }
-  }, [status]);
+  }, [status, fascia]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const response = await api.fascias();
+        setFascias(response.fascias);
+        setFascia((current) => current || (response.fascias[0]?.code ?? ''));
+      } catch {
+        /* the queue still loads against the default site */
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     void load();
@@ -69,12 +84,26 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
         title="Match review"
         subtitle={`${matches.length} ${status === 'all' ? 'total' : status}`}
         actions={
-          <select className="select" value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="pending">Pending review</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="rejected">Rejected</option>
-            <option value="all">All</option>
-          </select>
+          <>
+            <select
+              className="select"
+              value={fascia}
+              onChange={(event) => setFascia(event.target.value)}
+              title="Which of our sites' price to compare against"
+            >
+              {fascias.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+            <select className="select" value={status} onChange={(event) => setStatus(event.target.value)}>
+              <option value="pending">Pending review</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="rejected">Rejected</option>
+              <option value="all">All</option>
+            </select>
+          </>
         }
         bodyless
       >

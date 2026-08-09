@@ -20,6 +20,8 @@ export interface FeedImportResult {
   productsUpdated: number;
   pricesWritten: number;
   onSale: number;
+  /** Cheaper sale prices whose effective window has not opened, or has closed. */
+  saleNotYetActive: number;
   /** Rows whose price could not be read, or which had no usable SKU. */
   failed: number;
   errors: { row: number; id: string | null; error: string }[];
@@ -48,6 +50,28 @@ export interface FeedImportResult {
  */
 export function isDamagedIdentifier(value: string): boolean {
   return /^\d(\.\d+)?E\+\d+$/i.test(value.trim());
+}
+
+/**
+ * Is a feed sale window open right now?
+ *
+ * Google states the window as two ISO timestamps separated by a slash. A sale
+ * that has not started, or has finished, must not be applied — otherwise a
+ * scheduled promotion becomes today's price and we report ourselves cheaper
+ * than we are. An empty or unparseable window means "no restriction", matching
+ * Google's own treatment of an absent field.
+ */
+export function isSaleWindowOpen(raw: string | undefined, now: Date = new Date()): boolean {
+  const value = (raw ?? '').trim();
+  if (!value) return true;
+
+  const [from, to] = value.split('/').map((part) => part.trim());
+  const start = from ? new Date(from) : null;
+  const end = to ? new Date(to) : null;
+
+  if (start && !Number.isNaN(start.getTime()) && now < start) return false;
+  if (end && !Number.isNaN(end.getTime()) && now > end) return false;
+  return true;
 }
 
 /** "1900.0 GBP" -> { amount: 1900, currency: 'GBP' } */
@@ -135,6 +159,7 @@ export async function importFeed(
     productsUpdated: 0,
     pricesWritten: 0,
     onSale: 0,
+    saleNotYetActive: 0,
     failed: 0,
     errors: [],
     damagedGtin: 0,
@@ -241,23 +266,26 @@ export async function importFeed(
       }
 
       const sale = parseFeedPrice(get('sale_price'));
-      // Same rule as before: a sale only counts when it is genuinely cheaper.
-      const useSale = sale !== null && sale.amount < regular.amount;
+      // A sale counts only when it is genuinely cheaper AND its window is open:
+      // the feed carries scheduled promotions that are not live yet.
+      const windowOpen = isSaleWindowOpen(get('sale_price_effective_date'));
+      if (sale !== null && sale.amount < regular.amount && !windowOpen) {
+        result.saleNotYetActive += 1;
+      }
+      const useSale = sale !== null && sale.amount < regular.amount && windowOpen;
       if (useSale) result.onSale += 1;
 
       await client.query(
         `INSERT INTO fascia_prices
            (product_id, fascia_id, price, regular_price, on_sale, currency,
-            source_kschl, source_werks, imported_at, feed_import_id)
-         VALUES ($1, $2, $3, $4, $5, $6, 'feed', $7, now(), $8)
+            imported_at, feed_import_id)
+         VALUES ($1, $2, $3, $4, $5, $6, now(), $7)
          ON CONFLICT (product_id, fascia_id) DO UPDATE SET
            feed_import_id = EXCLUDED.feed_import_id,
            price         = EXCLUDED.price,
            regular_price = EXCLUDED.regular_price,
            on_sale       = EXCLUDED.on_sale,
            currency      = EXCLUDED.currency,
-           source_kschl  = EXCLUDED.source_kschl,
-           source_werks  = EXCLUDED.source_werks,
            imported_at   = now()`,
         [
           product.id,
@@ -266,7 +294,6 @@ export async function importFeed(
           useSale ? regular.amount : null,
           useSale,
           regular.currency ?? fascia.currency,
-          fascia.code,
           feedImportId,
         ],
       );

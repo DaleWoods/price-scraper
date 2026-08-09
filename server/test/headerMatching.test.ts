@@ -1,26 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { detectDelimiter, detectFormat, normaliseHeader } from '../src/import/parseTabular.ts';
-
-describe('normaliseHeader', () => {
-  it('strips the decorations hybris Backoffice adds', () => {
-    // These exact headings came back in a failed import.
-    assert.equal(normaliseHeader('Article Number*^'), 'article number');
-    assert.equal(normaliseHeader('Identifier[en]'), 'identifier');
-    assert.equal(normaliseHeader('Supercategories†'), 'supercategories');
-    assert.equal(normaliseHeader('Catalog version*^'), 'catalog version');
-  });
-
-  it('still normalises ordinary separators', () => {
-    assert.equal(normaliseHeader('internal_sku'), 'internal sku');
-    assert.equal(normaliseHeader('  Product   Name  '), 'product name');
-    assert.equal(normaliseHeader('Manufacturer-Name'), 'manufacturer name');
-  });
-
-  it('leaves meaningful punctuation alone', () => {
-    assert.equal(normaliseHeader('EAN/MPN'), 'ean/mpn');
-  });
-});
+import { detectDelimiter, detectFormat } from '../src/import/parseTabular.ts';
 
 describe('detectFormat', () => {
   it('recognises a zip-based workbook whatever the extension', () => {

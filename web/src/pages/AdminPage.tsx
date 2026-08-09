@@ -90,14 +90,18 @@ function SystemStatusSection({
           meta={`${status.catalogue.brands} brand(s)`}
         />
         <Stat
-          label="Priced"
-          value={status.catalogue.withPrice}
-          tone={status.catalogue.awaitingPrice > 0 ? 'info' : 'lower'}
+          label="Priced at every site"
+          value={
+            status.fasciaCoverage.length === 0
+              ? 0
+              : Math.min(...status.fasciaCoverage.map((f) => f.priced))
+          }
+          tone={status.fasciaCoverage.some((f) => f.missing > 0) ? 'info' : 'lower'}
           icon="£"
           meta={
-            status.catalogue.awaitingPrice > 0
-              ? `${status.catalogue.awaitingPrice} awaiting a price`
-              : 'All products priced'
+            status.fasciaCoverage.some((f) => f.missing > 0)
+              ? 'Coverage differs by site — see below'
+              : 'Every site has a price for all products'
           }
         />
         <Stat
@@ -140,6 +144,13 @@ function SystemStatusSection({
           />
           <Detail label="Last run" value={formatWhen(status.runs.lastRunAt)} />
           <Detail label="Competitors with a logo" value={String(status.competitors.withLogo)} />
+          {status.fasciaCoverage.map((f) => (
+            <Detail
+              key={f.code}
+              label={`${f.name} priced`}
+              value={f.missing > 0 ? `${f.priced} (${f.missing} without)` : `${f.priced} — complete`}
+            />
+          ))}
           <Detail
             label="Delisted products"
             value={

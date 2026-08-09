@@ -143,10 +143,6 @@ export async function checkRobots(url: string, userAgent: string): Promise<Robot
   };
 }
 
-export function clearRobotsCache(): void {
-  cache.clear();
-}
-
 export interface RobotsInspection {
   origin: string;
   /** 'ok' when rules were read, 'absent' when none is published, 'unreachable' otherwise. */

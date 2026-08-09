@@ -100,7 +100,6 @@ export async function parseExcelBuffer(buffer: Buffer): Promise<{ headers: strin
   return { headers: headers.filter(Boolean), rows };
 }
 
-
 export type TabularFormat = 'xlsx' | 'legacy-xls' | 'html' | 'text';
 
 /**
@@ -144,34 +143,4 @@ export async function parseTabularFile(buffer: Buffer, filename: string): Promis
     default:
       return parseCsvBuffer(buffer);
   }
-}
-
-/**
- * Reduce a column heading to something comparable.
- *
- * Export tools decorate headings: hybris Backoffice marks mandatory and unique
- * columns ("Article Number*^") and appends locale qualifiers ("Identifier[en]").
- * Those decorations are not part of the column's meaning, so they are stripped
- * before matching — otherwise a perfectly ordinary SKU column goes unrecognised.
- */
-export function normaliseHeader(header: string): string {
-  return header
-    .replace(/\[[^\]]*\]/g, ' ')
-    .replace(/[*^†‡§¶#~]/g, ' ')
-    .toLowerCase()
-    .replace(/[\s_-]+/g, ' ')
-    .trim();
-}
-
-/** How many rows actually hold a value in each column. */
-export function countFilled(table: ParsedTable): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const header of table.headers) {
-    if (!header) continue;
-    counts.set(
-      header,
-      table.rows.reduce((n, row) => n + ((row.values[header] ?? '').trim() ? 1 : 0), 0),
-    );
-  }
-  return counts;
 }

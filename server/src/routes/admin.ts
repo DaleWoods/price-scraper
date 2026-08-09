@@ -18,6 +18,8 @@ export interface SystemStatus {
     delisted: number;
   };
   competitors: { total: number; enabled: number; withLogo: number };
+  /** Priced coverage per site, which is the only level at which it means anything. */
+  fasciaCoverage: { code: string; name: string; priced: number; missing: number }[];
   matching: { confirmed: number; pending: number; rejected: number; productsMatched: number };
   observations: { total: number; lastObservedAt: string | null };
   runs: { total: number; lastRunAt: string | null; lastRunStatus: string | null };
@@ -47,7 +49,8 @@ adminRouter.get('/fascias', async (_req, res, next) => {
 
 adminRouter.get('/status', async (_req, res, next) => {
   try {
-    const [catalogue, competitors, matching, observations, runs, schema] = await Promise.all([
+    const [catalogue, competitors, matching, observations, runs, schema, coverage] =
+      await Promise.all([
       query<{
         products: number;
         delisted: number;
@@ -90,6 +93,16 @@ adminRouter.get('/status', async (_req, res, next) => {
       query<{ filename: string; applied_at: string }>(
         'SELECT filename, applied_at::text FROM schema_migrations ORDER BY filename',
       ),
+      query<{ code: string; name: string; priced: number; missing: number }>(
+        `SELECT f.code, f.name,
+                count(fp.id)::int AS priced,
+                ((SELECT count(*) FROM products WHERE delisted_at IS NULL) - count(fp.id))::int
+                  AS missing
+         FROM fascias f
+         LEFT JOIN fascia_prices fp ON fp.fascia_id = f.id
+         WHERE f.enabled
+         GROUP BY f.code, f.name ORDER BY f.code`,
+      ),
     ]);
 
     const c = catalogue.rows[0]!;
@@ -108,6 +121,7 @@ adminRouter.get('/status', async (_req, res, next) => {
         delisted: c.delisted,
       },
       competitors: { total: comp.total, enabled: comp.enabled, withLogo: comp.with_logo },
+      fasciaCoverage: coverage.rows,
       matching: {
         confirmed: m.confirmed,
         pending: m.pending,

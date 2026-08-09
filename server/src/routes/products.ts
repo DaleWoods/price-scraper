@@ -49,10 +49,12 @@ productsRouter.get('/facets', async (_req, res, next) => {
   try {
     const [brands, categories] = await Promise.all([
       query<{ value: string }>(
-        `SELECT DISTINCT brand AS value FROM products WHERE brand <> '' ORDER BY 1`,
+        `SELECT DISTINCT brand AS value FROM products
+         WHERE brand <> '' AND delisted_at IS NULL ORDER BY 1`,
       ),
       query<{ value: string }>(
-        `SELECT DISTINCT category AS value FROM products WHERE category IS NOT NULL AND category <> '' ORDER BY 1`,
+        `SELECT DISTINCT category AS value FROM products
+         WHERE category IS NOT NULL AND category <> '' AND delisted_at IS NULL ORDER BY 1`,
       ),
     ]);
     res.json({

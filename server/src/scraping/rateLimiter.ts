@@ -65,6 +65,3 @@ export async function withRateLimit<T>(
   }
 }
 
-export function resetRateLimiter(): void {
-  domains.clear();
-}

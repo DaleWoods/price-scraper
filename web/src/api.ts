@@ -163,6 +163,7 @@ export interface FeedImportResult {
   productsUpdated: number;
   pricesWritten: number;
   onSale: number;
+  saleNotYetActive: number;
   failed: number;
   errors: { row: number; id: string | null; error: string }[];
   damagedGtin: number;
@@ -187,6 +188,7 @@ export interface SystemStatus {
     delisted: number;
   };
   competitors: { total: number; enabled: number; withLogo: number };
+  fasciaCoverage: { code: string; name: string; priced: number; missing: number }[];
   matching: { confirmed: number; pending: number; rejected: number; productsMatched: number };
   observations: { total: number; lastObservedAt: string | null };
   runs: { total: number; lastRunAt: string | null; lastRunStatus: string | null };
@@ -351,7 +353,10 @@ export const api = {
 
 
 
-  matches: (status: string) => request<{ matches: MatchRow[]; total: number }>(`/api/matches${qs({ status })}`),
+  matches: (status: string, fascia?: string | null) =>
+    request<{ matches: MatchRow[]; total: number; fascia: { code: string; name: string } | null }>(
+      `/api/matches${qs({ status, fascia: fascia ?? null })}`,
+    ),
   confirmMatch: (id: number) => request<{ match: MatchRow }>(`/api/matches/${id}/confirm`, { method: 'POST' }),
   rejectMatch: (id: number) => request<{ match: MatchRow }>(`/api/matches/${id}/reject`, { method: 'POST' }),
   linkMatch: (productId: number, competitorId: number, url: string) =>

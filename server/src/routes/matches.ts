@@ -26,21 +26,43 @@ matchesRouter.get('/', async (req, res, next) => {
       where = 'WHERE m.status = $1';
     }
 
+    // Our price is per fascia, so reviewing a candidate needs to say whose
+    // price is being shown. Without this the column read NULL for every row,
+    // since nothing writes products.our_price any more.
+    const requested = typeof req.query.fascia === 'string' ? req.query.fascia : null;
+    const { rows: fasciaRows } = await query<{ id: number; code: string; name: string }>(
+      `SELECT id, code, name FROM fascias
+       WHERE enabled AND ($1::text IS NULL OR code = $1)
+       ORDER BY code LIMIT 1`,
+      [requested],
+    );
+    const fascia = fasciaRows[0] ?? null;
+    params.push(fascia?.id ?? null);
+    const fasciaParam = params.length;
+
     const { rows } = await query(
       `SELECT m.*, count(*) OVER () AS total_count,
-              p.internal_sku, p.brand, p.product_name, p.our_price, p.currency,
+              p.internal_sku, p.brand, p.product_name,
+              fp.price AS our_price,
+              COALESCE(fp.currency, 'GBP') AS currency,
               p.category, p.ean_mpn, p.specs, p.our_product_url,
               c.display_name AS competitor_name, c.slug AS competitor_slug
        FROM product_matches m
        JOIN products p    ON p.id = m.product_id
        JOIN competitors c ON c.id = m.competitor_id
+       LEFT JOIN fascia_prices fp
+         ON fp.product_id = p.id AND fp.fascia_id = $${fasciaParam}
        ${where}
        ORDER BY m.confidence DESC, m.id
        LIMIT ${limit}`,
       params,
     );
 
-    res.json({ matches: rows, total: rows[0]?.total_count ?? 0 });
+    res.json({
+      matches: rows,
+      total: rows[0]?.total_count ?? 0,
+      fascia: fascia ? { code: fascia.code, name: fascia.name } : null,
+    });
   } catch (err) {
     next(err);
   }

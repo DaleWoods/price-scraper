@@ -318,6 +318,7 @@ in the UI for per-target outcomes.
 | `GET` | `/api/health` | Database connectivity and auth state |
 | `POST` | `/api/products/import-feed` | Upload a Google feed for one fascia (`?fascia=<code>`) |
 | `GET` | `/api/admin/fascias` | Our sites, for the fascia selectors |
+| `GET` | `/api/matches?fascia=<code>` | Review queue, priced against one of our sites |
 | `GET` | `/api/admin/status` | Read-only counts and timestamps for the Admin page |
 | `POST` | `/api/admin/robots-check` | Report what each competitor's robots.txt permits |
 | `POST` | `/api/admin/sitemap-check` | Survey the sitemaps each competitor declares |
@@ -543,9 +544,20 @@ scan to that one product, which it did not before.
 - **Repeated header rows** embedded part-way through the file.
 - Rows with no title, and prices that could not be read.
 
-## Comparison is per fascia
+## Everything priced is per fascia
 
-Because prices are per site, the comparison page has an **Our site** selector,
-and every figure on the page — position, deltas, summary — is measured against
-that site's price. A product with no price at the selected fascia shows as
-awaiting a price rather than silently borrowing another site's.
+Because prices are per site, both the **comparison** and the **match review
+queue** carry an *Our site* selector, and every figure — position, deltas,
+summary, the price shown beside a candidate match — is measured against that
+site's price. A product with no price at the selected site reads as awaiting a
+price rather than silently borrowing another site's.
+
+`products.our_price` no longer exists. It was left behind by the single-price
+model and caused exactly the bug that model invites: the review queue selected
+it and showed NULL for every row, because nothing had written it since the feed
+arrived. Anything showing "our price" now joins `fascia_prices` for the site in
+context.
+
+Admin reports **coverage per site** for the same reason — a single "priced"
+figure across all sites cannot distinguish "every site has this price" from
+"one site does".
