@@ -562,6 +562,16 @@ Admin reports **coverage per site** for the same reason — a single "priced"
 figure across all sites cannot distinguish "every site has this price" from
 "one site does".
 
+## User guide
+
+The app carries its own guide at **Help → User guide**
+(`web/src/pages/GuidePage.tsx`): what each page is for, what the numbers mean,
+and the failure modes worth knowing about. It is written for whoever is running
+price monitoring rather than for a developer.
+
+It ships with the behaviour it describes, so it must be updated in the same
+commit as any user-visible change — see `CLAUDE.md`.
+
 ## Discovery comes from sitemaps, not search
 
 Every competitor disallows `/search` in robots.txt, so their on-site search

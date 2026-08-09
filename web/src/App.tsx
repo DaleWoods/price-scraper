@@ -4,6 +4,7 @@ import { api, ApiError } from './api';
 import { Alert } from './components/ui';
 import { ComparisonPage } from './pages/ComparisonPage';
 import { AdminPage } from './pages/AdminPage';
+import { GuidePage } from './pages/GuidePage';
 import { CompetitorsPage } from './pages/CompetitorsPage';
 import { ImportPage } from './pages/ImportPage';
 import { LoginPage } from './pages/LoginPage';
@@ -24,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/import', label: 'Import feed', icon: '📥', section: 'Configure' },
   { to: '/competitors', label: 'Competitors', icon: '🏬', section: 'Configure' },
   { to: '/admin', label: 'Admin', icon: '⚙️', section: 'Configure' },
+  { to: '/guide', label: 'User guide', icon: '📖', section: 'Help' },
 ];
 
 const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
@@ -33,6 +35,7 @@ const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
   '/import': { eyebrow: 'Configure', title: 'Import product feed' },
   '/competitors': { eyebrow: 'Configure', title: 'Competitors' },
   '/admin': { eyebrow: 'Configure', title: 'Admin' },
+  '/guide': { eyebrow: 'Help', title: 'User guide' },
 };
 
 export function App() {
@@ -170,6 +173,7 @@ export function App() {
           <Route path="/import" element={<ImportPage />} />
           <Route path="/competitors" element={<CompetitorsPage />} />
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/guide" element={<GuidePage />} />
           <Route path="*" element={<Navigate to="/comparison" replace />} />
         </Routes>
       </div>

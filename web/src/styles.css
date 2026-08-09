@@ -1154,3 +1154,67 @@ code {
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* ---- User guide -------------------------------------------------------- */
+
+.guide-contents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-2);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.guide-contents a {
+  display: block;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  text-decoration: none;
+  font-weight: 560;
+}
+
+.guide-contents a:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.guide-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+/* A labelled definition: the term stands out, the explanation reads as prose. */
+.guide-term {
+  display: grid;
+  grid-template-columns: minmax(190px, 240px) 1fr;
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--border);
+}
+
+.guide-term:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.guide-term__label {
+  font-weight: 660;
+  color: var(--text-strong);
+}
+
+.guide-term__body {
+  color: var(--text);
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .guide-term {
+    grid-template-columns: 1fr;
+    gap: var(--sp-1);
+  }
+}
