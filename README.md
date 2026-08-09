@@ -561,3 +561,33 @@ context.
 Admin reports **coverage per site** for the same reason — a single "priced"
 figure across all sites cannot distinguish "every site has this price" from
 "one site does".
+
+## Discovery comes from sitemaps, not search
+
+Every competitor disallows `/search` in robots.txt, so their on-site search
+cannot be used to find their listing for one of our products. Discovery walks
+the URLs they publish for crawlers instead.
+
+1. **Once per run**, each competitor's sitemaps are harvested into
+   `competitor_urls` — the URL plus its path reduced to words. Walking the
+   sitemap once rather than once per product is the difference between one
+   request and thousands.
+2. **Per product**, the cached URLs are ranked against the product's brand,
+   name and manufacturer reference using Postgres' built-in full-text search
+   (no extension required, which matters on managed databases). Retailers put
+   the product name in the slug, so this finds candidates without fetching a
+   single page.
+3. The top few candidates are **opened and scored** exactly as before — JSON-LD
+   first, selectors as a fallback. A sitemap gives a URL and nothing else, so a
+   candidate whose page cannot be opened is discarded rather than guessed at.
+
+Every product page fetch is still checked against robots.txt. Being listed in a
+sitemap grants no exemption.
+
+Set `"discovery": "search"` in a competitor's config to use their on-site search
+instead, for any site that permits it. The default is `sitemap`.
+
+**A competitor not stocking one of our products is recorded as skipped, not as
+an error.** Most of our range is not carried by most of them, so counting it as
+a failure would bury the real errors under thousands of rows saying nothing more
+than "they don't sell this".

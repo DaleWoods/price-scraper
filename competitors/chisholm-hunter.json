@@ -96,13 +96,14 @@
         ".product-card__price"
       ],
       "maxCandidates": 10
-    }
+    },
+    "discovery": "sitemap"
   },
   "_notes": [
     "Spelled 'Chisholm Hunter'. Confirm whether the live site is .com or .co.uk before enabling.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",
-    "selector below are informed guesses \u2014 they were written without network access to this",
+    "selector below are informed guesses — they were written without network access to this",
     "retailer, so none of them has been checked against the live site.",
     "",
     "Before enabling:",

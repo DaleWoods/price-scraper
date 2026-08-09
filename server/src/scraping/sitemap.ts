@@ -207,3 +207,94 @@ export async function surveySitemaps(
 
   return survey;
 }
+
+/** Reduce a URL to the words in its path, which is what candidate search reads. */
+export function slugWords(url: string): string {
+  let path: string;
+  try {
+    path = decodeURIComponent(new URL(url).pathname);
+  } catch {
+    path = url;
+  }
+  return path
+    .toLowerCase()
+    // Split on anything that is not a letter or digit, so "M116503-0001" and
+    // "cosmograph_daytona" both become searchable words.
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Walk a competitor's sitemaps and cache every URL they list.
+ *
+ * Unlike the Admin survey this follows the whole tree, because the result is
+ * the index discovery searches. Bounded by `maxUrls` so a runaway sitemap
+ * cannot exhaust memory.
+ */
+export async function harvestSitemapUrls(
+  origin: string,
+  userAgent: string,
+  options: { maxUrls?: number; maxSitemaps?: number } = {},
+): Promise<{ urls: SitemapUrl[]; fetched: SitemapFetch[]; error: string | null }> {
+  const maxUrls = options.maxUrls ?? 200_000;
+  const maxSitemaps = options.maxSitemaps ?? 100;
+
+  const fetched: SitemapFetch[] = [];
+  const urls: SitemapUrl[] = [];
+  const seen = new Set<string>();
+
+  let inspection;
+  try {
+    inspection = await inspectRobots(origin, userAgent, []);
+  } catch (err) {
+    return { urls, fetched, error: (err as Error).message };
+  }
+  if (inspection.status === 'unreachable') {
+    return {
+      urls,
+      fetched,
+      error: `robots.txt could not be read (${inspection.failureDetail ?? 'unknown'})`,
+    };
+  }
+
+  const queue = inspection.sitemaps.length ? [...inspection.sitemaps] : [`${origin}/sitemap.xml`];
+
+  while (queue.length > 0 && fetched.length < maxSitemaps && urls.length < maxUrls) {
+    const url = queue.shift()!;
+    if (seen.has(url)) continue;
+    seen.add(url);
+
+    // A declared sitemap is still subject to robots.txt.
+    const decision = await checkRobots(url, userAgent);
+    if (!decision.allowed) {
+      fetched.push({ url, ok: false, error: decision.reason, isIndex: false, urlCount: 0, childSitemaps: [] });
+      continue;
+    }
+
+    try {
+      const body = await fetchSitemapBody(url, userAgent);
+      const parsed = parseSitemapXml(body);
+      fetched.push({
+        url,
+        ok: true,
+        error: null,
+        isIndex: parsed.isIndex,
+        urlCount: parsed.urls.length,
+        childSitemaps: parsed.children.slice(0, 50),
+      });
+
+      for (const entry of parsed.urls) {
+        if (urls.length >= maxUrls) break;
+        urls.push(entry);
+      }
+      queue.push(...parsed.children);
+    } catch (err) {
+      const message = (err as Error).message;
+      logger.warn('sitemap', `${url}: ${message}`);
+      fetched.push({ url, ok: false, error: message, isIndex: false, urlCount: 0, childSitemaps: [] });
+    }
+  }
+
+  return { urls, fetched, error: null };
+}

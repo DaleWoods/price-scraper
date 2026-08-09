@@ -29,9 +29,17 @@
     },
     "product": {
       "useJsonLd": true,
-      "sanityContains": ["h1", "[itemtype*='Product'], script[type='application/ld+json'], .product-detail, .pdp-main"],
+      "sanityContains": [
+        "h1",
+        "[itemtype*='Product'], script[type='application/ld+json'], .product-detail, .pdp-main"
+      ],
       "selectors": {
-        "title": ["h1.product-name", "h1.product-detail__name", "h1[itemprop='name']", "h1"],
+        "title": [
+          "h1.product-name",
+          "h1.product-detail__name",
+          "h1[itemprop='name']",
+          "h1"
+        ],
         "price": [
           "[data-testid='product-price']",
           ".price .sales .value",
@@ -52,17 +60,45 @@
           "link[itemprop='availability']",
           ".product-availability"
         ],
-        "promoBadge": [".promotion", ".product-promo", ".badge--sale", ".product-badge"],
-        "ean": ["[itemprop='gtin13']", "[data-product-ean]", ".product-number .value"]
+        "promoBadge": [
+          ".promotion",
+          ".product-promo",
+          ".badge--sale",
+          ".product-badge"
+        ],
+        "ean": [
+          "[itemprop='gtin13']",
+          "[data-product-ean]",
+          ".product-number .value"
+        ]
       }
     },
     "search": {
-      "resultItem": [".product-tile", ".product-grid__item", "[data-testid='product-tile']"],
-      "resultLink": ["a.product-tile__link", "a.thumb-link", "a[href*='/product']", "a"],
-      "resultTitle": [".product-tile__name", ".product-name", ".pdp-link a", "a"],
-      "resultPrice": [".price .sales .value", ".product-price", ".price"],
+      "resultItem": [
+        ".product-tile",
+        ".product-grid__item",
+        "[data-testid='product-tile']"
+      ],
+      "resultLink": [
+        "a.product-tile__link",
+        "a.thumb-link",
+        "a[href*='/product']",
+        "a"
+      ],
+      "resultTitle": [
+        ".product-tile__name",
+        ".product-name",
+        ".pdp-link a",
+        "a"
+      ],
+      "resultPrice": [
+        ".price .sales .value",
+        ".product-price",
+        ".price"
+      ],
       "maxCandidates": 10
-    }
+    },
+    "discovery": "sitemap"
   },
   "_notes": [
     "JSON-LD is the primary extraction path: schema.org Product/Offer markup is far more stable than CSS classes.",

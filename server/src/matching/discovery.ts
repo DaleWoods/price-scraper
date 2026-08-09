@@ -6,6 +6,7 @@ import { ScrapeError } from '../scraping/errors.js';
 import { extractListing, extractSearchResults } from '../scraping/extract.js';
 import { fetchPage } from '../scraping/fetcher.js';
 import { canonicalAttributeName } from './attributes.js';
+import { findCandidateUrls } from './sitemapDiscovery.js';
 import { AUTO_ACCEPT_THRESHOLD, MIN_CANDIDATE_THRESHOLD, scoreCandidate, type CandidateListing } from './score.js';
 
 export interface DiscoveryOutcome {
@@ -50,28 +51,59 @@ export async function discoverMatchesForProduct(
     autoConfirmed: 0,
   };
 
-  const searchTerm = buildSearchTerm(product);
-  const searchUrl = buildSearchUrl(competitor, searchTerm);
+  // Sitemap is the default because every competitor disallows /search; the
+  // search path stays for any site that permits it.
+  const mode = competitor.config?.discovery ?? 'sitemap';
 
-  let results: ReturnType<typeof extractSearchResults>;
-  try {
-    const page = await fetchPage(competitor, searchUrl);
-    results = extractSearchResults(competitor, page);
-  } catch (err) {
-    const kind = err instanceof ScrapeError ? err.kind : 'unknown';
-    outcome.error = { kind, message: (err as Error).message };
-    return outcome;
-  }
+  // Title is empty for a sitemap candidate: the sitemap gives a URL and nothing
+  // else. Such a candidate is only ever kept if its page opens and supplies one.
+  let results: { url: string; title: string; price: number | null }[];
 
-  outcome.candidatesFound = results.length;
-  if (results.length === 0) {
-    outcome.error = {
-      kind: 'layout_changed',
-      message:
-        `Search for "${searchTerm}" on ${competitor.display_name} returned no parseable results. ` +
-        'Either there is genuinely no match, or the search-result selectors need review.',
-    };
-    return outcome;
+  if (mode === 'sitemap') {
+    const candidates = await findCandidateUrls(product, competitor);
+    outcome.candidatesFound = candidates.length;
+
+    if (candidates.length === 0) {
+      outcome.error = {
+        kind: 'not_found',
+        message:
+          `No cached ${competitor.display_name} URL resembles ${product.internal_sku}. ` +
+          'Either they do not list it, or their sitemap has not been harvested yet.',
+      };
+      return outcome;
+    }
+    // A sitemap gives a URL and nothing else, so there is no title to pre-score
+    // on — the product page itself supplies everything.
+    results = candidates.map((candidate) => ({ url: candidate.url, title: '', price: null }));
+  } else {
+    const searchTerm = buildSearchTerm(product);
+    const searchUrl = buildSearchUrl(competitor, searchTerm);
+
+    let searchResults: ReturnType<typeof extractSearchResults>;
+    try {
+      const page = await fetchPage(competitor, searchUrl);
+      searchResults = extractSearchResults(competitor, page);
+    } catch (err) {
+      const kind = err instanceof ScrapeError ? err.kind : 'unknown';
+      outcome.error = { kind, message: (err as Error).message };
+      return outcome;
+    }
+
+    outcome.candidatesFound = searchResults.length;
+    if (searchResults.length === 0) {
+      outcome.error = {
+        kind: 'layout_changed',
+        message:
+          `Search for "${searchTerm}" on ${competitor.display_name} returned no parseable results. ` +
+          'Either there is genuinely no match, or the search-result selectors need review.',
+      };
+      return outcome;
+    }
+    results = searchResults.map((entry) => ({
+      url: entry.url,
+      title: entry.title ?? '',
+      price: entry.price ?? null,
+    }));
   }
 
   // Cheap pass first: score on the search-result title alone, then only open the
@@ -82,7 +114,10 @@ export async function discoverMatchesForProduct(
       result,
       preliminary: scoreCandidate(product, { url: result.url, title: result.title, price: result.price }),
     }))
-    .filter((entry) => entry.preliminary.viable)
+    // Sitemap candidates carry no title, so pre-scoring cannot judge them and
+    // they must be opened to be assessed at all. Search results can be filtered
+    // cheaply first, which keeps request volume down.
+    .filter((entry) => mode === 'sitemap' || entry.preliminary.viable)
     .sort((a, b) => b.preliminary.confidence - a.preliminary.confidence)
     .slice(0, 3);
 
@@ -92,6 +127,7 @@ export async function discoverMatchesForProduct(
       title: result.title,
       price: result.price,
     };
+    let opened = false;
     let scored = preliminary;
 
     // Open the product page for structured attributes and the EAN, which is what
@@ -108,6 +144,7 @@ export async function discoverMatchesForProduct(
         price: extracted.price,
       };
       scored = scoreCandidate(product, listing);
+      opened = true;
     } catch (err) {
       logger.warn(
         'discovery',
@@ -115,6 +152,9 @@ export async function discoverMatchesForProduct(
       );
     }
 
+    // A sitemap candidate that could not be opened has nothing behind it but a
+    // URL guess, which is not evidence of a match.
+    if (mode === 'sitemap' && !opened) continue;
     if (!scored.viable || scored.confidence < MIN_CANDIDATE_THRESHOLD) continue;
 
     const autoConfirm = scored.confidence >= AUTO_ACCEPT_THRESHOLD;

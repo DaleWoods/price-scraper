@@ -2,6 +2,7 @@ import { query } from '../db/pool.js';
 import type { Competitor, Product, ScrapeRun } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { discoverMatchesForProduct } from '../matching/discovery.js';
+import { countCachedUrls, refreshCompetitorUrls } from '../matching/sitemapDiscovery.js';
 import { closeBrowser } from './browser.js';
 import { listCompetitors } from './competitorRegistry.js';
 import { ScrapeError } from './errors.js';
@@ -100,6 +101,21 @@ async function executeRun(runId: number, mode: RunMode, options: StartRunOptions
         errored += result.errored;
       }
       if (mode === 'discover' || mode === 'both') {
+        // Sitemap discovery searches a cached index of the competitor's URLs.
+        // Harvested once per run rather than per product: it is the same
+        // sitemap every time, and re-walking it thousands of times would be
+        // both slow and rude.
+        if ((competitor.config?.discovery ?? 'sitemap') === 'sitemap') {
+          const refresh = await refreshCompetitorUrls(competitor);
+          if (refresh.error) {
+            logger.warn(
+              'runner',
+              `[${competitor.slug}] sitemap unavailable (${refresh.error}); ` +
+                `falling back on ${await countCachedUrls(competitor.id)} previously cached URL(s)`,
+            );
+          }
+        }
+
         const result = await discoverUnmatchedProducts(runId, competitor, options.limit ?? null);
         ok += result.ok;
         errored += result.errored;
@@ -248,6 +264,24 @@ async function discoverUnmatchedProducts(
     const outcome = await discoverMatchesForProduct(product, competitor, { runId });
 
     if (outcome.error) {
+      // A competitor simply not stocking one of our products is the normal
+      // case, not a failure — most of our range is not carried by most of them.
+      // Counting it as an error would bury the real failures under thousands of
+      // rows saying nothing more than "they don't sell this".
+      const notStocked = outcome.error.kind === 'not_found';
+      if (notStocked) {
+        await recordRunItem(runId, {
+          productId: product.id,
+          competitorId: competitor.id,
+          status: 'skipped',
+          errorKind: 'not_listed',
+          error: outcome.error.message,
+          durationMs: Date.now() - startedAt,
+        });
+        skipped += 1;
+        continue;
+      }
+
       logger.warn(
         'runner',
         `[${competitor.slug}] discovery for ${product.internal_sku} failed (${outcome.error.kind}): ${outcome.error.message}`,

@@ -14,6 +14,12 @@ const COMPETITORS_DIR = path.resolve(
 const selectorListSchema = z.array(z.string()).optional();
 
 export const competitorConfigSchema = z.object({
+  /**
+   * Where candidate listings come from. Defaults to the sitemap because every
+   * competitor examined disallows /search in robots.txt; 'search' remains for
+   * any site that permits it.
+   */
+  discovery: z.enum(['sitemap', 'search']).default('sitemap'),
   rendering: z.enum(['http', 'browser']).default('browser'),
   userAgent: z.string().optional(),
   rateLimit: z

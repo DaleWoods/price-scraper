@@ -96,13 +96,14 @@
         ".product-card__price"
       ],
       "maxCandidates": 10
-    }
+    },
+    "discovery": "sitemap"
   },
   "_notes": [
-    "Pre-owned and vintage watches \u2014 stock is one-of-a-kind, so expect lower match rates than a new-goods retailer.",
+    "Pre-owned and vintage watches — stock is one-of-a-kind, so expect lower match rates than a new-goods retailer.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",
-    "selector below are informed guesses \u2014 they were written without network access to this",
+    "selector below are informed guesses — they were written without network access to this",
     "retailer, so none of them has been checked against the live site.",
     "",
     "Before enabling:",

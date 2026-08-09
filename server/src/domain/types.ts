@@ -22,6 +22,12 @@ export interface Product {
  * configuration, not code (Spec §5.2). See competitors/*.json for the shape.
  */
 export interface CompetitorConfig {
+  /**
+   * Where candidate listings come from. 'sitemap' walks the URLs the site
+   * publishes for crawlers; 'search' uses their on-site search, which every
+   * competitor we have looked at disallows in robots.txt.
+   */
+  discovery?: 'sitemap' | 'search';
   /** 'http' uses fetch + cheerio; 'browser' uses Playwright for JS-rendered pages. */
   rendering: 'http' | 'browser';
   userAgent?: string;
