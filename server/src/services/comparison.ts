@@ -67,7 +67,9 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
   const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
   const offset = Math.max(filters.offset ?? 0, 0);
 
-  const conditions: string[] = [];
+  // Delisted products are not sold by any of our sites any more, so they are
+  // excluded rather than shown permanently awaiting a price.
+  const conditions: string[] = ['p.delisted_at IS NULL'];
   const params: unknown[] = [];
 
   if (filters.brand) {

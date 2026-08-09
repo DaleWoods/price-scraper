@@ -316,7 +316,6 @@ in the UI for per-target outcomes.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/health` | Database connectivity and auth state |
-| `POST` | `/api/products/import` | Upload a catalogue export (multipart `file`) |
 | `POST` | `/api/products/import-feed` | Upload a Google feed for one fascia (`?fascia=<code>`) |
 | `GET` | `/api/admin/fascias` | Our sites, for the fascia selectors |
 | `GET` | `/api/admin/status` | Read-only counts and timestamps for the Admin page |
@@ -498,9 +497,27 @@ importer, which are gone: the feed's prices are the ones live on the website, so
 no condition-record precedence has to be reconstructed to arrive at them, and
 every row carries the product URL and rich attributes for matching.
 
-**Upload one feed per fascia** (Import → Import Google feed, choosing the site).
-A product sold by more than one site keeps a price per site; the product content
-is shared and refreshed by whichever feed was imported last.
+**Upload one feed per fascia** (Import feed → choosing the site). A product sold
+by more than one site keeps a price per site; the product content is shared and
+refreshed by whichever feed was imported last.
+
+There is no separate catalogue importer any more — the feed carries the products
+too, so it is the only way products enter the system.
+
+### The feed is authoritative for its fascia
+
+Importing a feed makes the products in that file **exactly** what the site
+sells. Prices written by an earlier feed for the same fascia are removed, and a
+product that no longer appears in any fascia's latest feed is **delisted**: the
+scanner skips it and the comparison hides it.
+
+Delisted means marked, not deleted. `price_observations` cascade from products,
+so deleting would destroy the price history the app exists to collect. A product
+that reappears in a later feed is re-listed automatically, and the import
+reports how many went each way.
+
+This matters when testing: importing a one-product feed really does narrow the
+scan to that one product, which it did not before.
 
 | Feed column | Used as |
 | --- | --- |

@@ -32,6 +32,13 @@ export interface FeedImportResult {
   priceHidden: number;
   availability: Record<string, number>;
   fascia: { code: string; name: string };
+  /** Prices this fascia no longer lists, removed because the feed is authoritative. */
+  stalePricesRemoved: number;
+  /** Products no longer in any fascia's latest feed, so no longer scanned. */
+  productsDelisted: number;
+  /** Products the feed brought back after a previous absence. */
+  productsRelisted: number;
+  feedImportId: number;
 }
 
 /**
@@ -106,8 +113,22 @@ export async function importFeed(
   const fascia = fasciaRows.rows[0];
   if (!fascia) throw new Error(`No fascia configured with code "${fasciaCode}".`);
 
+  // Record the import first so every row written can be stamped with it. That
+  // stamp is what lets a later import tell its own rows from an earlier one's.
+  const { rows: importRows } = await withTransaction(async (client) =>
+    client.query<{ id: number }>(
+      'INSERT INTO feed_imports (fascia_id, filename, rows_read) VALUES ($1, $2, $3) RETURNING id',
+      [fascia.id, filename, rows.length],
+    ),
+  );
+  const feedImportId = importRows[0]!.id;
+
   const result: FeedImportResult = {
     totalRows: rows.length,
+    stalePricesRemoved: 0,
+    productsDelisted: 0,
+    productsRelisted: 0,
+    feedImportId,
     skippedBlank: 0,
     skippedHeaderRepeat: 0,
     productsCreated: 0,
@@ -227,9 +248,10 @@ export async function importFeed(
       await client.query(
         `INSERT INTO fascia_prices
            (product_id, fascia_id, price, regular_price, on_sale, currency,
-            source_kschl, source_werks, imported_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 'feed', $7, now())
+            source_kschl, source_werks, imported_at, feed_import_id)
+         VALUES ($1, $2, $3, $4, $5, $6, 'feed', $7, now(), $8)
          ON CONFLICT (product_id, fascia_id) DO UPDATE SET
+           feed_import_id = EXCLUDED.feed_import_id,
            price         = EXCLUDED.price,
            regular_price = EXCLUDED.regular_price,
            on_sale       = EXCLUDED.on_sale,
@@ -245,10 +267,51 @@ export async function importFeed(
           useSale,
           regular.currency ?? fascia.currency,
           fascia.code,
+          feedImportId,
         ],
       );
       result.pricesWritten += 1;
     }
+  });
+
+  // The feed is authoritative for its fascia, so anything it did not mention is
+  // no longer sold there. Done after the loop so a failure part-way through
+  // cannot delist products the feed actually contained.
+  await withTransaction(async (client) => {
+    const { rowCount: stale } = await client.query(
+      `DELETE FROM fascia_prices
+       WHERE fascia_id = $1 AND (feed_import_id IS DISTINCT FROM $2)`,
+      [fascia.id, feedImportId],
+    );
+    result.stalePricesRemoved = stale ?? 0;
+
+    // A product with no price at any fascia is not currently sold by us.
+    const { rowCount: delisted } = await client.query(
+      `UPDATE products p SET delisted_at = now(), updated_at = now()
+       WHERE p.delisted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM fascia_prices fp WHERE fp.product_id = p.id)`,
+    );
+    result.productsDelisted = delisted ?? 0;
+
+    // And one that has a price again is back on sale.
+    const { rowCount: relisted } = await client.query(
+      `UPDATE products p SET delisted_at = NULL, updated_at = now()
+       WHERE p.delisted_at IS NOT NULL
+         AND EXISTS (SELECT 1 FROM fascia_prices fp WHERE fp.product_id = p.id)`,
+    );
+    result.productsRelisted = relisted ?? 0;
+
+    await client.query(
+      `UPDATE feed_imports
+       SET products_seen = $2, prices_written = $3, delisted = $4
+       WHERE id = $1`,
+      [
+        feedImportId,
+        result.productsCreated + result.productsUpdated,
+        result.pricesWritten,
+        result.productsDelisted,
+      ],
+    );
   });
 
   result.errors = result.errors.slice(0, 200);

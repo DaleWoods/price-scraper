@@ -140,6 +140,14 @@ function SystemStatusSection({
           />
           <Detail label="Last run" value={formatWhen(status.runs.lastRunAt)} />
           <Detail label="Competitors with a logo" value={String(status.competitors.withLogo)} />
+          <Detail
+            label="Delisted products"
+            value={
+              status.catalogue.delisted === 0
+                ? 'None'
+                : `${status.catalogue.delisted} (not scanned)`
+            }
+          />
         </div>
 
         <details style={{ marginTop: 'var(--sp-4)' }}>

@@ -14,6 +14,8 @@ export interface SystemStatus {
     awaitingPrice: number;
     brands: number;
     lastImportedAt: string | null;
+    /** Imported previously but absent from the latest feed, so no longer scanned. */
+    delisted: number;
   };
   competitors: { total: number; enabled: number; withLogo: number };
   matching: { confirmed: number; pending: number; rejected: number; productsMatched: number };
@@ -48,12 +50,14 @@ adminRouter.get('/status', async (_req, res, next) => {
     const [catalogue, competitors, matching, observations, runs, schema] = await Promise.all([
       query<{
         products: number;
+        delisted: number;
         with_price: number;
         brands: number;
         last_imported_at: string | null;
       }>(
-        `SELECT count(*)::int                                      AS products,
-                count(our_price)::int                              AS with_price,
+        `SELECT count(*) FILTER (WHERE delisted_at IS NULL)::int    AS products,
+                count(*) FILTER (WHERE delisted_at IS NOT NULL)::int AS delisted,
+                (SELECT count(DISTINCT product_id)::int FROM fascia_prices) AS with_price,
                 count(DISTINCT lower(brand))::int                  AS brands,
                 max(updated_at)::text                              AS last_imported_at
          FROM products`,
@@ -101,6 +105,7 @@ adminRouter.get('/status', async (_req, res, next) => {
         awaitingPrice: c.products - c.with_price,
         brands: c.brands,
         lastImportedAt: c.last_imported_at,
+        delisted: c.delisted,
       },
       competitors: { total: comp.total, enabled: comp.enabled, withLogo: comp.with_logo },
       matching: {

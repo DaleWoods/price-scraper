@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { query } from '../db/pool.js';
-import { importCatalogue } from '../import/catalogueImport.js';
 import { importFeed } from '../import/feedImport.js';
 import { getProductHistory } from '../services/comparison.js';
 
@@ -65,21 +64,6 @@ productsRouter.get('/facets', async (_req, res, next) => {
   }
 });
 
-/** CSV/Excel import of the master catalogue export (Spec §5.1). */
-productsRouter.post('/import', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      res.status(400).json({ error: 'No file uploaded. Attach a .csv or .xlsx export as "file".' });
-      return;
-    }
-    const result = await importCatalogue(req.file.buffer, req.file.originalname);
-    res.json(result);
-  } catch (err) {
-    // Problems in the uploaded file are the user's to fix, not a server fault —
-    // report them as 400 with the specific reason.
-    res.status(400).json({ error: (err as Error).message });
-  }
-});
 
 
 

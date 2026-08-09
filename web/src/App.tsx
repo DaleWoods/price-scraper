@@ -21,7 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/comparison', label: 'Price comparison', icon: '📊', section: 'Monitor' },
   { to: '/review', label: 'Match review', icon: '🔍', section: 'Monitor' },
   { to: '/runs', label: 'Scrape runs', icon: '🔄', section: 'Monitor' },
-  { to: '/import', label: 'Import catalogue', icon: '📥', section: 'Configure' },
+  { to: '/import', label: 'Import feed', icon: '📥', section: 'Configure' },
   { to: '/competitors', label: 'Competitors', icon: '🏬', section: 'Configure' },
   { to: '/admin', label: 'Admin', icon: '⚙️', section: 'Configure' },
 ];
@@ -30,7 +30,7 @@ const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
   '/comparison': { eyebrow: 'Monitor', title: 'Price comparison' },
   '/review': { eyebrow: 'Monitor', title: 'Match review queue' },
   '/runs': { eyebrow: 'Monitor', title: 'Scrape runs' },
-  '/import': { eyebrow: 'Configure', title: 'Import catalogue' },
+  '/import': { eyebrow: 'Configure', title: 'Import product feed' },
   '/competitors': { eyebrow: 'Configure', title: 'Competitors' },
   '/admin': { eyebrow: 'Configure', title: 'Admin' },
 };

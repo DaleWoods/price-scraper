@@ -131,7 +131,9 @@ async function scrapeConfirmedMatches(
     `SELECT m.id AS match_id, m.product_id, m.competitor_id, m.competitor_url, p.internal_sku
      FROM product_matches m
      JOIN products p ON p.id = m.product_id
-     WHERE m.competitor_id = $1 AND m.status = 'confirmed'
+     -- A delisted product is no longer sold by us, so re-checking a
+     -- competitor's price for it would only add noise.
+     WHERE m.competitor_id = $1 AND m.status = 'confirmed' AND p.delisted_at IS NULL
      ORDER BY m.id
      ${limit ? 'LIMIT ' + Number(limit) : ''}`,
     [competitor.id],
@@ -207,7 +209,10 @@ async function discoverUnmatchedProducts(
 ): Promise<{ ok: number; errored: number; skipped: number }> {
   const { rows: products } = await query<Product>(
     `SELECT p.* FROM products p
-     WHERE NOT EXISTS (
+     -- Only products the latest feed still lists. Without this a one-product
+     -- test feed would still scan everything imported before it.
+     WHERE p.delisted_at IS NULL
+       AND NOT EXISTS (
        SELECT 1 FROM product_matches m
        WHERE m.product_id = p.id
          AND m.competitor_id = $1

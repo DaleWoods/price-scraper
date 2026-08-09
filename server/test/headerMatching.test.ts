@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { detectDelimiter, detectFormat, normaliseHeader } from '../src/import/parseTabular.ts';
-import { planHeaders } from '../src/import/catalogueImport.ts';
 
 describe('normaliseHeader', () => {
   it('strips the decorations hybris Backoffice adds', () => {
@@ -20,51 +19,6 @@ describe('normaliseHeader', () => {
 
   it('leaves meaningful punctuation alone', () => {
     assert.equal(normaliseHeader('EAN/MPN'), 'ean/mpn');
-  });
-});
-
-describe('planHeaders — the failing Backoffice export', () => {
-  const headers = [
-    'Article Number*^',
-    'EAN',
-    'Identifier[en]',
-    'MPN',
-    'Manufacturer',
-    'Supercategories†',
-    'Catalog version*^',
-  ];
-  const filled = new Map(headers.map((header) => [header, 5]));
-
-  it('recognises the SKU, name and brand columns it previously rejected', () => {
-    const plan = planHeaders(headers, filled);
-    assert.equal(plan.mapping.internal_sku, 'Article Number*^');
-    assert.equal(plan.mapping.product_name, 'Identifier[en]');
-    assert.equal(plan.mapping.manufacturer, 'Manufacturer');
-  });
-
-  it('still finds the identifiers used for matching', () => {
-    const plan = planHeaders(headers, filled);
-    assert.ok([plan.mapping.ean_mpn].includes('EAN') || [plan.mapping.ean_mpn].includes('MPN'));
-  });
-});
-
-describe('planHeaders — alias priority', () => {
-  it('prefers an explicit SKU column over a generic Code column', () => {
-    const headers = ['Code', 'SKU', 'Name'];
-    const plan = planHeaders(headers, new Map(headers.map((h) => [h, 3])));
-    assert.equal(plan.mapping.internal_sku, 'SKU');
-  });
-
-  it('falls back to Code when that is all there is', () => {
-    const headers = ['Code', 'Name'];
-    const plan = planHeaders(headers, new Map(headers.map((h) => [h, 3])));
-    assert.equal(plan.mapping.internal_sku, 'Code');
-  });
-
-  it('prefers a page title over an identifier for the product name', () => {
-    const headers = ['SKU', 'Page Title', 'Identifier[en]'];
-    const plan = planHeaders(headers, new Map(headers.map((h) => [h, 3])));
-    assert.equal(plan.mapping.product_name, 'Page Title');
   });
 });
 

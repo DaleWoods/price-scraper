@@ -171,6 +171,10 @@ export interface FeedImportResult {
   priceHidden: number;
   availability: Record<string, number>;
   fascia: { code: string; name: string };
+  stalePricesRemoved: number;
+  productsDelisted: number;
+  productsRelisted: number;
+  feedImportId: number;
 }
 
 export interface SystemStatus {
@@ -180,6 +184,7 @@ export interface SystemStatus {
     awaitingPrice: number;
     brands: number;
     lastImportedAt: string | null;
+    delisted: number;
   };
   competitors: { total: number; enabled: number; withLogo: number };
   matching: { confirmed: number; pending: number; rejected: number; productsMatched: number };
@@ -220,20 +225,6 @@ export interface RunItem {
   internal_sku: string | null;
   product_name: string | null;
   competitor_name: string | null;
-}
-
-export interface ImportResult {
-  totalRows: number;
-  created: number;
-  updated: number;
-  failed: number;
-  duplicateSkusCollapsed: number;
-  errors: { row: number; internalSku: string | null; errors: string[] }[];
-  specColumnsDetected: string[];
-  columnMapping: Record<string, string>;
-  ignoredColumns: { column: string; reason: string }[];
-  awaitingPrice: number;
-  priceColumnFound: boolean;
 }
 
 export class ApiError extends Error {
@@ -312,11 +303,6 @@ export const api = {
       `/api/products/${productId}/history`,
     ),
 
-  importCatalogue: (file: File) => {
-    const form = new FormData();
-    form.append('file', file);
-    return request<ImportResult>('/api/products/import', { method: 'POST', body: form });
-  },
 
   deleteRun: (id: number) =>
     request<{ deleted: number; observationsKept: number }>(`/api/runs/${id}`, { method: 'DELETE' }),
