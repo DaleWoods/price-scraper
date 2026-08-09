@@ -153,6 +153,23 @@ export interface RobotsCheckResult {
   };
 }
 
+export interface SitemapCheckRow {
+  slug: string;
+  name: string;
+  error?: string | null;
+  origin?: string;
+  declared?: string[];
+  fetched?: { url: string; ok: boolean; error: string | null; isIndex: boolean; urlCount: number }[];
+  sampleUrls?: string[];
+  totalUrls?: number;
+}
+
+export interface SitemapCheckResult {
+  userAgent: string;
+  results: SitemapCheckRow[];
+  summary: { withUsableSitemap: number; declaringSitemaps: number; failed: number };
+}
+
 export interface SystemStatus {
   catalogue: {
     products: number;
@@ -310,9 +327,18 @@ export const api = {
     return request<ImportResult>('/api/products/import', { method: 'POST', body: form });
   },
 
+  deleteRun: (id: number) =>
+    request<{ deleted: number; observationsKept: number }>(`/api/runs/${id}`, { method: 'DELETE' }),
+
+  deleteFinishedRuns: () =>
+    request<{ deleted: number; skippedRunning: boolean }>('/api/runs', { method: 'DELETE' }),
+
   systemStatus: () => request<SystemStatus>('/api/admin/status'),
 
   robotsCheck: () => request<RobotsCheckResult>('/api/admin/robots-check', { method: 'POST' }),
+
+  sitemapCheck: () =>
+    request<SitemapCheckResult>('/api/admin/sitemap-check', { method: 'POST' }),
 
   uploadLogo: (slug: string, file: File) => {
     const form = new FormData();

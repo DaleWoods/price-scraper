@@ -321,6 +321,9 @@ in the UI for per-target outcomes.
 | `POST` | `/api/products/import-loadsheet` | Upload the SAP price loadsheet (multipart `file`) |
 | `GET` | `/api/admin/status` | Read-only counts and timestamps for the Admin page |
 | `POST` | `/api/admin/robots-check` | Report what each competitor's robots.txt permits |
+| `POST` | `/api/admin/sitemap-check` | Survey the sitemaps each competitor declares |
+| `DELETE` | `/api/runs/:id` | Delete a run and its detail; prices are kept |
+| `DELETE` | `/api/runs` | Delete every finished run |
 | `GET` | `/api/competitors/:slug/logo` | Cached competitor logo; 404 when none is stored |
 | `POST` | `/api/competitors/refresh-logos` | Fetch missing logos (`?force=1` re-fetches all) |
 | `POST` | `/api/competitors/:slug/logo` | Upload a logo by hand (multipart `file`) |
@@ -536,3 +539,29 @@ sanctioned route to them.
 
 If a site actively blocks automated access, that is a signal to drop the source
 — not something to work around.
+
+## Sitemaps
+
+**Admin → Sitemaps** reads each competitor's robots.txt for declared `Sitemap:`
+entries, fetches them, and reports what they contain: how many URLs, which files
+were readable, and a sample of the URLs found.
+
+This is the answer to search being disallowed. A sitemap is published *for*
+crawlers and generally lists the same product pages, so it is the sanctioned
+route to them — not a way around the block. Every sitemap fetch is still checked
+against robots.txt first; being declared does not exempt it.
+
+The survey is bounded: it reads the index and a few children rather than walking
+a retailer's whole tree, which runs to millions of URLs. Gzipped sitemaps are
+handled, including the common case of one served without a content-encoding
+header.
+
+## Deleting runs
+
+Runs can be deleted individually from the Runs page, or cleared in bulk with
+**Clear finished runs**. A run still in progress is refused.
+
+Deleting a run removes the run and its per-target detail rows. **Price
+observations survive** — they reference the run with `ON DELETE SET NULL`, so
+clearing out noisy runs never destroys price history. The response reports how
+many observations were kept.

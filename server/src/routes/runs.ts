@@ -66,6 +66,60 @@ runsRouter.get('/:id', async (req, res, next) => {
 });
 
 /** Recent scrape failures across all runs — the "fail loudly" surface (Spec §5.4). */
+/**
+ * Delete a run and its per-target detail.
+ *
+ * Price observations survive: they reference the run with ON DELETE SET NULL,
+ * so clearing out noisy runs never destroys price history. A run still in
+ * flight is refused rather than pulled out from under the runner.
+ */
+runsRouter.delete('/:id', async (req, res) => {
+  try {
+    const id = Number.parseInt(req.params.id ?? '', 10);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: 'Invalid run id' });
+      return;
+    }
+    if (getActiveRunId() === id) {
+      res.status(409).json({ error: 'That run is still in progress. Wait for it to finish first.' });
+      return;
+    }
+
+    const { rows } = await query<{ id: number; observations: number }>(
+      `WITH kept AS (
+         SELECT count(*)::int AS observations FROM price_observations WHERE scrape_run_id = $1
+       ), gone AS (
+         DELETE FROM scrape_runs WHERE id = $1 RETURNING id
+       )
+       SELECT gone.id, kept.observations FROM gone, kept`,
+      [id],
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: 'Run not found' });
+      return;
+    }
+    res.json({ deleted: rows[0].id, observationsKept: rows[0].observations });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/** Clear every run that is not still going. Price observations are untouched. */
+runsRouter.delete('/', async (_req, res) => {
+  try {
+    const activeId = getActiveRunId();
+    const { rows } = await query<{ id: number }>(
+      `DELETE FROM scrape_runs
+       WHERE status <> 'running' AND ($1::bigint IS NULL OR id <> $1)
+       RETURNING id`,
+      [activeId],
+    );
+    res.json({ deleted: rows.length, skippedRunning: activeId !== null });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
 runsRouter.get('/errors/recent', async (_req, res, next) => {
   try {
     const { rows } = await query(

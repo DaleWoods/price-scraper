@@ -70,6 +70,49 @@ export function RunsPage() {
     return () => clearInterval(timer);
   }, [activeRunId, load]);
 
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [clearing, setClearing] = useState(false);
+
+  /**
+   * Deleting a run removes it and its per-target detail. Price observations
+   * reference the run with ON DELETE SET NULL, so the price history they hold
+   * survives — which is why this needs no dire warning.
+   */
+  const remove = async (run: ScrapeRun) => {
+    if (!window.confirm(`Delete run #${run.id}? Recorded prices are kept.`)) return;
+    setDeletingId(run.id);
+    try {
+      const result = await api.deleteRun(run.id);
+      if (selectedRun?.run.id === run.id) setSelectedRun(null);
+      await load();
+      toast(
+        result.observationsKept > 0
+          ? `Run #${run.id} deleted; ${result.observationsKept} price observation(s) kept.`
+          : `Run #${run.id} deleted.`,
+        'ok',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not delete that run', 'error');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const clearFinished = async () => {
+    if (!window.confirm('Delete every run that has finished? Recorded prices are kept.')) return;
+    setClearing(true);
+    try {
+      const result = await api.deleteFinishedRuns();
+      setSelectedRun(null);
+      await load();
+      toast(`Deleted ${result.deleted} run(s).`, 'ok');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not clear runs', 'error');
+    } finally {
+      setClearing(false);
+    }
+  };
+
   const start = async () => {
     try {
       const { run } = await api.startRun({
@@ -169,7 +212,22 @@ export function RunsPage() {
         </p>
       </Card>
 
-      <Card title="Recent runs" bodyless>
+      <Card
+        title="Recent runs"
+        actions={
+          runs.some((run) => run.status !== 'running') ? (
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => void clearFinished()}
+              disabled={clearing}
+            >
+              {clearing ? 'Clearing…' : 'Clear finished runs'}
+            </button>
+          ) : undefined
+        }
+        bodyless
+      >
         {loading ? (
           <TableSkeleton columns={6} />
         ) : runs.length === 0 ? (
@@ -186,6 +244,7 @@ export function RunsPage() {
                   <th className="num">Errors</th>
                   <th className="num">Skipped</th>
                   <th className="num">Started</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -209,6 +268,22 @@ export function RunsPage() {
                     </td>
                     <td className="num muted">{run.skipped_count}</td>
                     <td className="num xs muted nowrap">{relativeTime(run.started_at)}</td>
+                    <td className="num">
+                      {run.status !== 'running' && (
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--ghost"
+                          disabled={deletingId === run.id}
+                          // The row itself opens the run, so stop the click here.
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void remove(run);
+                          }}
+                        >
+                          {deletingId === run.id ? 'Deleting…' : 'Delete'}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

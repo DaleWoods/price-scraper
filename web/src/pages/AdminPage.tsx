@@ -5,6 +5,7 @@ import {
   formatDateTime,
   type Competitor,
   type RobotsCheckResult,
+  type SitemapCheckResult,
   type SystemStatus,
 } from '../api';
 import { CompetitorLogoUpload } from '../components/CompetitorLogoUpload';
@@ -57,6 +58,7 @@ export function AdminPage() {
 
       <SystemStatusSection status={status} loading={loading} />
       <RobotsSection toast={toast} />
+      <SitemapSection toast={toast} />
       <LogoSection competitors={competitors} loading={loading} onChange={load} toast={toast} />
     </div>
   );
@@ -422,6 +424,105 @@ function RobotsSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | '
             does not necessarily mean the source is unusable — most retailers close internal search
             while leaving product pages open, and publish a sitemap listing them.
           </p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * What each competitor's sitemaps actually contain.
+ *
+ * Where search is disallowed this is the route the site publishes for crawlers,
+ * so this answers the practical question: is there a usable path to their
+ * product pages, and what do those URLs look like?
+ */
+function SitemapSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | 'info') => void }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<SitemapCheckResult | null>(null);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const response = await api.sitemapCheck();
+      setResult(response);
+      toast(
+        `${response.summary.withUsableSitemap} of ${response.results.length} have a readable sitemap.`,
+        response.summary.withUsableSitemap > 0 ? 'ok' : 'info',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Sitemap check failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card
+      title="Sitemaps"
+      subtitle="The crawler-sanctioned route to product pages when search is closed"
+      actions={
+        <button type="button" className="btn btn--sm" onClick={() => void run()} disabled={busy}>
+          {busy ? 'Surveying…' : 'Survey sitemaps'}
+        </button>
+      }
+    >
+      {!result ? (
+        <p className="small muted" style={{ margin: 0 }}>
+          Reads each competitor's robots.txt for declared sitemaps, fetches them, and reports what
+          they contain. Bounded to the index and a few children — a large retailer's full tree runs
+          to millions of URLs. Every fetch is still checked against robots.txt.
+        </p>
+      ) : (
+        <>
+          <div className="stat-grid" style={{ marginBottom: 'var(--sp-4)' }}>
+            <Stat
+              label="Usable sitemaps"
+              value={result.summary.withUsableSitemap}
+              tone={result.summary.withUsableSitemap > 0 ? 'lower' : 'higher'}
+              icon={result.summary.withUsableSitemap > 0 ? '✓' : '▲'}
+            />
+            <Stat label="Declare sitemaps" value={result.summary.declaringSitemaps} tone="accent" icon="🗺" />
+            <Stat label="No route found" value={result.summary.failed} tone="info" icon="?" />
+          </div>
+
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Competitor</th>
+                  <th className="num">URLs seen</th>
+                  <th>Sitemaps</th>
+                  <th>Sample URL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.results.map((row) => (
+                  <tr key={row.slug}>
+                    <td>
+                      <div className="cell-primary">{row.name}</div>
+                      {row.error && <div className="cell-secondary xs">{row.error}</div>}
+                    </td>
+                    <td className="num">
+                      {row.totalUrls ? (
+                        <span className="badge badge--lower">{row.totalUrls}</span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td className="xs mono muted" style={{ maxWidth: 300 }}>
+                      {row.declared && row.declared.length > 0
+                        ? row.declared.slice(0, 3).map((s) => <div key={s}>{s}</div>)
+                        : '—'}
+                    </td>
+                    <td className="xs mono muted" style={{ maxWidth: 320 }}>
+                      {row.sampleUrls?.[0] ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </Card>

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db/pool.js';
 import { env } from '../config/env.js';
 import { inspectRobots } from '../scraping/robots.js';
+import { surveySitemaps } from '../scraping/sitemap.js';
 import { buildSearchUrl, listCompetitors } from '../scraping/competitorRegistry.js';
 
 export const adminRouter: Router = Router();
@@ -174,6 +175,58 @@ adminRouter.post('/robots-check', async (_req, res) => {
         searchBlocked: results.filter((r) => r.probe && !r.probe[0]?.allowed).length,
         unreachable: results.filter((r) => r.status === 'unreachable').length,
         withSitemaps: results.filter((r) => (r.sitemaps?.length ?? 0) > 0).length,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Survey each competitor's sitemaps: what they declare, what those contain, and
+ * a sample of the URLs. Bounded — reads the index and a few children rather
+ * than walking a retailer's entire tree.
+ */
+export interface SitemapCheckRow {
+  slug: string;
+  name: string;
+  error?: string | null;
+  origin?: string;
+  declared?: string[];
+  fetched?: { url: string; ok: boolean; error: string | null; isIndex: boolean; urlCount: number }[];
+  sampleUrls?: string[];
+  totalUrls?: number;
+}
+
+adminRouter.post('/sitemap-check', async (_req, res) => {
+  try {
+    const competitors = await listCompetitors();
+    const results: SitemapCheckRow[] = [];
+
+    for (const competitor of competitors) {
+      let origin: string;
+      try {
+        origin = new URL(competitor.base_url).origin;
+      } catch {
+        results.push({
+          slug: competitor.slug,
+          name: competitor.display_name,
+          error: `"${competitor.base_url}" is not a valid URL`,
+        });
+        continue;
+      }
+
+      const survey = await surveySitemaps(origin, env.scraperUserAgent);
+      results.push({ slug: competitor.slug, name: competitor.display_name, ...survey });
+    }
+
+    res.json({
+      userAgent: env.scraperUserAgent,
+      results,
+      summary: {
+        withUsableSitemap: results.filter((r) => (r.totalUrls ?? 0) > 0).length,
+        declaringSitemaps: results.filter((r) => (r.declared?.length ?? 0) > 0).length,
+        failed: results.filter((r) => r.error || (r.totalUrls ?? 0) === 0).length,
       },
     });
   } catch (err) {
