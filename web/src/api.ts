@@ -314,6 +314,18 @@ export const api = {
 
   fascias: () => request<{ fascias: Fascia[] }>('/api/admin/fascias'),
 
+  removeCompetitorPrice: (productId: number, competitorId: number) =>
+    request<{ observationsRemoved: number; matchesRemoved: number }>(
+      `/api/comparison/product/${productId}/competitor/${competitorId}`,
+      { method: 'DELETE' },
+    ),
+
+  clearAllComparisons: () =>
+    request<{ observationsRemoved: number; matchesRemoved: number }>(
+      '/api/comparison/observations',
+      { method: 'DELETE' },
+    ),
+
   importFeed: (file: File, fasciaCode: string) => {
     const form = new FormData();
     form.append('file', file);

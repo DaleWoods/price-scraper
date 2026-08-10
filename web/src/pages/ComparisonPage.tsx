@@ -52,6 +52,7 @@ export function ComparisonPage() {
   // Prices are per fascia, so this chooses whose price the whole page compares.
   const [fascia, setFascia] = useState('');
   const [fascias, setFascias] = useState<Fascia[]>([]);
+  const [clearing, setClearing] = useState(false);
   const [category, setCategory] = useState('');
   const [position, setPosition] = useState<PositionFilter>('');
 
@@ -95,6 +96,57 @@ export function ComparisonPage() {
     const timer = setTimeout(() => void load(), 250);
     return () => clearTimeout(timer);
   }, [load]);
+
+  /**
+   * Reload after a removal, keeping the drawer open on the same product.
+   *
+   * The drawer renders the row it was handed, so a plain reload would leave it
+   * showing the price that was just deleted. Re-pointing it at the fresh row
+   * shows what remains; if the product has dropped out of the current filter,
+   * there is nothing left to show and it closes.
+   */
+  const reloadKeepingSelection = useCallback(async () => {
+    const response = await api.comparison({ ...filters, limit: 200 });
+    setData(response);
+    setSelected((current) =>
+      current
+        ? (response.rows.find((row) => row.product.id === current.product.id) ?? null)
+        : null,
+    );
+  }, [filters]);
+
+  /**
+   * Wipe every recorded competitor price and match.
+   *
+   * Products and our own prices survive: those come from the feed, not from
+   * scraping, so this only clears what a run produced. Rejections survive too,
+   * so clearing never re-opens a candidate someone has already turned down.
+   */
+  const clearAllComparisons = async () => {
+    if (
+      !window.confirm(
+        'Delete every recorded competitor price and match?\n\n' +
+          'Your products, your own prices and your rejected matches are not affected. ' +
+          'A later run will rebuild the comparisons.',
+      )
+    ) {
+      return;
+    }
+    setClearing(true);
+    try {
+      const result = await api.clearAllComparisons();
+      setSelected(null);
+      await load();
+      toast(
+        `Cleared ${result.observationsRemoved} observation(s) and ${result.matchesRemoved} match(es).`,
+        'ok',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not clear comparisons', 'error');
+    } finally {
+      setClearing(false);
+    }
+  };
 
   useEffect(() => {
     void api
@@ -198,6 +250,17 @@ export function ComparisonPage() {
             <a className="btn btn--sm" href={exportUrl} download>
               Export CSV
             </a>
+            {(data?.summary.withCompetitorPrice ?? 0) > 0 && (
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => void clearAllComparisons()}
+                disabled={clearing}
+                title="Delete every recorded competitor price and match"
+              >
+                {clearing ? 'Clearing…' : 'Clear comparisons'}
+              </button>
+            )}
             <button type="button" className="btn btn--sm btn--accent" onClick={runNow}>
               Run now
             </button>
@@ -401,12 +464,28 @@ export function ComparisonPage() {
         )}
       </Card>
 
-      {selected && <ProductDrawer row={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <ProductDrawer
+          row={selected}
+          onClose={() => setSelected(null)}
+          onChanged={reloadKeepingSelection}
+        />
+      )}
     </div>
   );
 }
 
-function ProductDrawer({ row, onClose }: { row: ComparisonRow; onClose: () => void }) {
+function ProductDrawer({
+  row,
+  onClose,
+  onChanged,
+}: {
+  row: ComparisonRow;
+  onClose: () => void;
+  onChanged: () => void | Promise<void>;
+}) {
+  const toast = useToast();
+  const [removingCompetitorId, setRemovingCompetitorId] = useState<number | null>(null);
   const [history, setHistory] = useState<
     {
       id: number;
@@ -418,12 +497,51 @@ function ProductDrawer({ row, onClose }: { row: ComparisonRow; onClose: () => vo
     }[]
   >([]);
 
+  const productId = row.product.id;
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const response = await api.productHistory(productId);
+      setHistory(response.observations as never);
+    } catch {
+      setHistory([]);
+    }
+  }, [productId]);
+
   useEffect(() => {
-    void api
-      .productHistory(row.product.id)
-      .then((response) => setHistory(response.observations as never))
-      .catch(() => setHistory([]));
-  }, [row.product.id]);
+    void loadHistory();
+  }, [loadHistory]);
+
+  /**
+   * Drop a competitor's price for this product. The match goes with the
+   * observations: leaving it would have the next run record the same stale
+   * price straight back.
+   */
+  const removeCompetitorPrice = async (entry: {
+    competitorId: number;
+    competitorName: string;
+  }) => {
+    if (
+      !window.confirm(
+        `Remove ${entry.competitorName}'s price for ${row.product.internal_sku}? ` +
+          'The match is removed too, so a later run can find it again.',
+      )
+    ) {
+      return;
+    }
+    setRemovingCompetitorId(entry.competitorId);
+    try {
+      const result = await api.removeCompetitorPrice(productId, entry.competitorId);
+      toast(`Removed ${entry.competitorName}: ${result.observationsRemoved} observation(s).`, 'ok');
+      // The history list and the row behind the drawer both still show the
+      // deleted price until they are refetched.
+      await Promise.all([loadHistory(), onChanged()]);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not remove that price', 'error');
+    } finally {
+      setRemovingCompetitorId(null);
+    }
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -520,15 +638,26 @@ function ProductDrawer({ row, onClose }: { row: ComparisonRow; onClose: () => vo
                         <td className="xs muted">
                           {entry.inStock === null ? 'Unknown' : entry.inStock ? 'In stock' : 'Out of stock'}
                         </td>
-                        <td>
-                          <a
-                            className="btn btn--sm btn--ghost"
-                            href={entry.sourceUrl}
-                            target="_blank"
-                            rel="noreferrer noopener"
-                          >
-                            View ↗
-                          </a>
+                        <td className="nowrap">
+                          <div className="row-actions">
+                            <a
+                              className="btn btn--sm btn--ghost"
+                              href={entry.sourceUrl}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                            >
+                              View ↗
+                            </a>
+                            <button
+                              type="button"
+                              className="btn btn--sm btn--ghost"
+                              disabled={removingCompetitorId === entry.competitorId}
+                              onClick={() => void removeCompetitorPrice(entry)}
+                              title="Remove this competitor's price for this product"
+                            >
+                              {removingCompetitorId === entry.competitorId ? 'Removing…' : 'Remove'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

@@ -5,7 +5,6 @@ import { Alert } from './components/ui';
 import { ComparisonPage } from './pages/ComparisonPage';
 import { AdminPage } from './pages/AdminPage';
 import { GuidePage } from './pages/GuidePage';
-import { CompetitorsPage } from './pages/CompetitorsPage';
 import { ImportPage } from './pages/ImportPage';
 import { LoginPage } from './pages/LoginPage';
 import { ReviewQueuePage } from './pages/ReviewQueuePage';
@@ -23,7 +22,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/review', label: 'Match review', icon: '🔍', section: 'Monitor' },
   { to: '/runs', label: 'Scrape runs', icon: '🔄', section: 'Monitor' },
   { to: '/import', label: 'Import feed', icon: '📥', section: 'Configure' },
-  { to: '/competitors', label: 'Competitors', icon: '🏬', section: 'Configure' },
   { to: '/admin', label: 'Admin', icon: '⚙️', section: 'Configure' },
   { to: '/guide', label: 'User guide', icon: '📖', section: 'Help' },
 ];
@@ -33,7 +31,6 @@ const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
   '/review': { eyebrow: 'Monitor', title: 'Match review queue' },
   '/runs': { eyebrow: 'Monitor', title: 'Scrape runs' },
   '/import': { eyebrow: 'Configure', title: 'Import product feed' },
-  '/competitors': { eyebrow: 'Configure', title: 'Competitors' },
   '/admin': { eyebrow: 'Configure', title: 'Admin' },
   '/guide': { eyebrow: 'Help', title: 'User guide' },
 };
@@ -171,7 +168,8 @@ export function App() {
           <Route path="/review" element={<ReviewQueuePage onQueueChange={refreshPendingCount} />} />
           <Route path="/runs" element={<RunsPage />} />
           <Route path="/import" element={<ImportPage />} />
-          <Route path="/competitors" element={<CompetitorsPage />} />
+          {/* Competitors used to be its own page; it now lives on Admin. */}
+          <Route path="/competitors" element={<Navigate to="/admin" replace />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/guide" element={<GuidePage />} />
           <Route path="*" element={<Navigate to="/comparison" replace />} />

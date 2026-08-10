@@ -117,6 +117,16 @@ export function GuidePage() {
           every figure on the page follows that choice. <strong>They are cheaper</strong> is the
           column that needs action. Click any row to see every competitor price and the observation
           history.
+          <br />
+          <br />
+          A comparison is only as good as the last run that produced it, so both can be thrown away.{' '}
+          <strong>Remove</strong>, beside a competitor's price in the row detail, drops that one
+          competitor's price for that one product. <strong>Clear comparisons</strong>, at the top of
+          the page, drops the lot. Either way the match goes with the price — leaving it behind
+          would have the next run record the same stale figure straight back. What is never thrown
+          away: your products and your own prices, which come from the feed rather than from
+          scraping, and anything you have <em>rejected</em> in Match review, so clearing a
+          comparison never re-opens a candidate you have already turned down.
         </Term>
         <Term label="Match review">
           Candidate matches the scraper found, strongest first. Confirm the ones that are genuinely
@@ -136,17 +146,19 @@ export function GuidePage() {
           <strong>The feed is the whole truth for that site</strong>: whatever is in the file is
           what we hold, and anything missing from it stops being tracked.
         </Term>
-        <Term label="Competitors">
-          Which retailers we watch. Adding one is a JSON file in the{' '}
-          <span className="mono">competitors</span> directory plus <em>Re-sync from config</em> —
-          never a code change. Toggle one off to exclude it from runs without losing its history.{' '}
-          <em>Test a product URL</em> fetches a single page and shows exactly what was extracted,
-          which is the quickest way to tell a layout change from a genuine absence.
-        </Term>
         <Term label="Admin">
-          Setup and housekeeping: what is actually in the database, what each competitor's
-          robots.txt permits, what their sitemaps contain, and competitor logos. Nothing on it runs
-          a scrape or changes a price.
+          Setup and housekeeping, all in one place. It holds what is actually in the database;{' '}
+          <strong>Competitors</strong>, the retailers we watch; their logos;{' '}
+          <strong>Crawl permissions</strong> and <strong>Sitemaps</strong>, which say whether a site
+          can be read at all and by what route; and <strong>Test a product URL</strong>. Nothing
+          here changes a price or starts a run.
+          <br />
+          <br />
+          Adding a competitor is a JSON file in the <span className="mono">competitors</span>{' '}
+          directory plus <em>Re-sync from config</em> — never a code change. Toggle one off to
+          exclude it from runs without losing its history. <em>Test a product URL</em> fetches a
+          single page and shows exactly what was extracted, which is the quickest way to tell a
+          layout change from a genuine absence; it stores nothing.
         </Term>
       </Section>
 
@@ -214,7 +226,7 @@ export function GuidePage() {
         </Term>
         <Term label="Layout changed / no price found">
           The page loaded but we could not read a price from it. This is the one that needs
-          attention — use <em>Test a product URL</em> on the Competitors page to see what came back.
+          attention — use <em>Test a product URL</em> on the Admin page to see what came back.
         </Term>
       </Section>
 

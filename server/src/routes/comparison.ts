@@ -1,8 +1,71 @@
 import { Router } from 'express';
+import { query } from '../db/pool.js';
 import { getComparison, type ComparisonFilters } from '../services/comparison.js';
 import type { PricePosition } from '../domain/types.js';
 
 export const comparisonRouter: Router = Router();
+
+/**
+ * Remove one competitor's price for one product.
+ *
+ * Deletes the observations and the match together: leaving the match behind
+ * would have the next run re-record the same stale price, and leaving
+ * observations behind would keep showing a price with nothing to explain it.
+ *
+ * A rejected match survives. It carries no price — it records a human deciding
+ * this candidate is the wrong product — and deleting it would let a later run
+ * offer the same wrong candidate all over again.
+ */
+comparisonRouter.delete('/product/:productId/competitor/:competitorId', async (req, res) => {
+  try {
+    const productId = Number.parseInt(req.params.productId ?? '', 10);
+    const competitorId = Number.parseInt(req.params.competitorId ?? '', 10);
+    if (!Number.isFinite(productId) || !Number.isFinite(competitorId)) {
+      res.status(400).json({ error: 'Invalid product or competitor id' });
+      return;
+    }
+
+    const observations = await query(
+      'DELETE FROM price_observations WHERE product_id = $1 AND competitor_id = $2',
+      [productId, competitorId],
+    );
+    const matches = await query(
+      `DELETE FROM product_matches
+       WHERE product_id = $1 AND competitor_id = $2 AND status <> 'rejected'`,
+      [productId, competitorId],
+    );
+
+    res.json({
+      observationsRemoved: observations.rowCount ?? 0,
+      matchesRemoved: matches.rowCount ?? 0,
+    });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * Clear every recorded comparison: all competitor observations, and the matches
+ * that produced them.
+ *
+ * Three things survive deliberately. Products and our own prices, because those
+ * come from the feed rather than from scraping. Rejections, because they are
+ * human decisions and a run that could re-suggest them would undo the review
+ * queue. And the sitemap URL cache, because rebuilding it means re-fetching
+ * every competitor's sitemap for no benefit.
+ */
+comparisonRouter.delete('/observations', async (_req, res) => {
+  try {
+    const observations = await query('DELETE FROM price_observations');
+    const matches = await query(`DELETE FROM product_matches WHERE status <> 'rejected'`);
+    res.json({
+      observationsRemoved: observations.rowCount ?? 0,
+      matchesRemoved: matches.rowCount ?? 0,
+    });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
 
 function parseFilters(queryParams: Record<string, unknown>): ComparisonFilters {
   const position = typeof queryParams.position === 'string' ? queryParams.position : null;

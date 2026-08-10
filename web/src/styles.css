@@ -907,7 +907,9 @@ code {
   top: 0;
   right: 0;
   bottom: 0;
-  width: min(580px, 100vw);
+  /* Wide enough for the competitor table's five columns and its row actions.
+     Narrower and the actions scroll out of sight instead of wrapping. */
+  width: min(680px, 100vw);
   background: var(--canvas);
   z-index: 51;
   box-shadow: var(--shadow-lg);
@@ -998,6 +1000,15 @@ code {
 .xs { font-size: var(--text-xs); }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nowrap { white-space: nowrap; }
+
+/* Stacked row actions: two buttons in a table cell that is too narrow to sit
+   them side by side without pushing the table into a horizontal scroll. */
+.row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
 
 .divider { height: 1px; background: var(--border); border: none; }
 
