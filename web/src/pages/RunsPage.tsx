@@ -9,11 +9,12 @@ import {
   type ScrapeRun,
 } from '../api';
 import { Alert, Card, EmptyState, TableSkeleton, useToast } from '../components/ui';
+import { AddTestProductCard } from '../components/AddTestProduct';
 
 const MODE_COPY: Record<string, string> = {
   prices: 'Scrape prices for confirmed matches only',
   discover: 'Search for candidate matches for unmatched products',
-  both: 'Scrape confirmed matches, then look for new candidates',
+  both: 'Look for new candidates, then scrape prices for confirmed matches',
 };
 
 const ERROR_KIND_COPY: Record<string, string> = {
@@ -149,6 +150,8 @@ export function RunsPage() {
       </p>
 
       {error && <Alert tone="danger" title="Could not load runs">{error}</Alert>}
+
+      <AddTestProductCard onAdded={load} />
 
       <Card title="Run now" subtitle={MODE_COPY[mode]}>
         <div className="filter-bar">

@@ -379,9 +379,16 @@ export async function importFeed(
     // The feed is authoritative for its fascia, so anything it did not mention
     // is no longer sold there. Done after the writes so a failure part-way
     // through cannot delist products the feed actually contained.
+    // Hand-added products are exempt. They are test fixtures with no feed to
+    // appear in, so applying the feed's authority to them would delete the very
+    // thing you are testing with.
     const { rowCount: stale } = await client.query(
-      `DELETE FROM fascia_prices
-       WHERE fascia_id = $1 AND (feed_import_id IS DISTINCT FROM $2)`,
+      `DELETE FROM fascia_prices fp
+       USING products p
+       WHERE fp.product_id = p.id
+         AND fp.fascia_id = $1
+         AND fp.feed_import_id IS DISTINCT FROM $2
+         AND p.source <> 'manual'`,
       [fascia.id, feedImportId],
     );
     result.stalePricesRemoved = stale ?? 0;
@@ -390,6 +397,7 @@ export async function importFeed(
     const { rowCount: delisted } = await client.query(
       `UPDATE products p SET delisted_at = now(), updated_at = now()
        WHERE p.delisted_at IS NULL
+         AND p.source <> 'manual'
          AND NOT EXISTS (SELECT 1 FROM fascia_prices fp WHERE fp.product_id = p.id)`,
     );
     result.productsDelisted = delisted ?? 0;

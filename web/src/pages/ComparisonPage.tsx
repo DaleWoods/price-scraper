@@ -118,34 +118,67 @@ export function ComparisonPage() {
   }, [filters]);
 
   /**
-   * Delete every competitor price and match for one product.
+   * Delete a product outright, with its prices, matches and observations.
    *
-   * The row-level counterpart to the per-competitor Remove in the drawer: when
-   * a whole product's comparisons are stale, clearing it and re-scanning is
-   * quicker than picking off competitors one at a time.
+   * This removes the row from the catalogue rather than only its comparisons —
+   * it is how leftover test data gets cleared out. Re-importing the feed brings
+   * a genuine product straight back.
    */
-  const removeProductComparisons = async (row: ComparisonRow) => {
+  const deleteProduct = async (row: ComparisonRow) => {
     if (
       !window.confirm(
-        `Delete every competitor price and match for ${row.product.internal_sku}?\n\n` +
-          'The product and your own price are not affected, and a later run can find it again.',
+        `Delete ${row.product.internal_sku} — ${row.product.product_name}?\n\n` +
+          'The product, our price for it, and every competitor price and match recorded ' +
+          'against it are all removed. Re-importing the feed brings it back.',
       )
     ) {
       return;
     }
     setRemovingProductId(row.product.id);
     try {
-      const result = await api.removeProductComparisons(row.product.id);
+      const result = await api.deleteProduct(row.product.id);
       if (selected?.product.id === row.product.id) setSelected(null);
       await load();
       toast(
-        `${row.product.internal_sku}: removed ${result.observationsRemoved} observation(s).`,
+        `Deleted ${result.deleted}${
+          result.observationsRemoved > 0 ? ` and ${result.observationsRemoved} observation(s)` : ''
+        }.`,
         'ok',
       );
     } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'Could not delete those comparisons', 'error');
+      toast(err instanceof ApiError ? err.message : 'Could not delete that product', 'error');
     } finally {
       setRemovingProductId(null);
+    }
+  };
+
+  /**
+   * Empty the catalogue.
+   *
+   * "Start from scratch": products, our prices, matches and observations all
+   * go. Competitors, their logos and the cached sitemap URLs stay, since none
+   * of those came from a feed.
+   */
+  const deleteAllProducts = async () => {
+    const count = data?.summary.products ?? 0;
+    if (
+      !window.confirm(
+        `Delete all ${count} product(s) and everything recorded against them?\n\n` +
+          'Your competitors and their settings are kept. Re-import a feed to repopulate.',
+      )
+    ) {
+      return;
+    }
+    setClearing(true);
+    try {
+      const result = await api.deleteAllProducts();
+      setSelected(null);
+      await load();
+      toast(`Deleted ${result.deleted} product(s).`, 'ok');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not clear the catalogue', 'error');
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -311,9 +344,20 @@ export function ComparisonPage() {
                 className="btn btn--sm"
                 onClick={() => void clearAllComparisons()}
                 disabled={clearing}
-                title="Delete every recorded competitor price and match"
+                title="Delete every recorded competitor price and match, keeping the products"
               >
                 {clearing ? 'Clearing…' : 'Clear comparisons'}
+              </button>
+            )}
+            {(data?.summary.products ?? 0) > 0 && (
+              <button
+                type="button"
+                className="btn btn--sm"
+                onClick={() => void deleteAllProducts()}
+                disabled={clearing}
+                title="Empty the catalogue — every product and everything recorded against it"
+              >
+                Delete all products
               </button>
             )}
             <button type="button" className="btn btn--sm btn--accent" onClick={runNow}>
@@ -524,17 +568,15 @@ export function ComparisonPage() {
                         >
                           {scanningProductId === row.product.id ? 'Starting…' : 'Scan'}
                         </button>
-                        {row.matchStatus.confirmed + row.matchStatus.pending > 0 && (
-                          <button
-                            type="button"
-                            className="btn btn--sm btn--ghost"
-                            onClick={() => void removeProductComparisons(row)}
-                            disabled={removingProductId === row.product.id}
-                            title="Delete every competitor price and match for this product"
-                          >
-                            {removingProductId === row.product.id ? 'Deleting…' : 'Delete'}
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--ghost"
+                          onClick={() => void deleteProduct(row)}
+                          disabled={removingProductId === row.product.id}
+                          title="Delete this product and everything recorded against it"
+                        >
+                          {removingProductId === row.product.id ? 'Deleting…' : 'Delete'}
+                        </button>
                       </div>
                     </td>
                   </tr>

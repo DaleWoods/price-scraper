@@ -42,9 +42,14 @@ for problems that have actually happened, with the real numbers.
   (439) and Watches of Switzerland (470) each carry their own price for the same
   SKU. Anything showing "our price" must join `fascia_prices` for a chosen site.
 - **A Google feed is authoritative for its site.** Importing one delists
-  anything absent from it. Products are marked delisted, never deleted:
-  `price_observations` cascade from `products`, so deleting destroys the price
-  history the app exists to collect.
+  anything absent from it. An *import* marks products delisted and never deletes
+  them: `price_observations` cascade from `products`, so deleting destroys the
+  price history the app exists to collect. A *person* asking to delete a product
+  does delete it — that is how test data gets cleared — but nothing automatic
+  may.
+- **`products.source` is `feed` or `manual`.** A manual product was typed in on
+  Scrape runs to test with, so feed delisting skips it: no feed will ever mention
+  it, and applying the feed's authority would delete the fixture mid-test.
 - **Every competitor disallows `/search`** in robots.txt. Discovery reads the
   sitemaps they publish for crawlers instead. Fetches are always checked against
   robots.txt first, and a site that actively blocks us is a source to drop, not

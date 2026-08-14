@@ -160,4 +160,42 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
     assert.equal(result.priceHidden, 1);
     assert.equal(result.pricesWritten, 2);
   });
+
+  /**
+   * A product added by hand is a test fixture, and no feed will ever mention
+   * it. Without the exemption the feed's authority deletes its price and
+   * delists it on the very next import — which is exactly when it is in use.
+   */
+  it('leaves a hand-added product alone, price and all', async () => {
+    const manualSku = 'tst-manual-90000009';
+    await query('DELETE FROM products WHERE internal_sku = $1', [manualSku]);
+
+    const { rows: created } = await query<{ id: number }>(
+      `INSERT INTO products (internal_sku, brand, product_name, source)
+       VALUES ($1, 'TestBrand', 'Hand added', 'manual') RETURNING id`,
+      [manualSku],
+    );
+    const productId = created[0]!.id;
+    await query(
+      `INSERT INTO fascia_prices (product_id, fascia_id, price)
+       SELECT $1, id, 999 FROM fascias WHERE code = $2`,
+      [productId, fasciaCode],
+    );
+
+    try {
+      // A feed for the same fascia that does not mention it at all.
+      await importFeed(feed([row(skus[1]!, '250.0 GBP')]), 'without-manual.tsv', fasciaCode);
+
+      const { rows } = await query<{ live: boolean; prices: number }>(
+        `SELECT (p.delisted_at IS NULL) AS live,
+                (SELECT count(*)::int FROM fascia_prices fp WHERE fp.product_id = p.id) AS prices
+         FROM products p WHERE p.id = $1`,
+        [productId],
+      );
+      assert.equal(rows[0]!.live, true, 'a manual product must survive a feed that omits it');
+      assert.equal(rows[0]!.prices, 1, 'and keep the price entered with it');
+    } finally {
+      await query('DELETE FROM products WHERE id = $1', [productId]);
+    }
+  });
 });

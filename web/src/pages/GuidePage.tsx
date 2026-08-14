@@ -123,15 +123,17 @@ export function GuidePage() {
           <br />
           Each row carries two actions. <strong>Scan</strong> runs that one product against every
           enabled competitor there and then — the quickest way to check whether a product you know
-          a competitor stocks is actually being picked up. <strong>Delete</strong> throws away every
-          competitor price and match for that product, so a scan can start it fresh.
+          a competitor stocks is actually being picked up. <strong>Delete</strong> removes the
+          product itself, along with our price for it and every competitor price and match recorded
+          against it.
           <br />
           <br />
-          A comparison is only as good as the last run that produced it, so it can be thrown away at
-          three scales. <strong>Remove</strong>, beside a competitor's price in the row detail, drops
-          that one competitor's price for that one product. <strong>Delete</strong>, on the row,
-          drops every competitor for that product. <strong>Clear comparisons</strong>, at the top of
-          the page, drops the lot. Either way the match goes with the price — leaving it behind
+          There are three scales of clearing up. <strong>Remove</strong>, beside a competitor's price
+          in the row detail, drops that one competitor's price for that one product.{' '}
+          <strong>Clear comparisons</strong>, at the top of the page, throws away every recorded
+          competitor price and match while keeping the products.{' '}
+          <strong>Delete all products</strong> empties the catalogue entirely — the start-from-scratch
+          button. Your competitors and their settings survive all three. Either way the match goes with the price — leaving it behind
           would have the next run record the same stale figure straight back. What is never thrown
           away: your products and your own prices, which come from the feed rather than from
           scraping, and anything you have <em>rejected</em> in Match review, so clearing a
@@ -156,11 +158,19 @@ export function GuidePage() {
           product, which is how you test whether something you know a competitor lists gets picked
           up. That run looks at the product whether or not it already has candidates, so you can
           re-check the same one as often as you like. Only enabled competitors are ever scanned.
+          <br />
+          <br />
+          <strong>Add a test product</strong>, at the top of the page, puts a single product in by
+          hand without waiting on a feed — give it a SKU, brand, name and ideally a barcode, and it
+          can scan straight away. A product added this way survives feed imports that do not mention
+          it, unlike everything else, because it is a fixture rather than something the feed owns.
+          Delete it from Price comparison when you have finished with it.
         </Term>
         <Term label="Import feed">
           Where products and prices come in. One Google feed per site.{' '}
           <strong>The feed is the whole truth for that site</strong>: whatever is in the file is
-          what we hold, and anything missing from it stops being tracked.
+          what we hold, and anything missing from it stops being tracked. The one exception is a
+          product added by hand on Scrape runs, which is kept because no feed will ever mention it.
         </Term>
         <Term label="Admin">
           Setup and housekeeping, all in one place. It holds what is actually in the database;{' '}
@@ -272,6 +282,24 @@ export function GuidePage() {
           listings therefore relies on the sitemaps they publish for crawlers. If a competitor
           neither allows search nor publishes a usable sitemap, we cannot read their prices, and the
           right answer is to drop that source rather than work around the block.
+        </Alert>
+        <Alert tone="info" title="Reading the Crawl permissions and Sitemaps checks">
+          These two look alarming the first time and mostly are not. A column of{' '}
+          <strong>search disallowed</strong> on Crawl permissions is the expected result, not a
+          failure — it is the reason we read sitemaps instead, and it is what the Sitemaps card then
+          measures. On Sitemaps, a competitor showing thousands of URLs is working. A blank count
+          carries a <strong>verdict</strong> beside it saying which of three things happened:{' '}
+          <em>Index only</em> means the survey stopped early by design and the source is untested,
+          not unusable; <em>Sitemap unreadable</em> and <em>Blocked at robots.txt</em> are the real
+          problems. A handful of unreadable sources still leaves plenty to compare against — the
+          question is whether enough competitors work, not whether all of them do.
+        </Alert>
+        <Alert tone="info" title="Unreachable can mean where the app is running, not the retailer">
+          Both checks report what <em>this deployment</em> can reach. Some retailers refuse traffic
+          from data centres, so a site that is fine in a browser on your desk can read as{' '}
+          <span className="mono">HTTP 403</span> or a timeout from the server. That is a hosting
+          question rather than a verdict on the retailer, and it is worth re-checking before writing
+          a source off.
         </Alert>
         <p className="small muted" style={{ marginBottom: 0 }}>
           Guide last updated {GUIDE_UPDATED}.

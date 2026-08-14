@@ -323,6 +323,30 @@ export const api = {
       { method: 'DELETE' },
     ),
 
+  addProduct: (body: {
+    internalSku: string;
+    brand: string;
+    productName: string;
+    eanMpn?: string;
+    referenceNumber?: string;
+    category?: string;
+    ourProductUrl?: string;
+    price?: string;
+    fascia?: string;
+  }) =>
+    request<{ productId: number; internalSku: string }>('/api/products', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  deleteProduct: (productId: number) =>
+    request<{ deleted: string; observationsRemoved: number }>(`/api/products/${productId}`, {
+      method: 'DELETE',
+    }),
+
+  deleteAllProducts: () =>
+    request<{ deleted: number }>('/api/products', { method: 'DELETE' }),
+
   removeProductComparisons: (productId: number) =>
     request<{ observationsRemoved: number; matchesRemoved: number }>(
       `/api/comparison/product/${productId}`,

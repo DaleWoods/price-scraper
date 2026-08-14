@@ -6,6 +6,7 @@ import {
   type Competitor,
   type RobotsCheckResult,
   type SitemapCheckResult,
+  type SitemapCheckRow,
   type SystemStatus,
 } from '../api';
 import { CompetitorLogoUpload } from '../components/CompetitorLogoUpload';
@@ -534,10 +535,20 @@ function RobotsSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | '
             </table>
           </div>
 
+          <div style={{ marginTop: 'var(--sp-4)' }}>
+            <Alert tone="info" title="Search blocked is the expected answer, not a problem">
+              Almost every retailer disallows their own search pages — it is expensive to serve and
+              worthless to index — so a column of <em>disallowed</em> is normal and was expected.
+              Prices are read from the sitemaps they publish for crawlers instead, which is what the
+              Sitemaps card below measures. The row that actually limits us is{' '}
+              <strong>unreachable</strong>: a site that will not answer at all cannot be read by any
+              route.
+            </Alert>
+          </div>
           <p className="small muted" style={{ marginTop: 'var(--sp-4)', marginBottom: 0 }}>
-            Checked as <span className="mono">{result.userAgent}</span>. A disallowed search route
-            does not necessarily mean the source is unusable — most retailers close internal search
-            while leaving product pages open, and publish a sitemap listing them.
+            Checked as <span className="mono">{result.userAgent}</span>, from wherever this app is
+            deployed. A retailer that blocks datacentre traffic may show as unreachable here while
+            being perfectly reachable from an office network.
           </p>
         </>
       )}
@@ -663,6 +674,66 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
 }
 
 /**
+ * Turn a survey row into a plain verdict.
+ *
+ * "URLs seen: —" on its own is unreadable: it covers a site that blocks us, a
+ * site whose sitemap 404s, and a site whose sitemap is simply an index this
+ * bounded survey did not walk. Those need different responses, so say which.
+ */
+function sitemapVerdict(row: SitemapCheckRow): {
+  label: string;
+  tone: 'lower' | 'higher' | 'warn' | 'neutral';
+  detail: string;
+} {
+  const fetched = row.fetched ?? [];
+  const failures = fetched.filter((file) => !file.ok);
+  const read = fetched.filter((file) => file.ok);
+  const indexes = read.filter((file) => file.isIndex);
+
+  if ((row.totalUrls ?? 0) > 0) {
+    return {
+      label: 'Usable',
+      tone: 'lower',
+      detail: `${read.length} file(s) read. Discovery walks the whole tree, so the live count is higher.`,
+    };
+  }
+
+  if (row.error) {
+    // The survey never got as far as a sitemap.
+    return {
+      label: /robots\.txt/i.test(row.error) ? 'Blocked at robots.txt' : 'No route',
+      tone: 'higher',
+      detail: row.error,
+    };
+  }
+
+  if (indexes.length > 0) {
+    return {
+      label: 'Index only',
+      tone: 'warn',
+      detail:
+        `An index of further sitemaps was read, and the ${read.length - indexes.length} child file(s) ` +
+        'this survey opened held no page URLs. The survey stops after a few children by design, so ' +
+        'this is untested rather than unusable — a run walks the whole tree.',
+    };
+  }
+
+  if (failures.length > 0) {
+    return {
+      label: 'Sitemap unreadable',
+      tone: 'higher',
+      detail: failures[0]?.error ?? 'the declared sitemap could not be fetched',
+    };
+  }
+
+  if ((row.declared?.length ?? 0) === 0) {
+    return { label: 'None published', tone: 'higher', detail: 'No sitemap declared, and no sitemap.xml at the usual path.' };
+  }
+
+  return { label: 'Empty', tone: 'warn', detail: 'The sitemap was read but listed no page URLs.' };
+}
+
+/**
  * What each competitor's sitemaps actually contain.
  *
  * Where search is disallowed this is the route the site publishes for crawlers,
@@ -715,7 +786,13 @@ function SitemapSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | 
               icon={result.summary.withUsableSitemap > 0 ? '✓' : '▲'}
             />
             <Stat label="Declare sitemaps" value={result.summary.declaringSitemaps} tone="accent" icon="🗺" />
-            <Stat label="No route found" value={result.summary.failed} tone="info" icon="?" />
+            <Stat
+              label="No route found"
+              value={result.summary.failed}
+              tone="info"
+              icon="?"
+              meta="See the verdict per row"
+            />
           </div>
 
           <div className="table-wrap">
@@ -724,12 +801,15 @@ function SitemapSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | 
                 <tr>
                   <th>Competitor</th>
                   <th className="num">URLs seen</th>
+                  <th>Verdict</th>
                   <th>Sitemaps</th>
                   <th>Sample URL</th>
                 </tr>
               </thead>
               <tbody>
-                {result.results.map((row) => (
+                {result.results.map((row) => {
+                  const verdict = sitemapVerdict(row);
+                  return (
                   <tr key={row.slug}>
                     <td>
                       <div className="cell-primary">{row.name}</div>
@@ -742,6 +822,10 @@ function SitemapSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | 
                         <span className="muted">—</span>
                       )}
                     </td>
+                    <td className="xs" style={{ maxWidth: 260 }}>
+                      <span className={`badge badge--${verdict.tone}`}>{verdict.label}</span>
+                      <div className="cell-secondary xs">{verdict.detail}</div>
+                    </td>
                     <td className="xs mono muted" style={{ maxWidth: 300 }}>
                       {row.declared && row.declared.length > 0
                         ? row.declared.slice(0, 3).map((s) => <div key={s}>{s}</div>)
@@ -751,9 +835,20 @@ function SitemapSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | 
                       {row.sampleUrls?.[0] ?? '—'}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
+          </div>
+
+          <div style={{ marginTop: 'var(--sp-4)' }}>
+            <Alert tone="info" title="A blank count is not the same as a dead source">
+              This survey reads the index and a few children only — a large retailer's full tree
+              runs to millions of URLs and is not worth walking to answer "is there a route". A run
+              harvests the whole tree, so <em>Index only</em> means untested here, not unusable.{' '}
+              <em>Sitemap unreadable</em> and <em>Blocked at robots.txt</em> are the real problems,
+              and a few of those still leaves plenty to compare against.
+            </Alert>
           </div>
         </>
       )}
