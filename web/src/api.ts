@@ -209,6 +209,9 @@ export interface ScrapeRun {
   trigger: string;
   status: 'running' | 'completed' | 'failed';
   competitor_name?: string | null;
+  /** Set when the run was aimed at a single product for testing. */
+  product_sku?: string | null;
+  product_name?: string | null;
   ok_count: number;
   error_count: number;
   skipped_count: number;
@@ -320,6 +323,12 @@ export const api = {
       { method: 'DELETE' },
     ),
 
+  removeProductComparisons: (productId: number) =>
+    request<{ observationsRemoved: number; matchesRemoved: number }>(
+      `/api/comparison/product/${productId}`,
+      { method: 'DELETE' },
+    ),
+
   clearAllComparisons: () =>
     request<{ observationsRemoved: number; matchesRemoved: number }>(
       '/api/comparison/observations',
@@ -392,7 +401,13 @@ export const api = {
 
   runs: () => request<{ runs: ScrapeRun[]; activeRunId: number | null }>('/api/runs'),
   run: (id: number) => request<{ run: ScrapeRun; items: RunItem[] }>(`/api/runs/${id}`),
-  startRun: (body: { mode: string; competitorId?: number | null; limit?: number | null }) =>
+  startRun: (body: {
+    mode: string;
+    competitorId?: number | null;
+    limit?: number | null;
+    productId?: number | null;
+    sku?: string;
+  }) =>
     request<{ run: ScrapeRun }>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),
   recentErrors: () =>
     request<{ errors: (RunItem & { run_id: number; created_at: string })[] }>('/api/runs/errors/recent'),

@@ -17,6 +17,15 @@ export interface StartRunOptions {
   trigger?: string;
   /** Cap on products processed, mainly to keep the first manual runs short. */
   limit?: number | null;
+  /**
+   * Scope the run to one product.
+   *
+   * The testing case: you know a competitor lists a particular watch and want
+   * to see whether we pick it up, without waiting on the whole catalogue. A
+   * named product is also re-discovered even if it already has candidates,
+   * since otherwise the run you just asked for would do nothing.
+   */
+  productId?: number | null;
 }
 
 let activeRunId: number | null = null;
@@ -46,10 +55,10 @@ export async function startRun(options: StartRunOptions = {}): Promise<ScrapeRun
 
   const mode = options.mode ?? 'both';
   const { rows } = await query<ScrapeRun>(
-    `INSERT INTO scrape_runs (trigger, status, competitor_id)
-     VALUES ($1, 'running', $2)
+    `INSERT INTO scrape_runs (trigger, status, competitor_id, product_id)
+     VALUES ($1, 'running', $2, $3)
      RETURNING *`,
-    [options.trigger ?? 'manual', options.competitorId ?? null],
+    [options.trigger ?? 'manual', options.competitorId ?? null, options.productId ?? null],
   );
 
   const run = rows[0];
@@ -94,12 +103,14 @@ async function executeRun(runId: number, mode: RunMode, options: StartRunOptions
   let skipped = 0;
 
   try {
+    const productId = options.productId ?? null;
+
     for (const competitor of competitors) {
-      if (mode === 'prices' || mode === 'both') {
-        const result = await scrapeConfirmedMatches(runId, competitor, options.limit ?? null);
-        ok += result.ok;
-        errored += result.errored;
-      }
+      // Discovery first, then prices. A match auto-confirmed by this run is
+      // then priced by this run, so one scan answers "is it listed there, and
+      // for how much" — which is the whole question. The other order left a
+      // freshly matched product showing no competitor price until someone ran
+      // the scan a second time.
       if (mode === 'discover' || mode === 'both') {
         // Sitemap discovery searches a cached index of the competitor's URLs.
         // Harvested once per run rather than per product: it is the same
@@ -116,10 +127,26 @@ async function executeRun(runId: number, mode: RunMode, options: StartRunOptions
           }
         }
 
-        const result = await discoverUnmatchedProducts(runId, competitor, options.limit ?? null);
+        const result = await discoverUnmatchedProducts(
+          runId,
+          competitor,
+          options.limit ?? null,
+          productId,
+        );
         ok += result.ok;
         errored += result.errored;
         skipped += result.skipped;
+      }
+
+      if (mode === 'prices' || mode === 'both') {
+        const result = await scrapeConfirmedMatches(
+          runId,
+          competitor,
+          options.limit ?? null,
+          productId,
+        );
+        ok += result.ok;
+        errored += result.errored;
       }
     }
 
@@ -142,6 +169,7 @@ async function scrapeConfirmedMatches(
   runId: number,
   competitor: Competitor,
   limit: number | null,
+  productId: number | null,
 ): Promise<{ ok: number; errored: number }> {
   const { rows: matches } = await query<MatchRow>(
     `SELECT m.id AS match_id, m.product_id, m.competitor_id, m.competitor_url, p.internal_sku
@@ -150,9 +178,10 @@ async function scrapeConfirmedMatches(
      -- A delisted product is no longer sold by us, so re-checking a
      -- competitor's price for it would only add noise.
      WHERE m.competitor_id = $1 AND m.status = 'confirmed' AND p.delisted_at IS NULL
+       AND ($2::bigint IS NULL OR m.product_id = $2)
      ORDER BY m.id
      ${limit ? 'LIMIT ' + Number(limit) : ''}`,
-    [competitor.id],
+    [competitor.id, productId],
   );
 
   let ok = 0;
@@ -222,21 +251,26 @@ async function discoverUnmatchedProducts(
   runId: number,
   competitor: Competitor,
   limit: number | null,
+  productId: number | null,
 ): Promise<{ ok: number; errored: number; skipped: number }> {
   const { rows: products } = await query<Product>(
     `SELECT p.* FROM products p
      -- Only products the latest feed still lists. Without this a one-product
      -- test feed would still scan everything imported before it.
      WHERE p.delisted_at IS NULL
-       AND NOT EXISTS (
-       SELECT 1 FROM product_matches m
-       WHERE m.product_id = p.id
-         AND m.competitor_id = $1
-         AND m.status IN ('confirmed', 'pending')
-     )
+       AND ($2::bigint IS NULL OR p.id = $2)
+       -- Asking for one product means "look at this one now". Skipping it for
+       -- already having a candidate would make that run silently do nothing,
+       -- which is the opposite of what a test run is for.
+       AND ($2::bigint IS NOT NULL OR NOT EXISTS (
+         SELECT 1 FROM product_matches m
+         WHERE m.product_id = p.id
+           AND m.competitor_id = $1
+           AND m.status IN ('confirmed', 'pending')
+       ))
      ORDER BY p.id
      ${limit ? 'LIMIT ' + Number(limit) : ''}`,
-    [competitor.id],
+    [competitor.id, productId],
   );
 
   let ok = 0;

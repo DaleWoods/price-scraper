@@ -171,6 +171,8 @@ export interface ScrapeRun {
   trigger: string;
   status: 'running' | 'completed' | 'failed';
   competitor_id: number | null;
+  /** Set when the run was scoped to a single product for testing. */
+  product_id: number | null;
   ok_count: number;
   error_count: number;
   skipped_count: number;

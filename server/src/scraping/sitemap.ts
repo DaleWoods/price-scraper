@@ -243,6 +243,11 @@ export async function harvestSitemapUrls(
   const fetched: SitemapFetch[] = [];
   const urls: SitemapUrl[] = [];
   const seen = new Set<string>();
+  // Retailers repeat product URLs: across child sitemaps, and within a single
+  // file. Passing the duplicates on makes the caller's batched upsert fail
+  // outright — "ON CONFLICT DO UPDATE command cannot affect row a second time"
+  // — and spends the maxUrls budget on pages already collected.
+  const seenUrls = new Set<string>();
 
   let inspection;
   try {
@@ -286,6 +291,8 @@ export async function harvestSitemapUrls(
 
       for (const entry of parsed.urls) {
         if (urls.length >= maxUrls) break;
+        if (seenUrls.has(entry.loc)) continue;
+        seenUrls.add(entry.loc);
         urls.push(entry);
       }
       queue.push(...parsed.children);

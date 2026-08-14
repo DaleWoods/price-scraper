@@ -41,6 +41,8 @@ export function RunsPage() {
   const [mode, setMode] = useState('both');
   const [competitorId, setCompetitorId] = useState('');
   const [limit, setLimit] = useState('25');
+  // Naming one SKU turns the run into a test of that single product.
+  const [sku, setSku] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -115,12 +117,16 @@ export function RunsPage() {
 
   const start = async () => {
     try {
+      const oneProduct = sku.trim();
       const { run } = await api.startRun({
         mode,
         competitorId: competitorId ? Number(competitorId) : null,
-        limit: limit ? Number(limit) : null,
+        // A single-SKU run is a test of that one product, so a product cap on
+        // top of it would only be confusing.
+        limit: oneProduct ? null : limit ? Number(limit) : null,
+        sku: oneProduct || undefined,
       });
-      toast(`Run #${run.id} started.`, 'ok');
+      toast(`Run #${run.id} started${oneProduct ? ` for ${oneProduct}` : ''}.`, 'ok');
       void load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not start the run', 'error');
@@ -177,6 +183,19 @@ export function RunsPage() {
             </select>
           </div>
           <div className="field">
+            <label className="label" htmlFor="sku">
+              Single product (SKU)
+            </label>
+            <input
+              id="sku"
+              className="input"
+              placeholder="Whole catalogue"
+              value={sku}
+              onChange={(event) => setSku(event.target.value)}
+              style={{ width: 190 }}
+            />
+          </div>
+          <div className="field">
             <label className="label" htmlFor="limit">
               Product limit
             </label>
@@ -187,6 +206,7 @@ export function RunsPage() {
               min={1}
               value={limit}
               onChange={(event) => setLimit(event.target.value)}
+              disabled={sku.trim().length > 0}
               style={{ width: 110 }}
             />
           </div>
@@ -209,6 +229,12 @@ export function RunsPage() {
         <p className="small muted" style={{ marginTop: 'var(--sp-4)' }}>
           Requests are rate-limited per domain with randomised delays, and robots.txt is checked before
           every fetch. Keep the product limit low for the first runs against a new competitor.
+        </p>
+        <p className="small muted" style={{ marginTop: 'var(--sp-2)', marginBottom: 0 }}>
+          Put a <strong>SKU</strong> in to test one product you know a competitor stocks — that run
+          looks at it whether or not it already has candidates, so you can re-check the same product
+          as often as you like. Only enabled competitors are scanned, so enable the one you are
+          testing against first.
         </p>
       </Card>
 
@@ -261,7 +287,14 @@ export function RunsPage() {
                         {run.status}
                       </span>
                     </td>
-                    <td className="small muted">{run.competitor_name ?? 'All enabled'}</td>
+                    <td className="small muted">
+                      {run.competitor_name ?? 'All enabled'}
+                      {run.product_sku && (
+                        <div className="cell-secondary xs">
+                          1 product · <span className="mono">{run.product_sku}</span>
+                        </div>
+                      )}
+                    </td>
                     <td className="num">{run.ok_count}</td>
                     <td className="num" style={{ color: run.error_count > 0 ? 'var(--pos-higher-fg)' : undefined }}>
                       {run.error_count}

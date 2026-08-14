@@ -136,31 +136,38 @@ export async function refreshCompetitorUrls(
   }
 
   const CHUNK = 500;
-  for (let i = 0; i < harvest.urls.length; i += CHUNK) {
-    const chunk = harvest.urls.slice(i, i + CHUNK);
-    const values: unknown[] = [];
-    const tuples = chunk.map((entry, index) => {
-      const base = index * 4;
-      const lastmod = entry.lastmod ? new Date(entry.lastmod) : null;
-      values.push(
-        competitor.id,
-        entry.loc,
-        slugWords(entry.loc),
-        lastmod && !Number.isNaN(lastmod.getTime()) ? lastmod : null,
-      );
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
-    });
+  try {
+    for (let i = 0; i < harvest.urls.length; i += CHUNK) {
+      const chunk = harvest.urls.slice(i, i + CHUNK);
+      const values: unknown[] = [];
+      const tuples = chunk.map((entry, index) => {
+        const base = index * 4;
+        const lastmod = entry.lastmod ? new Date(entry.lastmod) : null;
+        values.push(
+          competitor.id,
+          entry.loc,
+          slugWords(entry.loc),
+          lastmod && !Number.isNaN(lastmod.getTime()) ? lastmod : null,
+        );
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
+      });
 
-    await query(
-      `INSERT INTO competitor_urls (competitor_id, url, slug, lastmod)
-       VALUES ${tuples.join(', ')}
-       ON CONFLICT (competitor_id, url) DO UPDATE SET
-         slug         = EXCLUDED.slug,
-         lastmod      = EXCLUDED.lastmod,
-         last_seen_at = now()`,
-      values,
-    );
-    result.urlsStored += chunk.length;
+      await query(
+        `INSERT INTO competitor_urls (competitor_id, url, slug, lastmod)
+         VALUES ${tuples.join(', ')}
+         ON CONFLICT (competitor_id, url) DO UPDATE SET
+           slug         = EXCLUDED.slug,
+           lastmod      = EXCLUDED.lastmod,
+           last_seen_at = now()`,
+        values,
+      );
+      result.urlsStored += chunk.length;
+    }
+  } catch (err) {
+    // One competitor's unusable sitemap must not abort the entire run. Report
+    // it and let the caller fall back on the URLs already cached for them.
+    result.error = `could not cache URLs: ${(err as Error).message}`;
+    return result;
   }
 
   logger.info(

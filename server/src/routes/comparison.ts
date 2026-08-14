@@ -45,6 +45,38 @@ comparisonRouter.delete('/product/:productId/competitor/:competitorId', async (r
 });
 
 /**
+ * Remove every competitor price for one product.
+ *
+ * The row-level version of the above: one product is wrong or stale across the
+ * board, and re-running it from scratch beats picking off competitors one by
+ * one. Rejections survive, for the same reason.
+ */
+comparisonRouter.delete('/product/:productId', async (req, res) => {
+  try {
+    const productId = Number.parseInt(req.params.productId ?? '', 10);
+    if (!Number.isFinite(productId)) {
+      res.status(400).json({ error: 'Invalid product id' });
+      return;
+    }
+
+    const observations = await query('DELETE FROM price_observations WHERE product_id = $1', [
+      productId,
+    ]);
+    const matches = await query(
+      `DELETE FROM product_matches WHERE product_id = $1 AND status <> 'rejected'`,
+      [productId],
+    );
+
+    res.json({
+      observationsRemoved: observations.rowCount ?? 0,
+      matchesRemoved: matches.rowCount ?? 0,
+    });
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
+  }
+});
+
+/**
  * Clear every recorded comparison: all competitor observations, and the matches
  * that produced them.
  *

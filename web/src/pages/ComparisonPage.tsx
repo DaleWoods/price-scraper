@@ -53,6 +53,8 @@ export function ComparisonPage() {
   const [fascia, setFascia] = useState('');
   const [fascias, setFascias] = useState<Fascia[]>([]);
   const [clearing, setClearing] = useState(false);
+  const [removingProductId, setRemovingProductId] = useState<number | null>(null);
+  const [scanningProductId, setScanningProductId] = useState<number | null>(null);
   const [category, setCategory] = useState('');
   const [position, setPosition] = useState<PositionFilter>('');
 
@@ -114,6 +116,59 @@ export function ComparisonPage() {
         : null,
     );
   }, [filters]);
+
+  /**
+   * Delete every competitor price and match for one product.
+   *
+   * The row-level counterpart to the per-competitor Remove in the drawer: when
+   * a whole product's comparisons are stale, clearing it and re-scanning is
+   * quicker than picking off competitors one at a time.
+   */
+  const removeProductComparisons = async (row: ComparisonRow) => {
+    if (
+      !window.confirm(
+        `Delete every competitor price and match for ${row.product.internal_sku}?\n\n` +
+          'The product and your own price are not affected, and a later run can find it again.',
+      )
+    ) {
+      return;
+    }
+    setRemovingProductId(row.product.id);
+    try {
+      const result = await api.removeProductComparisons(row.product.id);
+      if (selected?.product.id === row.product.id) setSelected(null);
+      await load();
+      toast(
+        `${row.product.internal_sku}: removed ${result.observationsRemoved} observation(s).`,
+        'ok',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not delete those comparisons', 'error');
+    } finally {
+      setRemovingProductId(null);
+    }
+  };
+
+  /**
+   * Scan this one product now.
+   *
+   * The testing path: you know a competitor lists this watch and want to see
+   * whether we pick it up, without scanning the whole catalogue to find out.
+   */
+  const scanProduct = async (row: ComparisonRow) => {
+    setScanningProductId(row.product.id);
+    try {
+      const { run } = await api.startRun({ mode: 'both', productId: row.product.id });
+      toast(
+        `Run #${run.id} started for ${row.product.internal_sku}. Watch it on Scrape runs.`,
+        'ok',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not start that run', 'error');
+    } finally {
+      setScanningProductId(null);
+    }
+  };
 
   /**
    * Wipe every recorded competitor price and match.
@@ -393,6 +448,7 @@ export function ComparisonPage() {
                   <th>Position</th>
                   <th>Matches</th>
                   <th className="num">Seen</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -456,6 +512,31 @@ export function ComparisonPage() {
                       )}
                     </td>
                     <td className="num muted xs nowrap">{relativeTime(row.observedAt)}</td>
+                    <td className="nowrap">
+                      {/* The row itself opens the drawer, so these must not. */}
+                      <div className="row-actions" onClick={(event) => event.stopPropagation()}>
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--ghost"
+                          onClick={() => void scanProduct(row)}
+                          disabled={scanningProductId === row.product.id}
+                          title="Scan just this product against every enabled competitor"
+                        >
+                          {scanningProductId === row.product.id ? 'Starting…' : 'Scan'}
+                        </button>
+                        {row.matchStatus.confirmed + row.matchStatus.pending > 0 && (
+                          <button
+                            type="button"
+                            className="btn btn--sm btn--ghost"
+                            onClick={() => void removeProductComparisons(row)}
+                            disabled={removingProductId === row.product.id}
+                            title="Delete every competitor price and match for this product"
+                          >
+                            {removingProductId === row.product.id ? 'Deleting…' : 'Delete'}
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

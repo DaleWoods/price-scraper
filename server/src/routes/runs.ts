@@ -7,9 +7,11 @@ export const runsRouter: Router = Router();
 runsRouter.get('/', async (_req, res, next) => {
   try {
     const { rows } = await query(
-      `SELECT r.*, c.display_name AS competitor_name
+      `SELECT r.*, c.display_name AS competitor_name,
+              p.internal_sku AS product_sku, p.product_name
        FROM scrape_runs r
        LEFT JOIN competitors c ON c.id = r.competitor_id
+       LEFT JOIN products p    ON p.id = r.product_id
        ORDER BY r.started_at DESC
        LIMIT 25`,
     );
@@ -31,7 +33,24 @@ runsRouter.post('/', async (req, res) => {
     const competitorId = req.body?.competitorId ? Number(req.body.competitorId) : null;
     const limit = req.body?.limit ? Number(req.body.limit) : null;
 
-    const run = await startRun({ mode, competitorId, limit, trigger: 'manual' });
+    // A run can be aimed at one product, by id or by the SKU you actually have
+    // to hand. Resolving the SKU here means an unknown one fails immediately
+    // with a useful message, rather than starting a run that scans nothing.
+    let productId = req.body?.productId ? Number(req.body.productId) : null;
+    const sku = typeof req.body?.sku === 'string' ? req.body.sku.trim() : '';
+    if (!productId && sku) {
+      const { rows } = await query<{ id: number }>(
+        'SELECT id FROM products WHERE lower(internal_sku) = lower($1)',
+        [sku],
+      );
+      if (!rows[0]) {
+        res.status(404).json({ error: `No product with SKU "${sku}". Import its feed first.` });
+        return;
+      }
+      productId = rows[0].id;
+    }
+
+    const run = await startRun({ mode, competitorId, limit, productId, trigger: 'manual' });
     res.status(202).json({ run });
   } catch (err) {
     res.status(409).json({ error: (err as Error).message });

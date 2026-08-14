@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '9 August 2026';
+const GUIDE_UPDATED = '14 August 2026';
 
 function Section({
   id,
@@ -105,7 +105,9 @@ export function GuidePage() {
           </li>
           <li>
             <strong>Run a scrape.</strong> Scrape runs → Start run. Use a small product limit for
-            the first run against a new competitor, then review what it found under Match review.
+            the first run against a new competitor, then review what it found under Match review. To
+            prove the whole chain works, put one SKU you know a competitor stocks in the
+            single-product box and scan just that.
           </li>
         </ol>
       </Section>
@@ -119,9 +121,16 @@ export function GuidePage() {
           history.
           <br />
           <br />
-          A comparison is only as good as the last run that produced it, so both can be thrown away.{' '}
-          <strong>Remove</strong>, beside a competitor's price in the row detail, drops that one
-          competitor's price for that one product. <strong>Clear comparisons</strong>, at the top of
+          Each row carries two actions. <strong>Scan</strong> runs that one product against every
+          enabled competitor there and then — the quickest way to check whether a product you know
+          a competitor stocks is actually being picked up. <strong>Delete</strong> throws away every
+          competitor price and match for that product, so a scan can start it fresh.
+          <br />
+          <br />
+          A comparison is only as good as the last run that produced it, so it can be thrown away at
+          three scales. <strong>Remove</strong>, beside a competitor's price in the row detail, drops
+          that one competitor's price for that one product. <strong>Delete</strong>, on the row,
+          drops every competitor for that product. <strong>Clear comparisons</strong>, at the top of
           the page, drops the lot. Either way the match goes with the price — leaving it behind
           would have the next run record the same stale figure straight back. What is never thrown
           away: your products and your own prices, which come from the feed rather than from
@@ -136,10 +145,17 @@ export function GuidePage() {
         </Term>
         <Term label="Scrape runs">
           Start a run and see what each one did. <em>Prices</em> re-checks products already matched;{' '}
-          <em>Discovery</em> looks for new matches; <em>Both</em> does prices then discovery. Every
-          target produces a row, so a competitor changing their page layout shows up as an error
-          rather than a silently wrong price. Runs can be deleted individually or cleared in bulk —
-          recorded prices are always kept.
+          <em>Discovery</em> looks for new matches; <em>Both</em> discovers first and then prices,
+          so a match found by a run is priced by that same run. Every target produces a row, so a
+          competitor changing their page layout shows up as an error rather than a silently wrong
+          price. Runs can be deleted individually or cleared in bulk — recorded prices are always
+          kept.
+          <br />
+          <br />
+          Putting a <strong>SKU</strong> in the single-product box scopes the run to that one
+          product, which is how you test whether something you know a competitor lists gets picked
+          up. That run looks at the product whether or not it already has candidates, so you can
+          re-check the same one as often as you like. Only enabled competitors are ever scanned.
         </Term>
         <Term label="Import feed">
           Where products and prices come in. One Google feed per site.{' '}
@@ -244,6 +260,12 @@ export function GuidePage() {
           deliberate — it is how the app follows your latest file — but it does mean a partial
           export looks like a catalogue collapse. Recorded price history is never deleted, and a
           product returning in a later feed comes straight back.
+        </Alert>
+        <Alert tone="info" title="A scan only looks at enabled competitors">
+          A single-product scan that finds nothing usually means the retailer you had in mind is
+          switched off, not that they do not list the product. Enable them on Admin → Competitors
+          first. A competitor configured as not stocking that brand is skipped too, and says so in
+          the run detail.
         </Alert>
         <Alert tone="warn" title="Competitors block their own search pages">
           Every competitor we have checked disallows their site search in robots.txt. Finding their
