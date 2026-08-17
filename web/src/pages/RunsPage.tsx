@@ -44,6 +44,9 @@ export function RunsPage() {
   const [limit, setLimit] = useState('25');
   // Naming one SKU turns the run into a test of that single product.
   const [sku, setSku] = useState('');
+  // A single-product run reuses each competitor's cached URLs to stay fast;
+  // tick this to re-harvest first, for a competitor page too new to be cached.
+  const [forceHarvest, setForceHarvest] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -126,6 +129,7 @@ export function RunsPage() {
         // top of it would only be confusing.
         limit: oneProduct ? null : limit ? Number(limit) : null,
         sku: oneProduct || undefined,
+        forceHarvest: oneProduct ? forceHarvest : undefined,
       });
       toast(`Run #${run.id} started${oneProduct ? ` for ${oneProduct}` : ''}.`, 'ok');
       void load();
@@ -198,6 +202,19 @@ export function RunsPage() {
               style={{ width: 190 }}
             />
           </div>
+          {sku.trim().length > 0 && (
+            <div className="field">
+              <span className="label">Sitemaps</span>
+              <label className="row small" style={{ gap: 8, cursor: 'pointer', marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={forceHarvest}
+                  onChange={(event) => setForceHarvest(event.target.checked)}
+                />
+                Re-harvest first
+              </label>
+            </div>
+          )}
           <div className="field">
             <label className="label" htmlFor="limit">
               Product limit
@@ -233,11 +250,18 @@ export function RunsPage() {
           Requests are rate-limited per domain with randomised delays, and robots.txt is checked before
           every fetch. Keep the product limit low for the first runs against a new competitor.
         </p>
-        <p className="small muted" style={{ marginTop: 'var(--sp-2)', marginBottom: 0 }}>
+        <p className="small muted" style={{ marginTop: 'var(--sp-2)' }}>
           Put a <strong>SKU</strong> in to test one product you know a competitor stocks — that run
           looks at it whether or not it already has candidates, so you can re-check the same product
           as often as you like. Only enabled competitors are scanned, so enable the one you are
           testing against first.
+        </p>
+        <p className="small muted" style={{ marginBottom: 0 }}>
+          A single-product run searches each competitor's <em>already-cached</em> URLs rather than
+          re-harvesting their sitemap, which is what keeps it quick — some competitors publish tens
+          of thousands of URLs, and walking the whole tree just to test one SKU can take minutes.
+          Tick <strong>Re-harvest first</strong> only if the competitor's listing might be too new to
+          be cached yet; otherwise the existing cache is normally enough.
         </p>
       </Card>
 

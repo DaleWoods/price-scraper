@@ -160,6 +160,15 @@ export function GuidePage() {
           re-check the same one as often as you like. Only enabled competitors are ever scanned.
           <br />
           <br />
+          A single-product run searches each competitor's <em>already-cached</em> list of URLs
+          rather than re-reading their sitemap — some publish tens of thousands of them, and walking
+          the whole tree just to test one SKU could take minutes and looked like the run had hung.
+          The cache is normally close enough; tick <strong>Re-harvest first</strong>, which appears
+          once a SKU is entered, only when the competitor's listing is new enough that it might not
+          be cached yet. A run against the whole catalogue always re-reads every sitemap, which is
+          what keeps the cache current the rest of the time.
+          <br />
+          <br />
           <strong>Add a test product</strong>, at the top of the page, puts a single product in by
           hand without waiting on a feed — give it a SKU, brand, name and ideally a barcode, and it
           can scan straight away. A product added this way survives feed imports that do not mention

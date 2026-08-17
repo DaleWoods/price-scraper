@@ -26,6 +26,15 @@ export interface StartRunOptions {
    * since otherwise the run you just asked for would do nothing.
    */
   productId?: number | null;
+  /**
+   * Re-harvest a competitor's sitemap even when a single product is already
+   * scoped and URLs are cached for them. Off by default: a single-product run
+   * is meant to be quick, and Beaverbrooks alone lists 15,000+ URLs, so
+   * re-walking the whole tree to test one SKU took minutes for no benefit most
+   * of the time. Tick it when the page you're testing against is new enough
+   * that it might not be in the cache yet.
+   */
+  forceHarvest?: boolean;
 }
 
 let activeRunId: number | null = null;
@@ -116,14 +125,33 @@ async function executeRun(runId: number, mode: RunMode, options: StartRunOptions
         // Harvested once per run rather than per product: it is the same
         // sitemap every time, and re-walking it thousands of times would be
         // both slow and rude.
+        //
+        // A run scoped to one product is a quick test, not a catalogue-wide
+        // sweep, so it reuses whatever is already cached rather than
+        // re-harvesting — a large competitor's full tree can run to tens of
+        // thousands of URLs and take minutes to walk, which turns "test one
+        // product" into a wait that looks like the app has hung. A full run
+        // (no product named) always harvests fresh, which is how the cache
+        // stays current for everyone else.
         if ((competitor.config?.discovery ?? 'sitemap') === 'sitemap') {
-          const refresh = await refreshCompetitorUrls(competitor);
-          if (refresh.error) {
-            logger.warn(
+          const alreadyCached = await countCachedUrls(competitor.id);
+          const reuseCache = productId != null && alreadyCached > 0 && !options.forceHarvest;
+
+          if (reuseCache) {
+            logger.info(
               'runner',
-              `[${competitor.slug}] sitemap unavailable (${refresh.error}); ` +
-                `falling back on ${await countCachedUrls(competitor.id)} previously cached URL(s)`,
+              `[${competitor.slug}] single-product run — searching ${alreadyCached} previously ` +
+                'cached URL(s) rather than re-harvesting the sitemap',
             );
+          } else {
+            const refresh = await refreshCompetitorUrls(competitor);
+            if (refresh.error) {
+              logger.warn(
+                'runner',
+                `[${competitor.slug}] sitemap unavailable (${refresh.error}); ` +
+                  `falling back on ${alreadyCached} previously cached URL(s)`,
+              );
+            }
           }
         }
 

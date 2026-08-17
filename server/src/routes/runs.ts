@@ -50,7 +50,9 @@ runsRouter.post('/', async (req, res) => {
       productId = rows[0].id;
     }
 
-    const run = await startRun({ mode, competitorId, limit, productId, trigger: 'manual' });
+    const forceHarvest = req.body?.forceHarvest === true;
+
+    const run = await startRun({ mode, competitorId, limit, productId, forceHarvest, trigger: 'manual' });
     res.status(202).json({ run });
   } catch (err) {
     res.status(409).json({ error: (err as Error).message });

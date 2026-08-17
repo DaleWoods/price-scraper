@@ -66,3 +66,13 @@ for problems that have actually happened, with the real numbers.
   detail text in `runner.ts` exist to fix. Keep populating that detail on any
   future change to the discovery loop — an "ok" with no explanation is the bug
   this fixed.
+- **A single-product run reuses cached sitemap URLs; it does not re-harvest.**
+  `refreshCompetitorUrls` used to run unconditionally for every enabled
+  competitor on every discovery pass. Beaverbrooks alone caches 15,000+ URLs,
+  so testing one SKU against "all enabled" meant walking every competitor's
+  full sitemap tree first — a run that should answer one question in seconds
+  took minutes and read as hung. `runner.ts` now skips the harvest when
+  `productId` is set and something is already cached for that competitor,
+  unless `forceHarvest` is passed. A full run (no product named) always
+  harvests fresh — that is what keeps the cache current for everyone else, so
+  do not extend the skip to that path.

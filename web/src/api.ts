@@ -431,6 +431,7 @@ export const api = {
     limit?: number | null;
     productId?: number | null;
     sku?: string;
+    forceHarvest?: boolean;
   }) =>
     request<{ run: ScrapeRun }>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),
   recentErrors: () =>
