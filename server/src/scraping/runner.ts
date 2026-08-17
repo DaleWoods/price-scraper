@@ -332,11 +332,22 @@ async function discoverUnmatchedProducts(
       continue;
     }
 
+    // A zero here is not necessarily "nothing found" — a page may have been
+    // opened and rejected. Say which, so a test run explains itself instead
+    // of reporting a bare zero that looks identical to never trying.
+    const detail =
+      outcome.candidatesStored > 0
+        ? `${outcome.candidatesStored} candidate(s) stored, ${outcome.autoConfirmed} auto-confirmed`
+        : outcome.bestAttempt
+          ? `Found ${outcome.candidatesFound} candidate URL(s). The closest match, ` +
+            `${outcome.bestAttempt.url}, was rejected — ${outcome.bestAttempt.reason}.`
+          : `Found ${outcome.candidatesFound} candidate URL(s), but none of them opened successfully.`;
+
     await recordRunItem(runId, {
       productId: product.id,
       competitorId: competitor.id,
       status: 'ok',
-      error: `${outcome.candidatesStored} candidate(s) stored, ${outcome.autoConfirmed} auto-confirmed`,
+      error: detail,
       durationMs: Date.now() - startedAt,
     });
     ok += 1;

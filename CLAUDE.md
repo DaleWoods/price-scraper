@@ -57,3 +57,12 @@ for problems that have actually happened, with the real numbers.
 - **Excel destroys the feeds.** Long numbers arrive as `7.32E+11`, timestamps as
   `00:00.0`. Refuse damaged identifiers rather than storing them, and report the
   count so the export can be fixed at source.
+- **A discovery run item can say "ok" and still have matched nothing.** "OK"
+  means nothing went wrong technically, not that a price was recorded — a
+  candidate can be found, opened, and rejected (brand not identified, a
+  different EAN, too little in common) and that is still "ok". Without a
+  reason attached this looked identical to nothing having been found at all,
+  which is what `discovery.ts`'s `bestAttempt`/`rejectionReason` and the
+  detail text in `runner.ts` exist to fix. Keep populating that detail on any
+  future change to the discovery loop — an "ok" with no explanation is the bug
+  this fixed.

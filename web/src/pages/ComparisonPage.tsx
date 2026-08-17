@@ -715,8 +715,15 @@ function ProductDrawer({
           <Card title="Latest competitor prices" bodyless>
             {row.competitorPrices.length === 0 ? (
               <EmptyState
-                title="No observations yet"
-                body="Confirm a match for this product, then trigger a run."
+                title={row.matchStatus.pending > 0 ? 'Awaiting confirmation' : 'No competitor matched yet'}
+                body={
+                  row.matchStatus.pending > 0
+                    ? `${row.matchStatus.pending} candidate(s) are waiting in Match review — ` +
+                      'confirm one to start recording its price.'
+                    : 'Scan this product (top of the page) to search every enabled competitor for it. ' +
+                      "If a scan reports it found nothing, Scrape runs says exactly why — " +
+                      'the competitor may not stock the brand, or the listing it found may have failed a match check.'
+                }
               />
             ) : (
               <div className="table-wrap">

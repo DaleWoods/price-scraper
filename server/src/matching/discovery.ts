@@ -15,7 +15,34 @@ export interface DiscoveryOutcome {
   candidatesFound: number;
   candidatesStored: number;
   autoConfirmed: number;
+  /**
+   * Set when at least one candidate page was opened and scored but nothing
+   * cleared the bar to be stored. Without this, a competitor that genuinely
+   * lists the product but fails a gate (wrong or absent brand, differing EAN)
+   * looks identical in a run's output to one that was never found at all.
+   */
+  bestAttempt?: { url: string; confidence: number; reason: string } | null;
   error?: { kind: string; message: string };
+}
+
+/** Turn a rejected score into a sentence a person can act on. */
+export function rejectionReason(scored: ReturnType<typeof scoreCandidate>): string {
+  const failedGate = scored.evidence.gatesFailed?.[0];
+  if (failedGate === 'brand') {
+    return "the listing does not identify the brand as ours, so the brand gate rejected it outright";
+  }
+  if (failedGate === 'ean_mpn') {
+    // scoreCandidate records the two values as a note before it rejects, which
+    // reads better than the generic gate sentence below.
+    return (
+      scored.evidence.notes?.find((note) => note.includes('differs from ours')) ??
+      'the competitor publishes a different EAN/MPN to ours, which is an outright rejection'
+    );
+  }
+  if (failedGate) {
+    return `its ${failedGate.replace(/_/g, ' ')} does not agree with ours, which is a gate attribute`;
+  }
+  return `it scored ${scored.confidence}% confidence, below the ${MIN_CANDIDATE_THRESHOLD}% needed to store it`;
 }
 
 /**
@@ -121,6 +148,8 @@ export async function discoverMatchesForProduct(
     .sort((a, b) => b.preliminary.confidence - a.preliminary.confidence)
     .slice(0, 3);
 
+  let bestAttempt: { url: string; confidence: number; reason: string } | null = null;
+
   for (const { result, preliminary } of prescored) {
     let listing: CandidateListing = {
       url: result.url,
@@ -155,7 +184,15 @@ export async function discoverMatchesForProduct(
     // A sitemap candidate that could not be opened has nothing behind it but a
     // URL guess, which is not evidence of a match.
     if (mode === 'sitemap' && !opened) continue;
-    if (!scored.viable || scored.confidence < MIN_CANDIDATE_THRESHOLD) continue;
+
+    if (!scored.viable || scored.confidence < MIN_CANDIDATE_THRESHOLD) {
+      // Keep the strongest rejection: this is what a test run needs to answer
+      // "it looked like it found the competitor's listing — why nothing then?"
+      if (!bestAttempt || scored.confidence > bestAttempt.confidence) {
+        bestAttempt = { url: listing.url, confidence: scored.confidence, reason: rejectionReason(scored) };
+      }
+      continue;
+    }
 
     const autoConfirm = scored.confidence >= AUTO_ACCEPT_THRESHOLD;
     await upsertMatch({
@@ -173,6 +210,8 @@ export async function discoverMatchesForProduct(
     outcome.candidatesStored += 1;
     if (autoConfirm) outcome.autoConfirmed += 1;
   }
+
+  if (outcome.candidatesStored === 0) outcome.bestAttempt = bestAttempt;
 
   if (options.runId) {
     logger.debug('discovery', `run ${options.runId}: ${product.internal_sku} -> ${outcome.candidatesStored} candidate(s)`);

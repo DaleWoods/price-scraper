@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '14 August 2026';
+const GUIDE_UPDATED = '17 August 2026';
 
 function Section({
   id,
@@ -229,18 +229,28 @@ export function GuidePage() {
           watches in a family often differ only by a detail the page does not state.
         </Term>
         <p className="small muted" style={{ marginBottom: 0 }}>
-          Brand is a gate: a candidate from the wrong brand is never offered, whatever else matches.
+          Brand is a gate: a candidate is rejected outright unless the brand can be confirmed, whatever
+          else matches. That includes a page that genuinely is the right product but simply does not
+          state its brand anywhere the scraper can read — not published as structured data, and not
+          in the visible title — which reads identically to a wrong-brand rejection in the run detail.
           Your confirmations and rejections always outrank the scraper — an automated run will not
           overturn a human decision.
         </p>
       </Section>
 
       <Section id="runs" title="Reading a scrape run">
-        <Term label="OK">A page was fetched and a price recorded.</Term>
+        <Term label="OK">
+          The competitor was searched or a price page was fetched, and nothing went wrong. For a
+          price target that means a price was recorded. For discovery it can also mean a listing
+          was found, opened and <em>rejected</em> — brand not identified, a different EAN published,
+          or too little in common with our record. Read the <strong>Detail</strong> column: it
+          names the candidate URL tried and exactly why it did not stick, rather than leaving a
+          rejected candidate looking identical to nothing having been found at all.
+        </Term>
         <Term label="Skipped">
-          Nothing was wrong. Either the competitor does not stock the brand, or nothing they list
-          resembles the product. Most of our range is not carried by most of them, so this is the
-          normal majority.
+          Nothing was even tried. Either the competitor does not stock the brand, or no candidate
+          URL in their sitemap resembled the product closely enough to be worth opening. Most of
+          our range is not carried by most competitors, so this is the normal majority.
         </Term>
         <Term label="Blocked by robots.txt">
           The competitor's rules do not permit that page. We honour that rather than working around
@@ -276,6 +286,14 @@ export function GuidePage() {
           switched off, not that they do not list the product. Enable them on Admin → Competitors
           first. A competitor configured as not stocking that brand is skipped too, and says so in
           the run detail.
+        </Alert>
+        <Alert tone="warn" title="'OK' in a run does not always mean a match was made">
+          The status only says nothing went wrong technically — the competitor's page loaded, or
+          their listing was opened and read. It does not promise a price was recorded. A test scan
+          that finds a plausible page but rejects it (wrong or missing brand, a different EAN, too
+          little in common with our record) still reports "ok", with the reason spelled out in the
+          run's Detail column. If a product you know is stocked shows nothing on Price comparison,
+          check that Detail column before assuming the scan failed.
         </Alert>
         <Alert tone="warn" title="Competitors block their own search pages">
           Every competitor we have checked disallows their site search in robots.txt. Finding their
