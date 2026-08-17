@@ -46,6 +46,13 @@ export function rejectionReason(scored: ReturnType<typeof scoreCandidate>): stri
 }
 
 /**
+ * Ceiling on how long discovery spends opening candidates for one competitor.
+ * Exported for the test that proves a slow candidate stops the loop rather
+ * than running unbounded.
+ */
+export const DISCOVERY_BUDGET_MS = 60_000;
+
+/**
  * The term we hand to the competitor's on-site search. A manufacturer reference
  * is the strongest query when we hold one; otherwise brand + product name.
  */
@@ -149,8 +156,31 @@ export async function discoverMatchesForProduct(
     .slice(0, 3);
 
   let bestAttempt: { url: string; confidence: number; reason: string } | null = null;
+  const budgetStart = Date.now();
 
   for (const { result, preliminary } of prescored) {
+    // A candidate is a guess, not yet evidence — retrying it against the
+    // competitor's full retry policy (up to 3 attempts at a 30s timeout) burns
+    // minutes on a URL that might not even be the right product. One attempt
+    // per candidate, and move on to the next guess or report nothing found.
+    //
+    // The wall-clock cap on top of that is a backstop: three candidates can
+    // still add up to a couple of minutes on a genuinely slow site, and one
+    // uncooperative competitor must not be able to hold up the whole run —
+    // or, on a small deployment, starve the process of enough CPU/time to
+    // fail its own health check while Chromium is busy. This only stops the
+    // *next* candidate from starting once the budget has passed; a candidate
+    // already in flight runs out its own timeout, so the true worst case is
+    // the budget plus one more request timeout, not a hard ceiling.
+    if (Date.now() - budgetStart > DISCOVERY_BUDGET_MS) {
+      logger.warn(
+        'discovery',
+        `[${competitor.slug}] ${product.internal_sku}: stopped after ${DISCOVERY_BUDGET_MS}ms, ` +
+          'skipping remaining candidates for this competitor',
+      );
+      break;
+    }
+
     let listing: CandidateListing = {
       url: result.url,
       title: result.title,
@@ -162,7 +192,7 @@ export async function discoverMatchesForProduct(
     // Open the product page for structured attributes and the EAN, which is what
     // lifts a candidate from a fuzzy name guess to a confident match.
     try {
-      const page = await fetchPage(competitor, result.url);
+      const page = await fetchPage(competitor, result.url, { maxAttempts: 1 });
       const extracted = extractListing(competitor, page);
       listing = {
         url: page.finalUrl,

@@ -21,12 +21,29 @@ function userAgentFor(competitor: Competitor): string {
   return competitor.config.userAgent ?? env.scraperUserAgent;
 }
 
+export interface FetchPageOptions {
+  /**
+   * Override the competitor's configured retry count for this call only.
+   *
+   * Discovery uses this to fetch an unproven candidate URL once rather than
+   * the competitor's usual attempts — retrying a guess that might not even be
+   * the right product wastes minutes better spent on the next candidate, and
+   * three candidates each retrying three times at the full timeout can hold
+   * up a whole competitor for the better part of ten minutes.
+   */
+  maxAttempts?: number;
+}
+
 /**
  * Fetch a page for a competitor, honouring robots.txt, per-domain rate limits and
  * retry-with-backoff. Uses a plain HTTP fetch where the competitor's config allows
  * it and falls back to Playwright only where JS rendering is needed (Spec §5.4).
  */
-export async function fetchPage(competitor: Competitor, url: string): Promise<FetchedPage> {
+export async function fetchPage(
+  competitor: Competitor,
+  url: string,
+  options: FetchPageOptions = {},
+): Promise<FetchedPage> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -49,7 +66,7 @@ export async function fetchPage(competitor: Competitor, url: string): Promise<Fe
     minDelayMs: Math.max(competitor.config.rateLimit?.minDelayMs ?? 0, decision.crawlDelayMs ?? 0),
   };
 
-  const attempts = Math.max(1, competitor.config.retry?.attempts ?? 3);
+  const attempts = Math.max(1, options.maxAttempts ?? competitor.config.retry?.attempts ?? 3);
   const backoffMs = competitor.config.retry?.backoffMs ?? 2000;
 
   let lastError: unknown;

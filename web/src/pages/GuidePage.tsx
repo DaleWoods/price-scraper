@@ -169,6 +169,14 @@ export function GuidePage() {
           what keeps the cache current the rest of the time.
           <br />
           <br />
+          Discovery also does not chase a candidate that will not load. Opening a candidate page is
+          tried once, not retried against a competitor's full retry policy — a candidate is a guess,
+          and retrying an unproven guess three times over wastes minutes better spent on the next
+          one. A competitor that will not respond at all is given a fixed amount of time in total
+          before the run moves on to the next competitor, rather than being allowed to run
+          indefinitely.
+          <br />
+          <br />
           <strong>Add a test product</strong>, at the top of the page, puts a single product in by
           hand without waiting on a feed — give it a SKU, brand, name and ideally a barcode, and it
           can scan straight away. A product added this way survives feed imports that do not mention
@@ -327,6 +335,14 @@ export function GuidePage() {
           <span className="mono">HTTP 403</span> or a timeout from the server. That is a hosting
           question rather than a verdict on the retailer, and it is worth re-checking before writing
           a source off.
+        </Alert>
+        <Alert tone="warn" title="'Cannot reach the API' can mean the server is mid-restart">
+          The hosting platform restarts the app if it stops answering its health check for long
+          enough — most often after a long-running scrape has used up the container's resources.
+          While that restart is in progress, a page load can get a plain "server unavailable"
+          response instead of real data, which shows here as a short, clear error rather than
+          anything from the failed page itself. Waiting a minute and reloading is usually all that
+          is needed; if it persists, that is worth reporting, not something to work around.
         </Alert>
         <p className="small muted" style={{ marginBottom: 0 }}>
           Guide last updated {GUIDE_UPDATED}.

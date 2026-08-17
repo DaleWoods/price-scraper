@@ -259,7 +259,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       payload = JSON.parse(text);
     } catch {
-      payload = { error: text };
+      // Not our API's JSON — a proxy or platform error page (Render's own
+      // "Bad Gateway" during a restart, a Cloudflare block, etc). Logging the
+      // real body helps debugging; showing all of it to the user doesn't —
+      // it was previously rendered verbatim, HTML tags and inline CSS and
+      // all, inside an alert box on the page.
+      console.warn(`Non-JSON response from ${path} (${response.status}):`, text.slice(0, 2000));
+      payload = { error: `The server sent back something unexpected (HTTP ${response.status}).` };
     }
   }
 

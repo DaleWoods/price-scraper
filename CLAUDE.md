@@ -76,3 +76,27 @@ for problems that have actually happened, with the real numbers.
   unless `forceHarvest` is passed. A full run (no product named) always
   harvests fresh — that is what keeps the cache current for everyone else, so
   do not extend the skip to that path.
+- **A discovery candidate is opened once, not retried, and the whole
+  competitor has a time budget.** This followed a real production incident:
+  a single-product run took 8+ minutes and Render restarted the app because
+  its health check (`GET /api/health`, `await query('SELECT 1')`) stopped
+  getting answered — likely Chromium contending for CPU on a small instance
+  while discovery burned through three candidates × three retries × a 30s
+  timeout, per competitor. `fetchPage` now takes an optional `maxAttempts`
+  (see `FetchPageOptions`); `discovery.ts` passes `{ maxAttempts: 1 }` for
+  every candidate it opens, because an unproven URL guess doesn't deserve the
+  same retry budget as a confirmed match's price re-check (which still uses
+  the competitor's configured retry policy — do not change that call).
+  `discovery.ts` also tracks `DISCOVERY_BUDGET_MS` (60s) across the candidate
+  loop; it only stops the *next* candidate from starting, so the true worst
+  case is the budget plus one more in-flight request timeout, not a hard
+  ceiling — don't describe it as one. Verified against stand-in competitors:
+  three unresponsive candidates went from ~369s observed in production down
+  to ~64s with these two changes together.
+- **A non-JSON API response must never be shown to the user verbatim.**
+  `web/src/api.ts`'s `request()` used to fall back to `{ error: text }` when
+  a response failed to parse as JSON — which meant a platform's own error
+  page (Render's "Bad Gateway" HTML, a Cloudflare block page) was rendered
+  whole inside an `<Alert>`, tags and inline CSS included. It now logs the
+  real body to the console and shows a short, fixed message naming the HTTP
+  status instead. Keep it that way if `request()` is touched again.
