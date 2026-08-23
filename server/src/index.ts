@@ -8,6 +8,7 @@ import { runMigrations } from './db/migrate.js';
 import { logger } from './lib/logger.js';
 import { authEnabled, requireAuth } from './middleware/auth.js';
 import { adminRouter } from './routes/admin.js';
+import { alertsRouter } from './routes/alerts.js';
 import { authRouter } from './routes/auth.js';
 import { comparisonRouter } from './routes/comparison.js';
 import { competitorsRouter } from './routes/competitors.js';
@@ -40,6 +41,7 @@ app.use('/api/matches', requireAuth, matchesRouter);
 app.use('/api/comparison', requireAuth, comparisonRouter);
 app.use('/api/runs', requireAuth, runsRouter);
 app.use('/api/admin', requireAuth, adminRouter);
+app.use('/api/alerts', requireAuth, alertsRouter);
 
 // Serve the built React app. In development Vite serves it on its own port and
 // proxies /api here, so this only matters for the single-service Render deploy.

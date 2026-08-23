@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '17 August 2026';
+const GUIDE_UPDATED = '23 August 2026';
 
 function Section({
   id,
@@ -117,8 +117,9 @@ export function GuidePage() {
           Our price against each competitor's most recent observed price. Pick which of our sites
           you are comparing with using <strong>Our site</strong> — prices differ between them, so
           every figure on the page follows that choice. <strong>They are cheaper</strong> is the
-          column that needs action. Click any row to see every competitor price and the observation
-          history.
+          column that needs action. Click any row to see every competitor price, a{' '}
+          <strong>Price trend</strong> chart of how each competitor's price has moved, and the full
+          observation history.
           <br />
           <br />
           Each row carries two actions. <strong>Scan</strong> runs that one product against every
@@ -133,17 +134,26 @@ export function GuidePage() {
           <strong>Clear comparisons</strong>, at the top of the page, throws away every recorded
           competitor price and match while keeping the products.{' '}
           <strong>Delete all products</strong> empties the catalogue entirely — the start-from-scratch
-          button. Your competitors and their settings survive all three. Either way the match goes with the price — leaving it behind
-          would have the next run record the same stale figure straight back. What is never thrown
-          away: your products and your own prices, which come from the feed rather than from
-          scraping, and anything you have <em>rejected</em> in Match review, so clearing a
-          comparison never re-opens a candidate you have already turned down.
+          button. Your competitors and their settings survive all three, and so does the match going
+          with the price: leaving it behind would have the next run record the same stale figure
+          straight back. What is never thrown away: your products and your own prices, which come
+          from the feed rather than from scraping, and anything you have <em>rejected</em> in Match
+          review, so clearing a comparison never re-opens a candidate you have already turned down.
+        </Term>
+        <Term label="Alerts">
+          Raised automatically the moment a confirmed competitor price drops below ours at one of our
+          sites, and <strong>resolved automatically</strong> the moment it no longer does — nothing
+          here is typed in by hand, and you never need to check whether an old alert is still true.
+          <strong>Acknowledging</strong> one only marks that you have seen it; it does not touch any
+          price or match. The sidebar badge counts open alerts, the same way Match review's badge
+          counts pending candidates.
         </Term>
         <Term label="Match review">
           Candidate matches the scraper found, strongest first. Confirm the ones that are genuinely
           the same product and reject the rest. A rejection is remembered — a later run will not
           re-suggest it. This page also has an <strong>Our site</strong> selector, because the price
-          shown beside a candidate is the price at that site.
+          shown beside a candidate is the price at that site. Tick several rows — or the header
+          checkbox for all pending ones — to confirm or reject them together.
         </Term>
         <Term label="Scrape runs">
           Start a run and see what each one did. <em>Prices</em> re-checks products already matched;{' '}
@@ -343,6 +353,18 @@ export function GuidePage() {
           response instead of real data, which shows here as a short, clear error rather than
           anything from the failed page itself. Waiting a minute and reloading is usually all that
           is needed; if it persists, that is worth reporting, not something to work around.
+        </Alert>
+        <Alert tone="info" title="The price trend chart has one real line and one reference line">
+          Competitor prices accumulate a genuine history — every observation is kept, so the chart's
+          competitor lines are real. Our own price does not: each feed import overwrites it, so there
+          is only ever a current figure, never a past one. The dashed line is that current price
+          shown for comparison, not a claim about what it used to be.
+        </Alert>
+        <Alert tone="info" title="An alert is per site, like everything else about price">
+          The same competitor can undercut Goldsmiths without undercutting Mappin &amp; Webb, since
+          each of our sites charges its own price. An alert always names which site it is about, and
+          resolves for that site alone — the same competitor's price can still be open against one
+          site while resolved against another.
         </Alert>
         <p className="small muted" style={{ marginBottom: 0 }}>
           Guide last updated {GUIDE_UPDATED}.

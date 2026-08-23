@@ -19,12 +19,15 @@ The app never scrapes WOSG's own sites — our prices are imported.
 | §5.2 Competitor config | Competitors are JSON files in `competitors/`. Adding a retailer is a config file plus a sync — **never a code change**. Ernest Jones ships enabled; Beaverbrooks ships disabled as a worked example. |
 | §5.3 Matching | Tiered scoring — EAN/MPN exact → brand + spec attributes → fuzzy name — with gate/high/medium/ignore weights per category (Appendix A). Anything below the threshold goes to a manual-confirm queue; confirmed matches persist as a stored URL. |
 | §5.4 Scraping | Playwright (or plain HTTP where a site allows) against the stored URL of confirmed matches; on-site search + candidate proposal for unmatched products. robots.txt respected, per-domain rate limiting with jitter, retry with backoff, and typed, loud failures. |
-| §5.5 Comparison | Our price vs each competitor's latest price, classified lower / equal / higher with £ and % delta, plus the cheapest competitor per product. Every observation is stored, so price history accumulates from day one. |
+| §5.5 Comparison | Our price vs each competitor's latest price, classified lower / equal / higher with £ and % delta, plus the cheapest competitor per product. Every observation is stored, so price history accumulates from day one. A **price trend chart** in the product drawer plots each competitor's observed price over time against our current price as a reference line — competitors get a real history; our own price does not, since a feed import overwrites it rather than versioning it. |
+| §5.6 Alerts | **In-app only.** A confirmed competitor price dropping below ours raises an alert, per fascia, and it resolves itself the moment that is no longer true — no email or Slack delivery. |
 | §5.7 Visual design | A considered design system — tokenised palette, typography and spacing; colour-coded price position; polished tables, cards, drawer drill-in, skeleton loading and toasts. |
-| Manual trigger | "Run now" from the UI. No scheduler yet, by design. |
+| Manual trigger | "Run now" from the UI, plus a run scoped to a single product for testing. No scheduler yet, by design. |
+| Match review | Confirm or reject one candidate, or select several — including a "select all pending" header checkbox — and decide them together. |
 
-**Not built yet (later phases):** scheduling, email/Slack alerts, history charts,
-SAP Commerce integration, SSO and role-based access.
+**Not built yet (later phases):** scheduling, email/Slack delivery for alerts,
+a history for our own price (only competitors' prices are historised), SAP
+Commerce integration, SSO and role-based access.
 
 ---
 

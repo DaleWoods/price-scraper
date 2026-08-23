@@ -3,6 +3,7 @@ import type { Competitor, Product, ScrapeRun } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { discoverMatchesForProduct } from '../matching/discovery.js';
 import { countCachedUrls, refreshCompetitorUrls } from '../matching/sitemapDiscovery.js';
+import { syncUndercutAlerts } from '../services/alerts.js';
 import { closeBrowser } from './browser.js';
 import { listCompetitors } from './competitorRegistry.js';
 import { ScrapeError } from './errors.js';
@@ -240,6 +241,13 @@ async function scrapeConfirmedMatches(
           page.finalUrl,
         ],
       );
+
+      // A price outlives its own scrape: alert state is checked against every
+      // fascia this product prices, not just recorded and left for someone to
+      // notice on the comparison page.
+      await syncUndercutAlerts(match.product_id, match.competitor_id, listing.price).catch((err) => {
+        logger.warn('runner', `alert sync failed for ${match.internal_sku}: ${(err as Error).message}`);
+      });
 
       await recordRunItem(runId, {
         matchId: match.match_id,

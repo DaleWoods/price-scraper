@@ -91,6 +91,49 @@ export interface MatchRow {
   competitor_slug: string;
 }
 
+/**
+ * One row from GET /api/products/:id/history — snake_case, matching the SQL
+ * column aliases in getProductHistory directly rather than the camelCase shape
+ * `getComparison` maps its rows into. The two are genuinely different shapes;
+ * do not merge them.
+ */
+export interface ProductHistoryEntry {
+  id: number;
+  competitor_id: number;
+  competitor_name: string;
+  competitor_slug: string;
+  competitor_has_logo: boolean;
+  price: number | null;
+  was_price: number | null;
+  promo: boolean;
+  in_stock: boolean | null;
+  source_url: string;
+  observed_at: string;
+}
+
+export interface AlertRow {
+  id: number;
+  type: string;
+  product_id: number;
+  competitor_id: number;
+  fascia_id: number | null;
+  delta_abs: number | null;
+  delta_pct: number | null;
+  message: string;
+  state: 'open' | 'acknowledged' | 'resolved';
+  created_at: string;
+  acknowledged_at: string | null;
+  resolved_at: string | null;
+  internal_sku: string;
+  product_name: string;
+  delisted_at: string | null;
+  competitor_name: string;
+  competitor_slug: string;
+  competitor_has_logo: boolean;
+  fascia_name: string | null;
+  fascia_code: string | null;
+}
+
 export interface Competitor {
   id: number;
   slug: string;
@@ -301,18 +344,7 @@ export const api = {
   facets: () => request<{ brands: string[]; categories: string[] }>('/api/products/facets'),
 
   productHistory: (productId: number) =>
-    request<{
-      observations: (CompetitorPrice & {
-        id: number;
-        competitor_name: string;
-        competitor_slug: string;
-        competitor_has_logo: boolean;
-        price: number | null;
-        observed_at: string;
-      })[];
-    }>(
-      `/api/products/${productId}/history`,
-    ),
+    request<{ observations: ProductHistoryEntry[] }>(`/api/products/${productId}/history`),
 
 
   deleteRun: (id: number) =>
@@ -410,6 +442,18 @@ export const api = {
     ),
   confirmMatch: (id: number) => request<{ match: MatchRow }>(`/api/matches/${id}/confirm`, { method: 'POST' }),
   rejectMatch: (id: number) => request<{ match: MatchRow }>(`/api/matches/${id}/reject`, { method: 'POST' }),
+  bulkDecideMatches: (ids: number[], decision: 'confirm' | 'reject') =>
+    request<{ decision: 'confirm' | 'reject'; confirmed: number; rejected: number; failed: number }>(
+      '/api/matches/bulk',
+      { method: 'POST', body: JSON.stringify({ ids, decision }) },
+    ),
+
+  alerts: (state: string = 'open') =>
+    request<{ alerts: AlertRow[]; total: number }>(`/api/alerts${qs({ state })}`),
+  acknowledgeAlert: (id: number) =>
+    request<{ alert: AlertRow }>(`/api/alerts/${id}/acknowledge`, { method: 'POST' }),
+  acknowledgeAllAlerts: () =>
+    request<{ acknowledged: number }>('/api/alerts/acknowledge-all', { method: 'POST' }),
   linkMatch: (productId: number, competitorId: number, url: string) =>
     request<{ match: MatchRow }>('/api/matches', {
       method: 'POST',

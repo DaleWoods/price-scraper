@@ -68,38 +68,99 @@ matchesRouter.get('/', async (req, res, next) => {
   }
 });
 
+/**
+ * Confirm one candidate. Only one confirmed listing is allowed per
+ * product/competitor, so confirming this one supersedes any previous one
+ * rather than leaving two confirmed matches fighting over the same run.
+ */
+async function confirmMatch(id: number, confirmedBy: string) {
+  const { rows: target } = await query<{ product_id: number; competitor_id: number }>(
+    'SELECT product_id, competitor_id FROM product_matches WHERE id = $1',
+    [id],
+  );
+  const match = target[0];
+  if (!match) return null;
+
+  await query(
+    `UPDATE product_matches
+     SET status = 'rejected', updated_at = now()
+     WHERE product_id = $1 AND competitor_id = $2 AND id <> $3 AND status = 'confirmed'`,
+    [match.product_id, match.competitor_id, id],
+  );
+
+  const { rows } = await query(
+    `UPDATE product_matches
+     SET status = 'confirmed', confirmed_at = now(), confirmed_by = $2, updated_at = now()
+     WHERE id = $1
+     RETURNING *`,
+    [id, confirmedBy],
+  );
+  return rows[0] ?? null;
+}
+
+async function rejectMatch(id: number, rejectedBy: string) {
+  const { rows } = await query(
+    `UPDATE product_matches
+     SET status = 'rejected', confirmed_at = now(), confirmed_by = $2, updated_at = now()
+     WHERE id = $1
+     RETURNING *`,
+    [id, rejectedBy],
+  );
+  return rows[0] ?? null;
+}
+
 matchesRouter.post('/:id/confirm', async (req, res, next) => {
   try {
     const id = Number.parseInt(req.params.id ?? '', 10);
     const confirmedBy = typeof req.body?.confirmedBy === 'string' ? req.body.confirmedBy : 'admin';
 
-    const { rows: target } = await query<{ product_id: number; competitor_id: number }>(
-      'SELECT product_id, competitor_id FROM product_matches WHERE id = $1',
-      [id],
-    );
-    const match = target[0];
+    const match = await confirmMatch(id, confirmedBy);
     if (!match) {
       res.status(404).json({ error: 'Match not found' });
       return;
     }
+    res.json({ match });
+  } catch (err) {
+    next(err);
+  }
+});
 
-    // Only one confirmed listing per product/competitor — supersede any previous one.
-    await query(
-      `UPDATE product_matches
-       SET status = 'rejected', updated_at = now()
-       WHERE product_id = $1 AND competitor_id = $2 AND id <> $3 AND status = 'confirmed'`,
-      [match.product_id, match.competitor_id, id],
-    );
+/**
+ * Decide several candidates in one action. Each id is applied independently
+ * through the same logic as the single-row routes — a bad id among a batch
+ * fails just that one row rather than the whole selection.
+ */
+matchesRouter.post('/bulk', async (req, res, next) => {
+  try {
+    const decision = req.body?.decision;
+    if (decision !== 'confirm' && decision !== 'reject') {
+      res.status(400).json({ error: 'decision must be "confirm" or "reject"' });
+      return;
+    }
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids.map((id: unknown) => Number(id)).filter((id: number) => Number.isFinite(id))
+      : [];
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'ids must be a non-empty array' });
+      return;
+    }
 
-    const { rows } = await query(
-      `UPDATE product_matches
-       SET status = 'confirmed', confirmed_at = now(), confirmed_by = $2, updated_at = now()
-       WHERE id = $1
-       RETURNING *`,
-      [id, confirmedBy],
-    );
+    const by = typeof req.body?.confirmedBy === 'string' ? req.body.confirmedBy : 'admin';
+    let succeeded = 0;
+    let failed = 0;
 
-    res.json({ match: rows[0] });
+    for (const id of ids) {
+      const result = decision === 'confirm' ? await confirmMatch(id, by) : await rejectMatch(id, by);
+      if (result) succeeded += 1;
+      else failed += 1;
+    }
+
+    res.json({
+      decision,
+      confirmed: decision === 'confirm' ? succeeded : 0,
+      rejected: decision === 'reject' ? succeeded : 0,
+      failed,
+    });
   } catch (err) {
     next(err);
   }
@@ -110,19 +171,13 @@ matchesRouter.post('/:id/reject', async (req, res, next) => {
     const id = Number.parseInt(req.params.id ?? '', 10);
     const rejectedBy = typeof req.body?.confirmedBy === 'string' ? req.body.confirmedBy : 'admin';
 
-    const { rows } = await query(
-      `UPDATE product_matches
-       SET status = 'rejected', confirmed_at = now(), confirmed_by = $2, updated_at = now()
-       WHERE id = $1
-       RETURNING *`,
-      [id, rejectedBy],
-    );
+    const match = await rejectMatch(id, rejectedBy);
 
-    if (!rows[0]) {
+    if (!match) {
       res.status(404).json({ error: 'Match not found' });
       return;
     }
-    res.json({ match: rows[0] });
+    res.json({ match });
   } catch (err) {
     next(err);
   }

@@ -20,6 +20,8 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
   const [fascia, setFascia] = useState('');
   const [fascias, setFascias] = useState<Fascia[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,6 +52,28 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
     void load();
   }, [load]);
 
+  // The selection only makes sense against the rows on screen — a filter
+  // change or a reload invalidates it rather than silently keeping stale ids.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [status, fascia]);
+
+  const toggleSelected = (id: number) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const pendingIds = matches.filter((m) => m.status === 'pending').map((m) => m.id);
+  const allSelected = pendingIds.length > 0 && pendingIds.every((id) => selected.has(id));
+
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? new Set() : new Set(pendingIds));
+  };
+
   const decide = async (match: MatchRow, decision: 'confirm' | 'reject') => {
     setBusyId(match.id);
     try {
@@ -57,6 +81,12 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
       else await api.rejectMatch(match.id);
 
       setMatches((current) => current.filter((row) => row.id !== match.id));
+      setSelected((current) => {
+        if (!current.has(match.id)) return current;
+        const next = new Set(current);
+        next.delete(match.id);
+        return next;
+      });
       onQueueChange();
       toast(
         decision === 'confirm'
@@ -68,6 +98,29 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
       toast(err instanceof ApiError ? err.message : 'Could not save that decision', 'error');
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const decideBulk = async (decision: 'confirm' | 'reject') => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    try {
+      const result = await api.bulkDecideMatches(ids, decision);
+      setMatches((current) => current.filter((row) => !selected.has(row.id)));
+      setSelected(new Set());
+      onQueueChange();
+      const succeeded = decision === 'confirm' ? result.confirmed : result.rejected;
+      toast(
+        result.failed > 0
+          ? `${decision === 'confirm' ? 'Confirmed' : 'Rejected'} ${succeeded}, ${result.failed} could not be found.`
+          : `${decision === 'confirm' ? 'Confirmed' : 'Rejected'} ${succeeded} match(es).`,
+        result.failed > 0 ? 'info' : 'ok',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not save those decisions', 'error');
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -120,10 +173,49 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
             }
           />
         ) : (
-          <div className="table-wrap">
+          <>
+            {selected.size > 0 && (
+              <div className="bulk-bar">
+                <span className="small">
+                  {selected.size} selected
+                </span>
+                <button type="button" className="btn btn--sm btn--ghost" onClick={() => setSelected(new Set())}>
+                  Clear
+                </button>
+                <div className="row--end" style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--danger"
+                    disabled={bulkBusy}
+                    onClick={() => void decideBulk('reject')}
+                  >
+                    {bulkBusy ? 'Working…' : `Reject ${selected.size}`}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--ok"
+                    disabled={bulkBusy}
+                    onClick={() => void decideBulk('confirm')}
+                  >
+                    {bulkBusy ? 'Working…' : `Confirm ${selected.size}`}
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
+                  <th style={{ width: 32 }}>
+                    {pendingIds.length > 0 && (
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={toggleSelectAll}
+                        aria-label="Select all pending candidates"
+                      />
+                    )}
+                  </th>
                   <th>Our product</th>
                   <th>Candidate listing</th>
                   <th>Tier</th>
@@ -135,6 +227,16 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
                 {matches.map((match) => (
                   <Fragment key={match.id}>
                     <tr>
+                      <td>
+                        {match.status === 'pending' && (
+                          <input
+                            type="checkbox"
+                            checked={selected.has(match.id)}
+                            onChange={() => toggleSelected(match.id)}
+                            aria-label={`Select ${match.internal_sku}`}
+                          />
+                        )}
+                      </td>
                       <td>
                         <div className="cell-primary truncate" style={{ maxWidth: 240 }}>
                           {match.product_name}
@@ -202,7 +304,7 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
                     </tr>
                     {expanded === match.id && (
                       <tr>
-                        <td colSpan={5} style={{ background: 'var(--surface-sunken)' }}>
+                        <td colSpan={6} style={{ background: 'var(--surface-sunken)' }}>
                           <MatchEvidencePanel match={match} />
                         </td>
                       </tr>
@@ -211,7 +313,8 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </Card>
     </div>

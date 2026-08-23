@@ -100,3 +100,24 @@ for problems that have actually happened, with the real numbers.
   whole inside an `<Alert>`, tags and inline CSS included. It now logs the
   real body to the console and shows a short, fixed message naming the HTTP
   status instead. Keep it that way if `request()` is touched again.
+- **Undercut alerts are per (product, competitor, fascia) and self-resolving.**
+  `services/alerts.ts`'s `syncUndercutAlerts` runs after every price
+  observation and checks it against *every* fascia that prices the product —
+  one observation can open an alert for Goldsmiths and not Mappin & Webb.
+  `state` is `open` / `acknowledged` / `resolved`, not just the two the table
+  shipped with in 001_init.sql: `resolved` means the system found the
+  undercut no longer holds; `acknowledged` means a person dismissed it while
+  it may still be true. A partial unique index (`alerts_open_undercut_idx`,
+  `WHERE state = 'open'`) is the dedupe — the same still-cheaper price
+  observed again is a no-op, not a second alert. Deleting a comparison by
+  hand (`comparison.ts`'s three DELETE routes) resolves the matching alerts
+  too, via `resolveAlertsForPair` / `resolveAlertsForProduct` /
+  `resolveAllOpenAlerts` — an open alert with its underlying price deleted
+  out from under it is worse than no alert.
+- **The price-history chart has no history for our own price.** `fascia_prices`
+  is overwritten on every feed import (`UNIQUE (product_id, fascia_id)`,
+  `ON CONFLICT ... DO UPDATE`) — there has never been anywhere our own price's
+  past values were kept. `PriceHistoryChart` draws competitors as real lines
+  from `price_observations` and our price as a dashed *current-value*
+  reference line. Do not fabricate a historical line for it; if that history
+  is ever wanted, it needs its own table, not a reinterpretation of this one.

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/pool.js';
 import { getComparison, type ComparisonFilters } from '../services/comparison.js';
+import { resolveAlertsForPair, resolveAlertsForProduct, resolveAllOpenAlerts } from '../services/alerts.js';
 import type { PricePosition } from '../domain/types.js';
 
 export const comparisonRouter: Router = Router();
@@ -34,6 +35,7 @@ comparisonRouter.delete('/product/:productId/competitor/:competitorId', async (r
        WHERE product_id = $1 AND competitor_id = $2 AND status <> 'rejected'`,
       [productId, competitorId],
     );
+    await resolveAlertsForPair(productId, competitorId);
 
     res.json({
       observationsRemoved: observations.rowCount ?? 0,
@@ -66,6 +68,7 @@ comparisonRouter.delete('/product/:productId', async (req, res) => {
       `DELETE FROM product_matches WHERE product_id = $1 AND status <> 'rejected'`,
       [productId],
     );
+    await resolveAlertsForProduct(productId);
 
     res.json({
       observationsRemoved: observations.rowCount ?? 0,
@@ -90,9 +93,11 @@ comparisonRouter.delete('/observations', async (_req, res) => {
   try {
     const observations = await query('DELETE FROM price_observations');
     const matches = await query(`DELETE FROM product_matches WHERE status <> 'rejected'`);
+    const alertsResolved = await resolveAllOpenAlerts();
     res.json({
       observationsRemoved: observations.rowCount ?? 0,
       matchesRemoved: matches.rowCount ?? 0,
+      alertsResolved,
     });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });

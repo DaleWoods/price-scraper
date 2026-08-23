@@ -10,6 +10,7 @@ import {
   type ComparisonRow,
   type PricePosition,
   type Fascia,
+  type ProductHistoryEntry,
 } from '../api';
 import {
   Alert,
@@ -22,6 +23,7 @@ import {
   useToast,
 } from '../components/ui';
 import { CompetitorLabel } from '../components/CompetitorLogo';
+import { PriceHistoryChart } from '../components/PriceHistoryChart';
 
 type PositionFilter = PricePosition | 'unmatched' | 'awaiting_price' | '';
 
@@ -609,23 +611,14 @@ function ProductDrawer({
 }) {
   const toast = useToast();
   const [removingCompetitorId, setRemovingCompetitorId] = useState<number | null>(null);
-  const [history, setHistory] = useState<
-    {
-      id: number;
-      competitor_name: string;
-      competitor_slug: string;
-      competitor_has_logo: boolean;
-      price: number | null;
-      observed_at: string;
-    }[]
-  >([]);
+  const [history, setHistory] = useState<ProductHistoryEntry[]>([]);
 
   const productId = row.product.id;
 
   const loadHistory = useCallback(async () => {
     try {
       const response = await api.productHistory(productId);
-      setHistory(response.observations as never);
+      setHistory(response.observations);
     } catch {
       setHistory([]);
     }
@@ -807,6 +800,19 @@ function ProductDrawer({
                   </div>
                 ))}
               </div>
+            </Card>
+          )}
+
+          {(history.length > 0 || row.product.our_price != null) && (
+            <Card
+              title="Price trend"
+              subtitle="Each competitor's observed price over time — hover a point for the exact date and figure"
+            >
+              <PriceHistoryChart
+                history={history}
+                ourPrice={row.product.our_price}
+                currency={row.product.currency}
+              />
             </Card>
           )}
 
