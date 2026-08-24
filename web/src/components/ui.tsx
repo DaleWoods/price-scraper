@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import type { PricePosition } from '../api';
+import { formatDateTime, relativeTime, type PricePosition } from '../api';
 
 /* ---------- Price-position badge ----------------------------------------
    One visual language for price position, used in every table and panel:
@@ -50,6 +50,40 @@ export function PositionBadge({
         {POSITION_GLYPH[position]}
       </span>
       {compact ? position : POSITION_COPY[position]}
+    </span>
+  );
+}
+
+/* ---------- Price age -----------------------------------------------------
+   There is no scheduler yet (Spec Phase 0) — a competitor's price is only as
+   fresh as the last manual run, so it can sit untouched for weeks. A "they
+   are cheaper" figure is only trustworthy if its age is visible alongside it,
+   not just its value.
+   ------------------------------------------------------------------------ */
+
+/** A price younger than this reads as current — no colouring needed. */
+const PRICE_AGE_AGEING_DAYS = 3;
+/** A price this old or older is flagged outright rather than just tinted. */
+const PRICE_AGE_STALE_DAYS = 14;
+
+function priceAgeTone(observedAt: string): 'fresh' | 'ageing' | 'stale' {
+  const days = (Date.now() - new Date(observedAt).getTime()) / 86_400_000;
+  if (days >= PRICE_AGE_STALE_DAYS) return 'stale';
+  if (days >= PRICE_AGE_AGEING_DAYS) return 'ageing';
+  return 'fresh';
+}
+
+/** How long ago a competitor price was actually observed, coloured by age. */
+export function PriceAge({ observedAt }: { observedAt: string | null }) {
+  if (!observedAt) return <span className="muted">never</span>;
+  const tone = priceAgeTone(observedAt);
+  return (
+    <span
+      className={`price-age price-age--${tone}`}
+      title={`Observed ${formatDateTime(observedAt)}${tone === 'stale' ? ' — this price may no longer be current' : ''}`}
+    >
+      {tone !== 'fresh' && <span className="price-age__dot" aria-hidden />}
+      {relativeTime(observedAt)}
     </span>
   );
 }

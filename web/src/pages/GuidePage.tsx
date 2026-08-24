@@ -127,6 +127,13 @@ export function GuidePage() {
           observation history.
           <br />
           <br />
+          Every "Seen" figure — on this table, in the drawer, and beside the headline{' '}
+          <strong>Best competitor</strong> price — is coloured by age: plain for a price observed in
+          the last 3 days, amber from 3 days, and bold red from 14 days. There is no scheduler yet, so
+          a price is only as current as the last run that touched it; the colour is what stops an
+          old figure from reading as today's. Hover it for the exact date.
+          <br />
+          <br />
           Each row carries two actions. <strong>Scan</strong> runs that one product against every
           enabled competitor there and then — the quickest way to check whether a product you know
           a competitor stocks is actually being picked up. <strong>Delete</strong> removes the
@@ -389,6 +396,12 @@ export function GuidePage() {
           each of our sites charges its own price. An alert always names which site it is about, and
           resolves for that site alone — the same competitor's price can still be open against one
           site while resolved against another.
+        </Alert>
+        <Alert tone="warn" title="A red 'Seen' age means re-check before you act on it">
+          Nothing re-scrapes a competitor automatically — a price stays exactly as recorded until a
+          run touches that product again. A figure 14+ days old (shown bold red) may no longer be
+          what the competitor actually charges; re-run <strong>Scan</strong> on that product before
+          treating an old "they are cheaper" figure, or an alert built from one, as still true.
         </Alert>
         <p className="small muted" style={{ marginBottom: 0 }}>
           Guide last updated {GUIDE_UPDATED}.

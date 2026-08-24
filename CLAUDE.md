@@ -173,3 +173,15 @@ for problems that have actually happened, with the real numbers.
   risk matching the wrong product rather than being a convenience. A URL not
   in the last imported feed returns 404 with a message saying so, the same
   pattern as an unknown SKU.
+- **Price age is coloured at 3 and 14 days, client-side only.**
+  `components/ui.tsx`'s `PriceAge` (backed by `priceAgeTone`) turns a
+  competitor's "Seen" figure amber from 3 days old and bold red from 14 —
+  chosen because there is still no scheduler (see the "Automation" gap
+  above): a price is only as fresh as the last manual run, so staleness
+  needs to be visible everywhere a price is shown, not just inferred. It is
+  purely a display computation against `observedAt`/`Date.now()` — nothing
+  is stored or computed server-side, so there is no cache to invalidate and
+  no migration needed if the thresholds change. Only applied where a price
+  actually exists: the drawer's coverage table deliberately falls back to a
+  plain, uncoloured `lastScannedAt` for a competitor with no price recorded,
+  since an old *attempt* is not the same claim as an old *price*.

@@ -20,6 +20,7 @@ import {
   Card,
   EmptyState,
   PositionBadge,
+  PriceAge,
   Stat,
   TableSkeleton,
   useToast,
@@ -576,7 +577,9 @@ export function ComparisonPage() {
                         </span>
                       )}
                     </td>
-                    <td className="num muted xs nowrap">{relativeTime(row.observedAt)}</td>
+                    <td className="num muted xs nowrap">
+                      <PriceAge observedAt={row.observedAt} />
+                    </td>
                     <td className="nowrap">
                       {/* The row itself opens the drawer, so these must not. */}
                       <div className="row-actions" onClick={(event) => event.stopPropagation()}>
@@ -737,7 +740,21 @@ function ProductDrawer({
             <Stat
               label="Best competitor"
               value={formatMoney(row.bestCompetitorPrice, row.product.currency)}
-              meta={row.bestCompetitorName ?? 'No competitor price'}
+              meta={
+                row.bestCompetitorName ? (
+                  <>
+                    {row.bestCompetitorName}
+                    {row.observedAt && (
+                      <>
+                        {' · '}
+                        <PriceAge observedAt={row.observedAt} />
+                      </>
+                    )}
+                  </>
+                ) : (
+                  'No competitor price'
+                )
+              }
               tone={row.position ?? 'teal'}
               icon="◎"
             />
@@ -825,11 +842,13 @@ function ProductDrawer({
                                 : 'Out of stock'}
                         </td>
                         <td className="num muted xs nowrap">
-                          {entry.observedAt
-                            ? relativeTime(entry.observedAt)
-                            : entry.lastScannedAt
-                              ? relativeTime(entry.lastScannedAt)
-                              : 'never'}
+                          {entry.observedAt ? (
+                            <PriceAge observedAt={entry.observedAt} />
+                          ) : entry.lastScannedAt ? (
+                            relativeTime(entry.lastScannedAt)
+                          ) : (
+                            'never'
+                          )}
                         </td>
                         <td className="nowrap">
                           <div className="row-actions">

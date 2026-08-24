@@ -752,6 +752,11 @@ code {
 .badge--violet { background: var(--violet-bg); color: var(--violet-fg); border-color: var(--brand-200); }
 .badge--danger { background: var(--danger-bg); color: var(--danger-fg); border-color: var(--danger-border); }
 
+.price-age { display: inline-flex; align-items: center; gap: 5px; }
+.price-age--ageing { color: var(--warn-fg); }
+.price-age--stale { color: var(--danger-fg); font-weight: 700; }
+.price-age__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+
 .badge__glyph { font-size: 10px; line-height: 1; }
 
 /* Confidence meter */
