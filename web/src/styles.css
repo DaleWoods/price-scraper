@@ -750,6 +750,7 @@ code {
 .badge--info   { background: var(--info-bg); color: var(--info-fg); border-color: var(--info-border); }
 .badge--promo  { background: var(--brass-100); color: var(--brass-700); border-color: var(--brass-200); }
 .badge--violet { background: var(--violet-bg); color: var(--violet-fg); border-color: var(--brand-200); }
+.badge--danger { background: var(--danger-bg); color: var(--danger-fg); border-color: var(--danger-border); }
 
 .badge__glyph { font-size: 10px; line-height: 1; }
 

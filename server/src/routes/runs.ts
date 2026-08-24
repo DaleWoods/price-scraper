@@ -33,9 +33,11 @@ runsRouter.post('/', async (req, res) => {
     const competitorId = req.body?.competitorId ? Number(req.body.competitorId) : null;
     const limit = req.body?.limit ? Number(req.body.limit) : null;
 
-    // A run can be aimed at one product, by id or by the SKU you actually have
-    // to hand. Resolving the SKU here means an unknown one fails immediately
-    // with a useful message, rather than starting a run that scans nothing.
+    // A run can be aimed at one product, by id, by the SKU you have to hand,
+    // or by pasting the product's own page URL — the last one means you never
+    // have to look up the SKU at all. Resolving these here means an unknown
+    // one fails immediately with a useful message, rather than starting a run
+    // that scans nothing.
     let productId = req.body?.productId ? Number(req.body.productId) : null;
     const sku = typeof req.body?.sku === 'string' ? req.body.sku.trim() : '';
     if (!productId && sku) {
@@ -45,6 +47,25 @@ runsRouter.post('/', async (req, res) => {
       );
       if (!rows[0]) {
         res.status(404).json({ error: `No product with SKU "${sku}". Import its feed first.` });
+        return;
+      }
+      productId = rows[0].id;
+    }
+
+    const productUrl = typeof req.body?.productUrl === 'string' ? req.body.productUrl.trim() : '';
+    if (!productId && !sku && productUrl) {
+      // our_product_url comes straight from the feed's link column, so a
+      // trailing-slash difference is the only normalisation worth doing —
+      // anything pasted from the site itself matches exactly.
+      const { rows } = await query<{ id: number }>(
+        `SELECT id FROM products WHERE rtrim(our_product_url, '/') = rtrim($1, '/')`,
+        [productUrl],
+      );
+      if (!rows[0]) {
+        res.status(404).json({
+          error:
+            "That URL isn't in the last imported feed for any of our sites — check it's the right page, or re-import if it's a new product.",
+        });
         return;
       }
       productId = rows[0].id;

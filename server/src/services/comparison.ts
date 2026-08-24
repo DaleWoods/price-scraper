@@ -269,6 +269,231 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+export type CoverageStatus =
+  | 'priced'
+  | 'matched_awaiting_price'
+  | 'pending_review'
+  | 'not_listed'
+  | 'not_stocked'
+  | 'rejected'
+  | 'error'
+  | 'not_scanned';
+
+export interface CoverageEntry {
+  competitorId: number;
+  competitorName: string;
+  competitorSlug: string;
+  competitorHasLogo: boolean;
+  status: CoverageStatus;
+  price: number | null;
+  wasPrice: number | null;
+  inStock: boolean | null;
+  position: PricePosition | null;
+  sourceUrl: string | null;
+  observedAt: string | null;
+  /** Plain-English explanation, set on every non-priced status. */
+  reason: string | null;
+  /** When this competitor was last actually scanned for this product, regardless of outcome. */
+  lastScannedAt: string | null;
+}
+
+export interface ProductCoverage {
+  competitors: CoverageEntry[];
+  /** Every enabled competitor has been checked and none of them stock it. */
+  notSoldAnywhere: boolean;
+}
+
+interface CoverageQueryRow {
+  competitor_id: number;
+  competitor_name: string;
+  competitor_slug: string;
+  competitor_has_logo: boolean;
+  competitor_brands: string[];
+  match_status: 'pending' | 'confirmed' | 'rejected' | null;
+  match_url: string | null;
+  obs_price: number | null;
+  obs_was_price: number | null;
+  obs_in_stock: boolean | null;
+  obs_source_url: string | null;
+  obs_observed_at: string | null;
+  item_status: 'ok' | 'error' | 'skipped' | null;
+  item_error_kind: string | null;
+  item_error: string | null;
+  item_created_at: string | null;
+}
+
+/**
+ * Every enabled competitor's outcome for one product — priced, or a
+ * plain-English reason it isn't. Unlike `competitorPrices` on a comparison
+ * row (which only ever lists competitors a price was actually recorded for),
+ * this always lists every enabled competitor, so a product genuinely absent
+ * everywhere reads as that rather than an empty table.
+ */
+export async function getProductCoverage(
+  productId: number,
+  ourPrice: number | null = null,
+): Promise<ProductCoverage> {
+  const { rows: productRows } = await query<{ brand: string }>(
+    'SELECT brand FROM products WHERE id = $1',
+    [productId],
+  );
+  const product = productRows[0];
+  if (!product) return { competitors: [], notSoldAnywhere: false };
+
+  const { rows } = await query<CoverageQueryRow>(
+    `SELECT c.id AS competitor_id, c.display_name AS competitor_name, c.slug AS competitor_slug,
+            (c.logo_data IS NOT NULL) AS competitor_has_logo, c.brands AS competitor_brands,
+            m.status AS match_status, m.competitor_url AS match_url,
+            o.price AS obs_price, o.was_price AS obs_was_price, o.in_stock AS obs_in_stock,
+            o.source_url AS obs_source_url, o.observed_at AS obs_observed_at,
+            i.status AS item_status, i.error_kind AS item_error_kind, i.error AS item_error,
+            i.created_at AS item_created_at
+     FROM competitors c
+     -- Prefer a confirmed match over a pending/rejected one if more than one exists.
+     LEFT JOIN LATERAL (
+       SELECT * FROM product_matches
+       WHERE product_id = $1 AND competitor_id = c.id
+       ORDER BY (status = 'confirmed') DESC, updated_at DESC
+       LIMIT 1
+     ) m ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT * FROM price_observations
+       WHERE product_id = $1 AND competitor_id = c.id
+       ORDER BY observed_at DESC
+       LIMIT 1
+     ) o ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT * FROM scrape_run_items
+       WHERE product_id = $1 AND competitor_id = c.id
+       ORDER BY created_at DESC
+       LIMIT 1
+     ) i ON TRUE
+     WHERE c.enabled = TRUE
+     ORDER BY c.display_name`,
+    [productId],
+  );
+
+  const competitors: CoverageEntry[] = rows.map((row) => {
+    const base = {
+      competitorId: row.competitor_id,
+      competitorName: row.competitor_name,
+      competitorSlug: row.competitor_slug,
+      competitorHasLogo: row.competitor_has_logo,
+      lastScannedAt: row.item_created_at,
+    };
+    const notPriced = {
+      price: null,
+      wasPrice: null,
+      inStock: null,
+      position: null,
+      sourceUrl: null,
+      observedAt: null,
+    };
+
+    if (row.obs_price != null) {
+      const canCompare = ourPrice != null;
+      return {
+        ...base,
+        status: 'priced' as const,
+        price: row.obs_price,
+        wasPrice: row.obs_was_price,
+        inStock: row.obs_in_stock,
+        position: canCompare ? classifyPosition(ourPrice!, row.obs_price) : null,
+        sourceUrl: row.obs_source_url,
+        observedAt: row.obs_observed_at,
+        reason: null,
+      };
+    }
+
+    if (row.match_status === 'confirmed') {
+      return {
+        ...base,
+        ...notPriced,
+        sourceUrl: row.match_url,
+        status: 'matched_awaiting_price' as const,
+        reason: `Matched to ${row.match_url}, but not scraped for a price yet.`,
+      };
+    }
+    if (row.match_status === 'pending') {
+      return {
+        ...base,
+        ...notPriced,
+        status: 'pending_review' as const,
+        reason: 'A candidate listing was found and is waiting for review in Match review.',
+      };
+    }
+    if (row.match_status === 'rejected') {
+      return {
+        ...base,
+        ...notPriced,
+        status: 'rejected' as const,
+        reason: row.item_error ?? 'A candidate listing was found here but rejected in Match review.',
+      };
+    }
+
+    // No match row of any kind — check why, most specific reason first.
+    const brands = row.competitor_brands ?? [];
+    if (brands.length > 0 && !brands.some((brand) => brand.toLowerCase() === product.brand.toLowerCase())) {
+      return {
+        ...base,
+        ...notPriced,
+        status: 'not_stocked' as const,
+        reason: `${row.competitor_name} is not configured as stocking ${product.brand}.`,
+      };
+    }
+    if (row.item_status === 'skipped' && row.item_error_kind === 'not_listed') {
+      return {
+        ...base,
+        ...notPriced,
+        status: 'not_listed' as const,
+        reason: row.item_error ?? `${row.competitor_name} does not list this product.`,
+      };
+    }
+    if (row.item_status === 'skipped') {
+      return {
+        ...base,
+        ...notPriced,
+        status: 'not_stocked' as const,
+        reason: row.item_error,
+      };
+    }
+    if (row.item_status === 'error') {
+      return {
+        ...base,
+        ...notPriced,
+        status: 'error' as const,
+        reason: row.item_error ?? 'The last scan failed.',
+      };
+    }
+    if (row.item_status === 'ok') {
+      // Discovery ran and opened at least one candidate, but nothing cleared
+      // the match confidence bar, so no product_matches row was ever stored.
+      return {
+        ...base,
+        ...notPriced,
+        status: 'rejected' as const,
+        reason: row.item_error ?? 'A candidate was found but did not clear the match confidence bar.',
+      };
+    }
+
+    return {
+      ...base,
+      ...notPriced,
+      status: 'not_scanned' as const,
+      reason: 'Not scanned yet — run a scan to check.',
+    };
+  });
+
+  const notSoldAnywhere =
+    competitors.length > 0 &&
+    competitors.every(
+      (entry) =>
+        entry.status === 'not_listed' || entry.status === 'not_stocked' || entry.status === 'rejected',
+    );
+
+  return { competitors, notSoldAnywhere };
+}
+
 /** Observation history for one product, for the drill-in panel. */
 export async function getProductHistory(productId: number, limit = 200) {
   const { rows } = await query(

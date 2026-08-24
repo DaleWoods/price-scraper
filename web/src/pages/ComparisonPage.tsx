@@ -8,6 +8,8 @@ import {
   relativeTime,
   type ComparisonResponse,
   type ComparisonRow,
+  type CoverageEntry,
+  type CoverageStatus,
   type PricePosition,
   type Fascia,
   type ProductHistoryEntry,
@@ -36,6 +38,23 @@ function productDetail(product: ComparisonRow['product']): string {
   return [specs.case_size, specs.case_material, specs.carat_weight, product.ean_mpn]
     .filter(Boolean)
     .join(' · ');
+}
+
+const COVERAGE_BADGE: Record<CoverageStatus, { label: string; className: string }> = {
+  priced: { label: 'Priced', className: 'badge--lower' },
+  matched_awaiting_price: { label: 'Matched, awaiting price', className: 'badge--warn' },
+  pending_review: { label: 'Awaiting review', className: 'badge--warn' },
+  not_listed: { label: 'Not listed', className: 'badge--neutral' },
+  not_stocked: { label: "Doesn't stock this brand", className: 'badge--neutral' },
+  rejected: { label: 'Found, rejected', className: 'badge--neutral' },
+  error: { label: 'Scan failed', className: 'badge--danger' },
+  not_scanned: { label: 'Not scanned yet', className: 'badge--neutral' },
+};
+
+/** Every enabled competitor's outcome for one product, priced or not. */
+function CoverageBadge({ status }: { status: CoverageStatus }) {
+  const { label, className } = COVERAGE_BADGE[status];
+  return <span className={`badge ${className}`}>{label}</span>;
 }
 
 export function ComparisonPage() {
@@ -612,8 +631,12 @@ function ProductDrawer({
   const toast = useToast();
   const [removingCompetitorId, setRemovingCompetitorId] = useState<number | null>(null);
   const [history, setHistory] = useState<ProductHistoryEntry[]>([]);
+  const [coverage, setCoverage] = useState<CoverageEntry[]>([]);
+  const [notSoldAnywhere, setNotSoldAnywhere] = useState(false);
+  const [coverageLoading, setCoverageLoading] = useState(true);
 
   const productId = row.product.id;
+  const ourPrice = row.product.our_price;
 
   const loadHistory = useCallback(async () => {
     try {
@@ -624,9 +647,24 @@ function ProductDrawer({
     }
   }, [productId]);
 
+  const loadCoverage = useCallback(async () => {
+    setCoverageLoading(true);
+    try {
+      const response = await api.productCoverage(productId, ourPrice);
+      setCoverage(response.competitors);
+      setNotSoldAnywhere(response.notSoldAnywhere);
+    } catch {
+      setCoverage([]);
+      setNotSoldAnywhere(false);
+    } finally {
+      setCoverageLoading(false);
+    }
+  }, [productId, ourPrice]);
+
   useEffect(() => {
     void loadHistory();
-  }, [loadHistory]);
+    void loadCoverage();
+  }, [loadHistory, loadCoverage]);
 
   /**
    * Drop a competitor's price for this product. The match goes with the
@@ -649,9 +687,9 @@ function ProductDrawer({
     try {
       const result = await api.removeCompetitorPrice(productId, entry.competitorId);
       toast(`Removed ${entry.competitorName}: ${result.observationsRemoved} observation(s).`, 'ok');
-      // The history list and the row behind the drawer both still show the
-      // deleted price until they are refetched.
-      await Promise.all([loadHistory(), onChanged()]);
+      // The history list, the coverage table and the row behind the drawer all
+      // still show the deleted price until they are refetched.
+      await Promise.all([loadHistory(), loadCoverage(), onChanged()]);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not remove that price', 'error');
     } finally {
@@ -705,18 +743,26 @@ function ProductDrawer({
             />
           </div>
 
-          <Card title="Latest competitor prices" bodyless>
-            {row.competitorPrices.length === 0 ? (
+          {notSoldAnywhere && (
+            <Alert tone="info" title="Not sold by any competitor we monitor">
+              Every enabled competitor has been checked and none of them list this product, so there
+              is nothing to compare against right now.
+            </Alert>
+          )}
+
+          <Card
+            title="Competitor coverage"
+            subtitle="Every enabled competitor, and why each one does or doesn't have a price"
+            bodyless
+          >
+            {coverageLoading && coverage.length === 0 ? (
+              <div className="row muted" style={{ padding: 'var(--sp-4)' }}>
+                <span className="spinner" /> Loading…
+              </div>
+            ) : coverage.length === 0 ? (
               <EmptyState
-                title={row.matchStatus.pending > 0 ? 'Awaiting confirmation' : 'No competitor matched yet'}
-                body={
-                  row.matchStatus.pending > 0
-                    ? `${row.matchStatus.pending} candidate(s) are waiting in Match review — ` +
-                      'confirm one to start recording its price.'
-                    : 'Scan this product (top of the page) to search every enabled competitor for it. ' +
-                      "If a scan reports it found nothing, Scrape runs says exactly why — " +
-                      'the competitor may not stock the brand, or the listing it found may have failed a match check.'
-                }
+                title="No competitors enabled"
+                body="Enable a competitor in Admin to start scanning for this product."
               />
             ) : (
               <div className="table-wrap">
@@ -724,14 +770,15 @@ function ProductDrawer({
                   <thead>
                     <tr>
                       <th>Competitor</th>
+                      <th>Result</th>
                       <th className="num">Price</th>
-                      <th>Position</th>
                       <th>Stock</th>
+                      <th className="num">Seen</th>
                       <th />
                     </tr>
                   </thead>
                   <tbody>
-                    {row.competitorPrices.map((entry) => (
+                    {coverage.map((entry) => (
                       <tr key={entry.competitorId}>
                         <td>
                           <CompetitorLabel
@@ -740,46 +787,73 @@ function ProductDrawer({
                             hasLogo={entry.competitorHasLogo}
                             className="cell-primary"
                           />
-                          <div className="cell-secondary">{formatDateTime(entry.observedAt)}</div>
-                        </td>
-                        <td className="num">
-                          <div className="price">{formatMoney(entry.price, row.product.currency)}</div>
-                          {entry.wasPrice && (
-                            <div className="price price--strike xs">
-                              {formatMoney(entry.wasPrice, row.product.currency)}
-                            </div>
-                          )}
-                          {entry.promo && (
-                            <span className="badge badge--promo" style={{ marginTop: 4 }}>
-                              Promo
-                            </span>
-                          )}
                         </td>
                         <td>
-                          <PositionBadge position={entry.position} compact />
+                          <CoverageBadge status={entry.status} />
+                          {entry.reason && (
+                            <div className="cell-secondary" style={{ marginTop: 4, maxWidth: 320 }}>
+                              {entry.reason}
+                            </div>
+                          )}
+                        </td>
+                        <td className="num">
+                          {entry.price == null ? (
+                            '—'
+                          ) : (
+                            <>
+                              <div className="price">{formatMoney(entry.price, row.product.currency)}</div>
+                              {entry.wasPrice && (
+                                <div className="price price--strike xs">
+                                  {formatMoney(entry.wasPrice, row.product.currency)}
+                                </div>
+                              )}
+                              {entry.position && (
+                                <div style={{ marginTop: 4 }}>
+                                  <PositionBadge position={entry.position} compact />
+                                </div>
+                              )}
+                            </>
+                          )}
                         </td>
                         <td className="xs muted">
-                          {entry.inStock === null ? 'Unknown' : entry.inStock ? 'In stock' : 'Out of stock'}
+                          {entry.status !== 'priced'
+                            ? '—'
+                            : entry.inStock === null
+                              ? 'Unknown'
+                              : entry.inStock
+                                ? 'In stock'
+                                : 'Out of stock'}
+                        </td>
+                        <td className="num muted xs nowrap">
+                          {entry.observedAt
+                            ? relativeTime(entry.observedAt)
+                            : entry.lastScannedAt
+                              ? relativeTime(entry.lastScannedAt)
+                              : 'never'}
                         </td>
                         <td className="nowrap">
                           <div className="row-actions">
-                            <a
-                              className="btn btn--sm btn--ghost"
-                              href={entry.sourceUrl}
-                              target="_blank"
-                              rel="noreferrer noopener"
-                            >
-                              View ↗
-                            </a>
-                            <button
-                              type="button"
-                              className="btn btn--sm btn--ghost"
-                              disabled={removingCompetitorId === entry.competitorId}
-                              onClick={() => void removeCompetitorPrice(entry)}
-                              title="Remove this competitor's price for this product"
-                            >
-                              {removingCompetitorId === entry.competitorId ? 'Removing…' : 'Remove'}
-                            </button>
+                            {entry.sourceUrl && (
+                              <a
+                                className="btn btn--sm btn--ghost"
+                                href={entry.sourceUrl}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                              >
+                                View ↗
+                              </a>
+                            )}
+                            {entry.status === 'priced' && (
+                              <button
+                                type="button"
+                                className="btn btn--sm btn--ghost"
+                                disabled={removingCompetitorId === entry.competitorId}
+                                onClick={() => void removeCompetitorPrice(entry)}
+                                title="Remove this competitor's price for this product"
+                              >
+                                {removingCompetitorId === entry.competitorId ? 'Removing…' : 'Remove'}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

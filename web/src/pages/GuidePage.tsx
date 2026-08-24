@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '23 August 2026';
+const GUIDE_UPDATED = '24 August 2026';
 
 function Section({
   id,
@@ -117,7 +117,12 @@ export function GuidePage() {
           Our price against each competitor's most recent observed price. Pick which of our sites
           you are comparing with using <strong>Our site</strong> — prices differ between them, so
           every figure on the page follows that choice. <strong>They are cheaper</strong> is the
-          column that needs action. Click any row to see every competitor price, a{' '}
+          column that needs action. Click any row to open <strong>Competitor coverage</strong>: every
+          enabled competitor, not just the ones a price was found for. A priced row shows the price,
+          its URL and where it stands against ours; anything else shows a plain-English reason —
+          not listed, doesn't stock the brand, found but rejected, a candidate awaiting review, or
+          the last scan's error. If every enabled competitor comes back negative, a banner says so
+          plainly rather than leaving you to infer it from an empty table. Below that sits a{' '}
           <strong>Price trend</strong> chart of how each competitor's price has moved, and the full
           observation history.
           <br />
@@ -164,10 +169,20 @@ export function GuidePage() {
           kept.
           <br />
           <br />
-          Putting a <strong>SKU</strong> in the single-product box scopes the run to that one
-          product, which is how you test whether something you know a competitor lists gets picked
-          up. That run looks at the product whether or not it already has candidates, so you can
-          re-check the same one as often as you like. Only enabled competitors are ever scanned.
+          A run scans up to three competitors at once rather than one after another, so a run
+          against several competitors finishes in roughly the time of the slowest one rather than
+          the sum of all of them. Each competitor's own requests are still spaced out exactly as
+          before — this only overlaps waiting on <em>different</em> competitors, it does not scan
+          any one of them any less politely.
+          <br />
+          <br />
+          Putting a <strong>SKU</strong> in the single-product box — or pasting the product's own
+          page URL on our site into the box beside it — scopes the run to that one product, which
+          is how you test whether something you know a competitor lists gets picked up. Either one
+          resolves to the same product; use whichever you have to hand, and a URL that isn't in the
+          last imported feed says so rather than guessing. That run looks at the product whether or
+          not it already has candidates, so you can re-check the same one as often as you like. Only
+          enabled competitors are ever scanned.
           <br />
           <br />
           A single-product run searches each competitor's <em>already-cached</em> list of URLs
@@ -235,6 +250,15 @@ export function GuidePage() {
         <Term label="Products with no visible price">
           Rows marked <span className="mono">price_visible=FALSE</span> get no price recorded —
           there is nothing for a customer to compare against.
+        </Term>
+        <Term label="Out-of-stock products">
+          A row whose <span className="mono">availability</span> is not an in-stock value — out of
+          stock, preorder, backorder — gets no price recorded either, the same as a hidden price:
+          only what is actually sellable is worth comparing. This is checked separately from{' '}
+          <span className="mono">price_visible</span>, since a feed can mark something visible and
+          out of stock at the same time. A product with no price anywhere is treated as
+          discontinued: it drops out of scans and the comparison, though its price history is kept,
+          and it comes straight back the moment a later feed lists it in stock again.
         </Term>
       </Section>
 

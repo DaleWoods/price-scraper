@@ -121,3 +121,55 @@ for problems that have actually happened, with the real numbers.
   from `price_observations` and our price as a dashed *current-value*
   reference line. Do not fabricate a historical line for it; if that history
   is ever wanted, it needs its own table, not a reinterpretation of this one.
+- **Out-of-stock is checked separately from `price_visible`, on the same
+  footing.** Reported directly against a real Mappin & Webb export: 93 of 99
+  rows were "out of stock" but all had `price_visible=TRUE`, and
+  `feedImport.ts` only ever checked that flag — every one of those 93 got
+  priced and compared anyway. `isInStock()` now gates price-writing
+  alongside the `price_visible` check, treating anything not recognised as an
+  in-stock value (`out of stock`, `preorder`, `backorder` after
+  normalisation) the same way: no price row, so the product falls out via the
+  existing "no price anywhere = discontinued" delisting path rather than
+  needing one of its own. An unrecognised `availability` string fails open
+  (still priced) rather than breaking the import — see the "fails open" test
+  in `feedImportDb.test.ts` before tightening that set.
+- **A competitor scan runs up to three competitors concurrently, not one at a
+  time.** `runner.ts`'s `executeRun` used to loop over enabled competitors
+  sequentially; with every competitor config on `rendering: "browser"` and a
+  5-8s per-request rate limit, a run against several competitors took the
+  *sum* of all of them. `mapWithConcurrency` now runs `runCompetitor` for up
+  to `COMPETITOR_CONCURRENCY` (3) competitors at once — each competitor's own
+  requests are still fully sequential and rate-limited exactly as before,
+  this only overlaps *different* competitors' waits. Bounded rather than
+  unbounded deliberately: this is the same Chromium-contention failure mode
+  already documented above (the 8-minute run that got the app restarted
+  mid-scrape) — running every enabled competitor's browser at once on a
+  small deployment would risk repeating it. Verified against three stand-in
+  competitors each with an artificial 2s-per-request delay: a run against all
+  three completed in ~6s (≈ one competitor's own sequential total), not the
+  ~18s three of them would take one after another.
+- **Competitor coverage for one product is computed fresh, not stored.**
+  `services/comparison.ts`'s `getProductCoverage` drives the product drawer's
+  coverage table: for every *enabled* competitor it resolves one status by
+  checking, in order, (1) the latest `price_observations` row — priced; (2)
+  the latest `product_matches` row's status — confirmed-awaiting-price,
+  pending-review, or rejected; (3) the competitor's configured `brands` list
+  against the product's brand — not-stocked, before ever looking at run
+  history, since a brand-restricted competitor's discovery never even runs
+  for that product; (4) the latest `scrape_run_items` row for that
+  (product, competitor) pair — not-listed, error, or rejected (found
+  candidates, nothing cleared the confidence bar so no match row exists);
+  (5) otherwise not-scanned. Keep that order if this is touched — a contrived
+  test that skips straight to inserting a `scrape_run_items` row for a
+  brand-restricted competitor will read as not-stocked, not whatever the
+  test row says, and that is correct: real discovery never produces a run
+  item for a brand it was never asked to check.
+- **Scanning by our product URL matches `our_product_url` verbatim, modulo a
+  trailing slash.** `POST /api/runs`'s `productUrl` field (used when the SKU
+  field is empty) does `rtrim(our_product_url, '/') = rtrim($1, '/')` — no
+  other normalisation. This is deliberate: the value comes straight from the
+  feed's `link` column and the box asks for a URL copied from our own site,
+  so anything more forgiving (case-folding, query-string stripping) would
+  risk matching the wrong product rather than being a convenience. A URL not
+  in the last imported feed returns 404 with a message saying so, the same
+  pattern as an unknown SKU.

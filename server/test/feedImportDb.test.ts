@@ -28,10 +28,10 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
   function row(
     id: string,
     price: string,
-    { sale = '', window = '', visible = 'TRUE' } = {},
+    { sale = '', window = '', visible = 'TRUE', availability = 'in stock' } = {},
   ): string {
     return [
-      id, `Test ${id}`, 'desc', 'Watches', `https://example.test/${id}`, 'in stock',
+      id, `Test ${id}`, 'desc', 'Watches', `https://example.test/${id}`, availability,
       price, sale, window, visible, 'TestBrand', '', `MPN-${id}`, 'Steel',
     ].join('\t');
   }
@@ -159,6 +159,36 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
     );
     assert.equal(result.priceHidden, 1);
     assert.equal(result.pricesWritten, 2);
+  });
+
+  /**
+   * Reported directly against a real Mappin & Webb export: 93 of 99 rows were
+   * "out of stock" but all had price_visible=TRUE, and the importer only ever
+   * checked that flag — every one of those 93 got priced and compared anyway.
+   */
+  it('records no price for a product that is out of stock, even with price_visible=TRUE', async () => {
+    const result = await importFeed(
+      feed([
+        row(skus[0]!, '100.0 GBP', { availability: 'out of stock' }),
+        row(skus[1]!, '200.0 GBP', { availability: 'preorder' }),
+        row(skus[2]!, '300.0 GBP'),
+      ]),
+      'stock.tsv',
+      fasciaCode,
+    );
+    assert.equal(result.outOfStock, 2);
+    assert.equal(result.pricesWritten, 1);
+    assert.deepEqual(await listedSkus(), [skus[2]]);
+  });
+
+  it('is not thrown by an unfamiliar availability value — fails open rather than dropping the whole feed', async () => {
+    const result = await importFeed(
+      feed([row(skus[0]!, '100.0 GBP', { availability: 'special_order' })]),
+      'unfamiliar.tsv',
+      fasciaCode,
+    );
+    assert.equal(result.outOfStock, 0);
+    assert.equal(result.pricesWritten, 1);
   });
 
   /**

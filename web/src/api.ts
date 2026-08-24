@@ -111,6 +111,37 @@ export interface ProductHistoryEntry {
   observed_at: string;
 }
 
+export type CoverageStatus =
+  | 'priced'
+  | 'matched_awaiting_price'
+  | 'pending_review'
+  | 'not_listed'
+  | 'not_stocked'
+  | 'rejected'
+  | 'error'
+  | 'not_scanned';
+
+export interface CoverageEntry {
+  competitorId: number;
+  competitorName: string;
+  competitorSlug: string;
+  competitorHasLogo: boolean;
+  status: CoverageStatus;
+  price: number | null;
+  wasPrice: number | null;
+  inStock: boolean | null;
+  position: PricePosition | null;
+  sourceUrl: string | null;
+  observedAt: string | null;
+  reason: string | null;
+  lastScannedAt: string | null;
+}
+
+export interface ProductCoverage {
+  competitors: CoverageEntry[];
+  notSoldAnywhere: boolean;
+}
+
 export interface AlertRow {
   id: number;
   type: string;
@@ -213,6 +244,7 @@ export interface FeedImportResult {
   damagedMpn: number;
   withUsableIdentifier: number;
   priceHidden: number;
+  outOfStock: number;
   availability: Record<string, number>;
   fascia: { code: string; name: string };
   stalePricesRemoved: number;
@@ -345,6 +377,11 @@ export const api = {
 
   productHistory: (productId: number) =>
     request<{ observations: ProductHistoryEntry[] }>(`/api/products/${productId}/history`),
+
+  productCoverage: (productId: number, ourPrice?: number | null) =>
+    request<ProductCoverage>(
+      `/api/products/${productId}/coverage${ourPrice != null ? `?ourPrice=${ourPrice}` : ''}`,
+    ),
 
 
   deleteRun: (id: number) =>
@@ -481,6 +518,7 @@ export const api = {
     limit?: number | null;
     productId?: number | null;
     sku?: string;
+    productUrl?: string;
     forceHarvest?: boolean;
   }) =>
     request<{ run: ScrapeRun }>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),

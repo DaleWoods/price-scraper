@@ -2,7 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { query } from '../db/pool.js';
 import { importFeed } from '../import/feedImport.js';
-import { getProductHistory } from '../services/comparison.js';
+import { getProductCoverage, getProductHistory } from '../services/comparison.js';
 
 export const productsRouter: Router = Router();
 
@@ -239,6 +239,32 @@ productsRouter.get('/:id/history', async (req, res, next) => {
       return;
     }
     res.json({ observations: await getProductHistory(id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Every enabled competitor's outcome for one product — priced, or why not.
+ *
+ * `ourPrice` is optional and only used to classify a found price as lower /
+ * equal / higher; it comes from whichever fascia the caller is currently
+ * comparing against, since price and position are per-fascia everywhere else
+ * in the app too.
+ */
+productsRouter.get('/:id/coverage', async (req, res, next) => {
+  try {
+    const id = Number.parseInt(req.params.id ?? '', 10);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: 'Invalid product id' });
+      return;
+    }
+    const rawOurPrice = req.query.ourPrice;
+    const ourPrice =
+      typeof rawOurPrice === 'string' && rawOurPrice !== '' && Number.isFinite(Number(rawOurPrice))
+        ? Number(rawOurPrice)
+        : null;
+    res.json(await getProductCoverage(id, ourPrice));
   } catch (err) {
     next(err);
   }

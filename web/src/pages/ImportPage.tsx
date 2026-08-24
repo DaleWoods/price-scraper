@@ -208,7 +208,19 @@ export function ImportPage() {
             </Alert>
           )}
 
-          <Card title="Stock position" subtitle="As stated by the feed">
+          {result.outOfStock > 0 && (
+            <Alert tone="info" title={`${result.outOfStock} product(s) are out of stock`}>
+              No price was recorded for these, the same as a hidden price — only what is actually
+              sellable is worth comparing. A product with no price anywhere is treated as
+              discontinued: it drops out of scans and the comparison, though its recorded price
+              history is kept, and it comes straight back if a later feed lists it in stock again.
+            </Alert>
+          )}
+
+          <Card
+            title="Stock position"
+            subtitle="As stated by the feed — only 'in stock' rows get a price recorded"
+          >
             <div className="spec-grid">
               {Object.entries(result.availability).map(([state, count]) => (
                 <div className="spec" key={state}>

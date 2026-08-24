@@ -42,11 +42,15 @@ export function RunsPage() {
   const [mode, setMode] = useState('both');
   const [competitorId, setCompetitorId] = useState('');
   const [limit, setLimit] = useState('25');
-  // Naming one SKU turns the run into a test of that single product.
+  // Naming one SKU turns the run into a test of that single product. Pasting
+  // its own page URL does the same thing without having to look the SKU up
+  // first — either one is resolved to the same product server-side.
   const [sku, setSku] = useState('');
+  const [productUrl, setProductUrl] = useState('');
   // A single-product run reuses each competitor's cached URLs to stay fast;
   // tick this to re-harvest first, for a competitor page too new to be cached.
   const [forceHarvest, setForceHarvest] = useState(false);
+  const singleProduct = sku.trim().length > 0 || productUrl.trim().length > 0;
 
   const load = useCallback(async () => {
     try {
@@ -121,17 +125,20 @@ export function RunsPage() {
 
   const start = async () => {
     try {
-      const oneProduct = sku.trim();
+      const oneSku = sku.trim();
+      const oneUrl = productUrl.trim();
       const { run } = await api.startRun({
         mode,
         competitorId: competitorId ? Number(competitorId) : null,
-        // A single-SKU run is a test of that one product, so a product cap on
-        // top of it would only be confusing.
-        limit: oneProduct ? null : limit ? Number(limit) : null,
-        sku: oneProduct || undefined,
-        forceHarvest: oneProduct ? forceHarvest : undefined,
+        // A single-product run is a test of that one product, so a product
+        // cap on top of it would only be confusing.
+        limit: singleProduct ? null : limit ? Number(limit) : null,
+        sku: oneSku || undefined,
+        // The SKU wins if both are somehow filled in.
+        productUrl: !oneSku && oneUrl ? oneUrl : undefined,
+        forceHarvest: singleProduct ? forceHarvest : undefined,
       });
-      toast(`Run #${run.id} started${oneProduct ? ` for ${oneProduct}` : ''}.`, 'ok');
+      toast(`Run #${run.id} started${oneSku ? ` for ${oneSku}` : oneUrl ? ' for that product' : ''}.`, 'ok');
       void load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not start the run', 'error');
@@ -198,11 +205,30 @@ export function RunsPage() {
               className="input"
               placeholder="Whole catalogue"
               value={sku}
-              onChange={(event) => setSku(event.target.value)}
+              onChange={(event) => {
+                setSku(event.target.value);
+                if (event.target.value.trim()) setProductUrl('');
+              }}
               style={{ width: 190 }}
             />
           </div>
-          {sku.trim().length > 0 && (
+          <div className="field">
+            <label className="label" htmlFor="product-url">
+              …or its page URL on our site
+            </label>
+            <input
+              id="product-url"
+              className="input"
+              placeholder="https://www.goldsmiths.co.uk/…"
+              value={productUrl}
+              onChange={(event) => {
+                setProductUrl(event.target.value);
+                if (event.target.value.trim()) setSku('');
+              }}
+              style={{ width: 260 }}
+            />
+          </div>
+          {singleProduct && (
             <div className="field">
               <span className="label">Sitemaps</span>
               <label className="row small" style={{ gap: 8, cursor: 'pointer', marginTop: 8 }}>
@@ -226,7 +252,7 @@ export function RunsPage() {
               min={1}
               value={limit}
               onChange={(event) => setLimit(event.target.value)}
-              disabled={sku.trim().length > 0}
+              disabled={singleProduct}
               style={{ width: 110 }}
             />
           </div>
@@ -251,10 +277,12 @@ export function RunsPage() {
           every fetch. Keep the product limit low for the first runs against a new competitor.
         </p>
         <p className="small muted" style={{ marginTop: 'var(--sp-2)' }}>
-          Put a <strong>SKU</strong> in to test one product you know a competitor stocks — that run
-          looks at it whether or not it already has candidates, so you can re-check the same product
-          as often as you like. Only enabled competitors are scanned, so enable the one you are
-          testing against first.
+          Put a <strong>SKU</strong> in — or paste the product's own page URL if that's easier to
+          hand — to test one product you know a competitor stocks. That run looks at it whether or
+          not it already has candidates, so you can re-check the same product as often as you like.
+          A pasted URL is matched against the last imported feed, so it only works for a product
+          already in our catalogue — nothing is scraped from our own site. Only enabled competitors
+          are scanned, so enable the one you are testing against first.
         </p>
         <p className="small muted" style={{ marginBottom: 0 }}>
           A single-product run searches each competitor's <em>already-cached</em> URLs rather than

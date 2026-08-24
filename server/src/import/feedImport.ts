@@ -32,6 +32,8 @@ export interface FeedImportResult {
   withUsableIdentifier: number;
   /** price_visible=FALSE: no price shown to customers, so none recorded. */
   priceHidden: number;
+  /** availability is not an in-stock value: no price recorded, same as price_visible=FALSE. */
+  outOfStock: number;
   availability: Record<string, number>;
   fascia: { code: string; name: string };
   /** Prices this fascia no longer lists, removed because the feed is authoritative. */
@@ -50,6 +52,20 @@ export interface FeedImportResult {
  */
 export function isDamagedIdentifier(value: string): boolean {
   return /^\d(\.\d+)?E\+\d+$/i.test(value.trim());
+}
+
+/**
+ * Google's availability values are usually underscored ("out_of_stock"); this
+ * feed's exports space them ("out of stock"). Either reads fine once
+ * normalised. A value that isn't recognised at all is treated as in stock
+ * rather than silently dropping every row of a feed that doesn't populate the
+ * column — the same fail-open choice already made for a blank field.
+ */
+export function isInStock(rawAvailability: string): boolean {
+  const value = rawAvailability.trim().toLowerCase().replace(/[\s_-]+/g, '_');
+  if (!value) return true;
+  const outOfStockValues = new Set(['out_of_stock', 'preorder', 'backorder']);
+  return !outOfStockValues.has(value);
 }
 
 /**
@@ -167,6 +183,7 @@ export async function importFeed(
     damagedMpn: 0,
     withUsableIdentifier: 0,
     priceHidden: 0,
+    outOfStock: 0,
     availability: {},
     fascia: { code: fascia.code, name: fascia.name },
   };
@@ -238,6 +255,12 @@ export async function importFeed(
     if (get('price_visible').toUpperCase() === 'FALSE') {
       // Not shown to customers, so there is nothing to compare.
       result.priceHidden += 1;
+    } else if (!isInStock(availability)) {
+      // Not currently sellable, so a competitor being cheaper on it is not
+      // useful information — treated the same as a hidden price. Delisted
+      // like any other product the feed has stopped pricing (Spec: the feed
+      // is authoritative for what a fascia sells).
+      result.outOfStock += 1;
     } else {
       const regular = parseFeedPrice(get('price'));
       if (!regular) {

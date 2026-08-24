@@ -108,75 +108,30 @@ async function executeRun(runId: number, mode: RunMode, options: StartRunOptions
     return;
   }
 
-  let ok = 0;
-  let errored = 0;
-  let skipped = 0;
-
   try {
     const productId = options.productId ?? null;
 
-    for (const competitor of competitors) {
-      // Discovery first, then prices. A match auto-confirmed by this run is
-      // then priced by this run, so one scan answers "is it listed there, and
-      // for how much" — which is the whole question. The other order left a
-      // freshly matched product showing no competitor price until someone ran
-      // the scan a second time.
-      if (mode === 'discover' || mode === 'both') {
-        // Sitemap discovery searches a cached index of the competitor's URLs.
-        // Harvested once per run rather than per product: it is the same
-        // sitemap every time, and re-walking it thousands of times would be
-        // both slow and rude.
-        //
-        // A run scoped to one product is a quick test, not a catalogue-wide
-        // sweep, so it reuses whatever is already cached rather than
-        // re-harvesting — a large competitor's full tree can run to tens of
-        // thousands of URLs and take minutes to walk, which turns "test one
-        // product" into a wait that looks like the app has hung. A full run
-        // (no product named) always harvests fresh, which is how the cache
-        // stays current for everyone else.
-        if ((competitor.config?.discovery ?? 'sitemap') === 'sitemap') {
-          const alreadyCached = await countCachedUrls(competitor.id);
-          const reuseCache = productId != null && alreadyCached > 0 && !options.forceHarvest;
+    // Competitors are independent of each other — nothing about scanning
+    // Beaverbrooks depends on Ernest Jones having finished — so they run
+    // concurrently rather than one after another. Each competitor's own
+    // requests stay sequential and rate-limited exactly as before; this only
+    // overlaps *different* competitors' waits with each other, which is where
+    // almost all of a run's wall-clock time was going. Bounded rather than
+    // unbounded: Playwright's Chromium is real memory and CPU per concurrent
+    // page, and letting every enabled competitor render at once on a small
+    // deployment is exactly what starved the process enough to fail its own
+    // health check once already (see CLAUDE.md).
+    const results = await mapWithConcurrency(competitors, COMPETITOR_CONCURRENCY, (competitor) =>
+      runCompetitor(runId, competitor, mode, options.limit ?? null, productId, options.forceHarvest),
+    );
 
-          if (reuseCache) {
-            logger.info(
-              'runner',
-              `[${competitor.slug}] single-product run — searching ${alreadyCached} previously ` +
-                'cached URL(s) rather than re-harvesting the sitemap',
-            );
-          } else {
-            const refresh = await refreshCompetitorUrls(competitor);
-            if (refresh.error) {
-              logger.warn(
-                'runner',
-                `[${competitor.slug}] sitemap unavailable (${refresh.error}); ` +
-                  `falling back on ${alreadyCached} previously cached URL(s)`,
-              );
-            }
-          }
-        }
-
-        const result = await discoverUnmatchedProducts(
-          runId,
-          competitor,
-          options.limit ?? null,
-          productId,
-        );
-        ok += result.ok;
-        errored += result.errored;
-        skipped += result.skipped;
-      }
-
-      if (mode === 'prices' || mode === 'both') {
-        const result = await scrapeConfirmedMatches(
-          runId,
-          competitor,
-          options.limit ?? null,
-          productId,
-        );
-        ok += result.ok;
-        errored += result.errored;
-      }
+    let ok = 0;
+    let errored = 0;
+    let skipped = 0;
+    for (const result of results) {
+      ok += result.ok;
+      errored += result.errored;
+      skipped += result.skipped;
     }
 
     await query(
@@ -191,6 +146,98 @@ async function executeRun(runId: number, mode: RunMode, options: StartRunOptions
     // Free the Chromium process between manual runs — nothing is scheduled yet.
     await closeBrowser();
   }
+}
+
+/** How many competitors run concurrently within one scrape run. */
+const COMPETITOR_CONCURRENCY = 3;
+
+/** Run every array item through fn, never more than `limit` in flight at once. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index]!);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/** One competitor's full contribution to a run: discovery, then prices. */
+async function runCompetitor(
+  runId: number,
+  competitor: Competitor,
+  mode: RunMode,
+  limit: number | null,
+  productId: number | null,
+  forceHarvest: boolean | undefined,
+): Promise<{ ok: number; errored: number; skipped: number }> {
+  let ok = 0;
+  let errored = 0;
+  let skipped = 0;
+
+  // Discovery first, then prices. A match auto-confirmed by this run is then
+  // priced by this run, so one scan answers "is it listed there, and for how
+  // much" — which is the whole question. The other order left a freshly
+  // matched product showing no competitor price until someone ran the scan a
+  // second time.
+  if (mode === 'discover' || mode === 'both') {
+    // Sitemap discovery searches a cached index of the competitor's URLs.
+    // Harvested once per run rather than per product: it is the same
+    // sitemap every time, and re-walking it thousands of times would be
+    // both slow and rude.
+    //
+    // A run scoped to one product is a quick test, not a catalogue-wide
+    // sweep, so it reuses whatever is already cached rather than
+    // re-harvesting — a large competitor's full tree can run to tens of
+    // thousands of URLs and take minutes to walk, which turns "test one
+    // product" into a wait that looks like the app has hung. A full run
+    // (no product named) always harvests fresh, which is how the cache
+    // stays current for everyone else.
+    if ((competitor.config?.discovery ?? 'sitemap') === 'sitemap') {
+      const alreadyCached = await countCachedUrls(competitor.id);
+      const reuseCache = productId != null && alreadyCached > 0 && !forceHarvest;
+
+      if (reuseCache) {
+        logger.info(
+          'runner',
+          `[${competitor.slug}] single-product run — searching ${alreadyCached} previously ` +
+            'cached URL(s) rather than re-harvesting the sitemap',
+        );
+      } else {
+        const refresh = await refreshCompetitorUrls(competitor);
+        if (refresh.error) {
+          logger.warn(
+            'runner',
+            `[${competitor.slug}] sitemap unavailable (${refresh.error}); ` +
+              `falling back on ${alreadyCached} previously cached URL(s)`,
+          );
+        }
+      }
+    }
+
+    const result = await discoverUnmatchedProducts(runId, competitor, limit, productId);
+    ok += result.ok;
+    errored += result.errored;
+    skipped += result.skipped;
+  }
+
+  if (mode === 'prices' || mode === 'both') {
+    const result = await scrapeConfirmedMatches(runId, competitor, limit, productId);
+    ok += result.ok;
+    errored += result.errored;
+  }
+
+  return { ok, errored, skipped };
 }
 
 /** Scrape the stored URL of every confirmed match (Spec §5.4 — direct-URL path). */
