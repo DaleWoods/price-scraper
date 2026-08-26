@@ -176,12 +176,30 @@ for problems that have actually happened, with the real numbers.
 - **Price age is coloured at 3 and 14 days, client-side only.**
   `components/ui.tsx`'s `PriceAge` (backed by `priceAgeTone`) turns a
   competitor's "Seen" figure amber from 3 days old and bold red from 14 —
-  chosen because there is still no scheduler (see the "Automation" gap
-  above): a price is only as fresh as the last manual run, so staleness
-  needs to be visible everywhere a price is shown, not just inferred. It is
+  chosen because there is still no scheduler: a price is only as fresh as
+  the last manual run, so staleness needs to be visible everywhere a price
+  is shown, not just inferred. It is
   purely a display computation against `observedAt`/`Date.now()` — nothing
   is stored or computed server-side, so there is no cache to invalidate and
   no migration needed if the thresholds change. Only applied where a price
   actually exists: the drawer's coverage table deliberately falls back to a
   plain, uncoloured `lastScannedAt` for a competitor with no price recorded,
   since an old *attempt* is not the same claim as an old *price*.
+- **A run's product scope is one list internally, `productIds: number[] | null`
+  — `productId` only exists at the API boundary for backward compatibility.**
+  `runner.ts`'s `startRun` normalises `options.productId` and the newer
+  `options.productIds` into a single list before anything else touches it;
+  every SQL query downstream (`discoverUnmatchedProducts`,
+  `scrapeConfirmedMatches`) filters with `p.id = ANY($n::bigint[])`, not a
+  scalar `=`. `scrape_runs.product_id` (a single FK) is only set when that
+  list has exactly one entry, so the existing single-product test UI keeps
+  working unchanged; a longer list sets `product_count` instead (added in
+  012_bulk_product_scope.sql) purely for the Recent runs list to say "47
+  products" rather than looking like an untargeted full run. Nothing stores
+  the actual list beyond the run — it doesn't need to: `scrape_run_items`
+  already records which products a run touched, same as every other run.
+  A bulk list is resolved from uploaded SKUs the same way a single SKU is
+  (case-insensitive, against currently-listed products) but partially: an
+  unmatched SKU is reported back in the response rather than failing the
+  whole request, since the rest of the list is still worth scanning — unlike
+  a single unknown SKU, which still 404s outright.

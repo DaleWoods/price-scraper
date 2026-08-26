@@ -17,6 +17,19 @@ const MODE_COPY: Record<string, string> = {
   both: 'Look for new candidates, then scrape prices for confirmed matches',
 };
 
+/** Splits an uploaded SKU list on newlines, commas or tabs, trims, and drops blanks/dupes. */
+function parseSkuList(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of text.split(/[\r\n,\t]+/)) {
+    const value = raw.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
 const ERROR_KIND_COPY: Record<string, string> = {
   robots_disallowed: 'Blocked by robots.txt',
   blocked: 'Site actively blocked us',
@@ -47,10 +60,33 @@ export function RunsPage() {
   // first — either one is resolved to the same product server-side.
   const [sku, setSku] = useState('');
   const [productUrl, setProductUrl] = useState('');
-  // A single-product run reuses each competitor's cached URLs to stay fast;
-  // tick this to re-harvest first, for a competitor page too new to be cached.
+  // A third way to scope a run: a specific, larger set of products — an
+  // uploaded list of SKUs, rather than the whole catalogue or just one.
+  const [bulkSkus, setBulkSkus] = useState<string[]>([]);
+  const [bulkFileName, setBulkFileName] = useState<string | null>(null);
+  const [unresolvedSkus, setUnresolvedSkus] = useState<string[] | null>(null);
+  // A scoped run (one product, one URL, or an uploaded list) reuses each
+  // competitor's cached URLs to stay fast; tick this to re-harvest first, for
+  // a competitor page too new to be cached.
   const [forceHarvest, setForceHarvest] = useState(false);
-  const singleProduct = sku.trim().length > 0 || productUrl.trim().length > 0;
+  const scoped = sku.trim().length > 0 || productUrl.trim().length > 0 || bulkSkus.length > 0;
+
+  const clearBulkSkus = () => {
+    setBulkSkus([]);
+    setBulkFileName(null);
+  };
+
+  const loadBulkSkuFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseSkuList(String(reader.result ?? ''));
+      setBulkSkus(parsed);
+      setBulkFileName(file.name);
+      setSku('');
+      setProductUrl('');
+    };
+    reader.readAsText(file);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -124,21 +160,32 @@ export function RunsPage() {
   };
 
   const start = async () => {
+    setUnresolvedSkus(null);
     try {
       const oneSku = sku.trim();
       const oneUrl = productUrl.trim();
-      const { run } = await api.startRun({
+      const { run, unresolvedSkus: unresolved } = await api.startRun({
         mode,
         competitorId: competitorId ? Number(competitorId) : null,
-        // A single-product run is a test of that one product, so a product
+        // A scoped run is a test of a named set of products, so a product
         // cap on top of it would only be confusing.
-        limit: singleProduct ? null : limit ? Number(limit) : null,
+        limit: scoped ? null : limit ? Number(limit) : null,
         sku: oneSku || undefined,
-        // The SKU wins if both are somehow filled in.
+        // The SKU wins if both are somehow filled in; the bulk list only
+        // applies when neither single-product field is.
         productUrl: !oneSku && oneUrl ? oneUrl : undefined,
-        forceHarvest: singleProduct ? forceHarvest : undefined,
+        skus: !oneSku && !oneUrl && bulkSkus.length > 0 ? bulkSkus : undefined,
+        forceHarvest: scoped ? forceHarvest : undefined,
       });
-      toast(`Run #${run.id} started${oneSku ? ` for ${oneSku}` : oneUrl ? ' for that product' : ''}.`, 'ok');
+      const scopeLabel = oneSku
+        ? ` for ${oneSku}`
+        : oneUrl
+          ? ' for that product'
+          : bulkSkus.length > 0
+            ? ` for ${bulkSkus.length - (unresolved?.length ?? 0)} of ${bulkSkus.length} uploaded product(s)`
+            : '';
+      toast(`Run #${run.id} started${scopeLabel}.`, 'ok');
+      if (unresolved && unresolved.length > 0) setUnresolvedSkus(unresolved);
       void load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not start the run', 'error');
@@ -207,7 +254,10 @@ export function RunsPage() {
               value={sku}
               onChange={(event) => {
                 setSku(event.target.value);
-                if (event.target.value.trim()) setProductUrl('');
+                if (event.target.value.trim()) {
+                  setProductUrl('');
+                  clearBulkSkus();
+                }
               }}
               style={{ width: 190 }}
             />
@@ -223,12 +273,43 @@ export function RunsPage() {
               value={productUrl}
               onChange={(event) => {
                 setProductUrl(event.target.value);
-                if (event.target.value.trim()) setSku('');
+                if (event.target.value.trim()) {
+                  setSku('');
+                  clearBulkSkus();
+                }
               }}
               style={{ width: 260 }}
             />
           </div>
-          {singleProduct && (
+          <div className="field">
+            <label className="label" htmlFor="bulk-skus">
+              …or upload a list of SKUs
+            </label>
+            {bulkFileName ? (
+              <div className="row small" style={{ gap: 8, marginTop: 8 }}>
+                <span className="badge badge--info">
+                  {bulkSkus.length} SKU{bulkSkus.length === 1 ? '' : 's'} · {bulkFileName}
+                </span>
+                <button type="button" className="btn btn--sm btn--ghost" onClick={clearBulkSkus}>
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <input
+                id="bulk-skus"
+                className="input"
+                type="file"
+                accept=".txt,.csv,.tsv"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) loadBulkSkuFile(file);
+                  event.target.value = '';
+                }}
+                style={{ width: 220 }}
+              />
+            )}
+          </div>
+          {scoped && (
             <div className="field">
               <span className="label">Sitemaps</span>
               <label className="row small" style={{ gap: 8, cursor: 'pointer', marginTop: 8 }}>
@@ -252,7 +333,7 @@ export function RunsPage() {
               min={1}
               value={limit}
               onChange={(event) => setLimit(event.target.value)}
-              disabled={singleProduct}
+              disabled={scoped}
               style={{ width: 110 }}
             />
           </div>
@@ -278,20 +359,35 @@ export function RunsPage() {
         </p>
         <p className="small muted" style={{ marginTop: 'var(--sp-2)' }}>
           Put a <strong>SKU</strong> in — or paste the product's own page URL if that's easier to
-          hand — to test one product you know a competitor stocks. That run looks at it whether or
-          not it already has candidates, so you can re-check the same product as often as you like.
-          A pasted URL is matched against the last imported feed, so it only works for a product
-          already in our catalogue — nothing is scraped from our own site. Only enabled competitors
-          are scanned, so enable the one you are testing against first.
+          hand — to test one product you know a competitor stocks. Upload a <strong>list of SKUs</strong>{' '}
+          (one per line, or comma/tab separated — a plain text or CSV export works) to check a
+          specific batch instead, without waiting on the whole catalogue. Any of the three looks at
+          its product(s) whether or not they already have candidates, so you can re-check the same
+          ones as often as you like. A pasted URL and an uploaded list are both matched against the
+          last imported feed, so they only work for products already in our catalogue — nothing is
+          scraped from our own site. Only enabled competitors are scanned, so enable the ones you are
+          testing against first.
         </p>
         <p className="small muted" style={{ marginBottom: 0 }}>
-          A single-product run searches each competitor's <em>already-cached</em> URLs rather than
-          re-harvesting their sitemap, which is what keeps it quick — some competitors publish tens
-          of thousands of URLs, and walking the whole tree just to test one SKU can take minutes.
-          Tick <strong>Re-harvest first</strong> only if the competitor's listing might be too new to
-          be cached yet; otherwise the existing cache is normally enough.
+          A scoped run (one product, one URL, or an uploaded list) searches each competitor's{' '}
+          <em>already-cached</em> URLs rather than re-harvesting their sitemap, which is what keeps
+          it quick — some competitors publish tens of thousands of URLs, and walking the whole tree
+          just to check a handful of SKUs can take minutes. Tick <strong>Re-harvest first</strong>{' '}
+          only if a competitor's listing might be too new to be cached yet; otherwise the existing
+          cache is normally enough.
         </p>
       </Card>
+
+      {unresolvedSkus && unresolvedSkus.length > 0 && (
+        <Alert tone="warn" title={`${unresolvedSkus.length} uploaded SKU(s) weren't found`}>
+          The run started for everything that matched. These didn't match a product currently in the
+          catalogue — check for typos, or import the feed if they're new:{' '}
+          <span className="mono">
+            {unresolvedSkus.slice(0, 15).join(', ')}
+            {unresolvedSkus.length > 15 ? `, and ${unresolvedSkus.length - 15} more` : ''}
+          </span>
+        </Alert>
+      )}
 
       <Card
         title="Recent runs"
@@ -348,6 +444,9 @@ export function RunsPage() {
                         <div className="cell-secondary xs">
                           1 product · <span className="mono">{run.product_sku}</span>
                         </div>
+                      )}
+                      {run.product_count != null && (
+                        <div className="cell-secondary xs">{run.product_count} products · uploaded list</div>
                       )}
                     </td>
                     <td className="num">{run.ok_count}</td>

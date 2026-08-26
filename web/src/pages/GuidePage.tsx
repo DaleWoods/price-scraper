@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '24 August 2026';
+const GUIDE_UPDATED = '26 August 2026';
 
 function Section({
   id,
@@ -183,22 +183,28 @@ export function GuidePage() {
           any one of them any less politely.
           <br />
           <br />
-          Putting a <strong>SKU</strong> in the single-product box — or pasting the product's own
-          page URL on our site into the box beside it — scopes the run to that one product, which
-          is how you test whether something you know a competitor lists gets picked up. Either one
-          resolves to the same product; use whichever you have to hand, and a URL that isn't in the
-          last imported feed says so rather than guessing. That run looks at the product whether or
-          not it already has candidates, so you can re-check the same one as often as you like. Only
-          enabled competitors are ever scanned.
+          A run can be scoped three ways. Putting a <strong>SKU</strong> in the single-product box —
+          or pasting the product's own page URL on our site into the box beside it — scopes the run
+          to that one product, which is how you test whether something you know a competitor lists
+          gets picked up; either one resolves to the same product, and a URL that isn't in the last
+          imported feed says so rather than guessing. <strong>Uploading a list of SKUs</strong>{' '}
+          (a plain text file or CSV export, one per line or comma/tab separated) scopes it to exactly
+          that batch instead — the middle ground between testing one product and scanning the whole
+          catalogue, for when you want to check a specific set without waiting on everything else.
+          Any SKU in the file that doesn't match a product is reported once the run starts rather
+          than silently dropped, so a typo doesn't just quietly vanish from the batch. All three
+          scoped modes look at their product(s) whether or not they already have candidates, so you
+          can re-check the same ones as often as you like. Only enabled competitors are ever scanned.
           <br />
           <br />
-          A single-product run searches each competitor's <em>already-cached</em> list of URLs
-          rather than re-reading their sitemap — some publish tens of thousands of them, and walking
-          the whole tree just to test one SKU could take minutes and looked like the run had hung.
-          The cache is normally close enough; tick <strong>Re-harvest first</strong>, which appears
-          once a SKU is entered, only when the competitor's listing is new enough that it might not
-          be cached yet. A run against the whole catalogue always re-reads every sitemap, which is
-          what keeps the cache current the rest of the time.
+          A scoped run — one product, one URL, or an uploaded list — searches each competitor's{' '}
+          <em>already-cached</em> list of URLs rather than re-reading their sitemap — some publish
+          tens of thousands of them, and walking the whole tree just to check a handful of SKUs
+          could take minutes and looked like the run had hung. The cache is normally close enough;
+          tick <strong>Re-harvest first</strong>, which appears once a run is scoped, only when a
+          competitor's listing is new enough that it might not be cached yet. A run against the
+          whole catalogue always re-reads every sitemap, which is what keeps the cache current the
+          rest of the time.
           <br />
           <br />
           Discovery also does not chase a candidate that will not load. Opening a candidate page is

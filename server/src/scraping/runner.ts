@@ -28,12 +28,20 @@ export interface StartRunOptions {
    */
   productId?: number | null;
   /**
-   * Re-harvest a competitor's sitemap even when a single product is already
-   * scoped and URLs are cached for them. Off by default: a single-product run
-   * is meant to be quick, and Beaverbrooks alone lists 15,000+ URLs, so
-   * re-walking the whole tree to test one SKU took minutes for no benefit most
-   * of the time. Tick it when the page you're testing against is new enough
-   * that it might not be in the cache yet.
+   * Scope the run to a specific, larger set of products — an uploaded list of
+   * SKUs rather than the single-product test case above. Takes the same
+   * "always re-discovered, cache reused unless forceHarvest" treatment as a
+   * single product; the only difference is how many products it covers.
+   * Mutually exclusive with productId — pass at most one of the two.
+   */
+  productIds?: number[] | null;
+  /**
+   * Re-harvest a competitor's sitemap even when the run is already scoped
+   * (productId or productIds) and URLs are cached for them. Off by default: a
+   * scoped run is meant to be quick, and Beaverbrooks alone lists 15,000+
+   * URLs, so re-walking the whole tree to test a handful of SKUs took minutes
+   * for no benefit most of the time. Tick it when the pages you're testing
+   * against are new enough that they might not be in the cache yet.
    */
   forceHarvest?: boolean;
 }
@@ -64,11 +72,25 @@ export async function startRun(options: StartRunOptions = {}): Promise<ScrapeRun
   }
 
   const mode = options.mode ?? 'both';
+  // Normalise the two scoping options into one list, so everything past this
+  // point only has to reason about "a set of product ids, or none". A single
+  // product still gets its own product_id column (existing single-product
+  // test UI reads that); a list of several gets product_count instead, since
+  // there is no one product to point a foreign key at.
+  const productIds =
+    options.productIds && options.productIds.length > 0
+      ? options.productIds
+      : options.productId != null
+        ? [options.productId]
+        : null;
+  const singleProductId = productIds && productIds.length === 1 ? productIds[0] : null;
+  const productCount = productIds && productIds.length > 1 ? productIds.length : null;
+
   const { rows } = await query<ScrapeRun>(
-    `INSERT INTO scrape_runs (trigger, status, competitor_id, product_id)
-     VALUES ($1, 'running', $2, $3)
+    `INSERT INTO scrape_runs (trigger, status, competitor_id, product_id, product_count)
+     VALUES ($1, 'running', $2, $3, $4)
      RETURNING *`,
-    [options.trigger ?? 'manual', options.competitorId ?? null, options.productId ?? null],
+    [options.trigger ?? 'manual', options.competitorId ?? null, singleProductId, productCount],
   );
 
   const run = rows[0];
@@ -76,7 +98,7 @@ export async function startRun(options: StartRunOptions = {}): Promise<ScrapeRun
   activeRunId = run.id;
 
   // Deliberately not awaited: the HTTP caller gets the run id immediately.
-  void executeRun(run.id, mode, options)
+  void executeRun(run.id, mode, productIds, options)
     .catch(async (err) => {
       logger.error('runner', `run ${run.id} failed: ${(err as Error).message}`, err);
       await query(
@@ -91,7 +113,12 @@ export async function startRun(options: StartRunOptions = {}): Promise<ScrapeRun
   return run;
 }
 
-async function executeRun(runId: number, mode: RunMode, options: StartRunOptions): Promise<void> {
+async function executeRun(
+  runId: number,
+  mode: RunMode,
+  productIds: number[] | null,
+  options: StartRunOptions,
+): Promise<void> {
   const all = await listCompetitors(true);
   const competitors = options.competitorId
     ? all.filter((competitor) => competitor.id === options.competitorId)
@@ -109,8 +136,6 @@ async function executeRun(runId: number, mode: RunMode, options: StartRunOptions
   }
 
   try {
-    const productId = options.productId ?? null;
-
     // Competitors are independent of each other — nothing about scanning
     // Beaverbrooks depends on Ernest Jones having finished — so they run
     // concurrently rather than one after another. Each competitor's own
@@ -122,7 +147,7 @@ async function executeRun(runId: number, mode: RunMode, options: StartRunOptions
     // deployment is exactly what starved the process enough to fail its own
     // health check once already (see CLAUDE.md).
     const results = await mapWithConcurrency(competitors, COMPETITOR_CONCURRENCY, (competitor) =>
-      runCompetitor(runId, competitor, mode, options.limit ?? null, productId, options.forceHarvest),
+      runCompetitor(runId, competitor, mode, options.limit ?? null, productIds, options.forceHarvest),
     );
 
     let ok = 0;
@@ -178,7 +203,7 @@ async function runCompetitor(
   competitor: Competitor,
   mode: RunMode,
   limit: number | null,
-  productId: number | null,
+  productIds: number[] | null,
   forceHarvest: boolean | undefined,
 ): Promise<{ ok: number; errored: number; skipped: number }> {
   let ok = 0;
@@ -196,22 +221,22 @@ async function runCompetitor(
     // sitemap every time, and re-walking it thousands of times would be
     // both slow and rude.
     //
-    // A run scoped to one product is a quick test, not a catalogue-wide
-    // sweep, so it reuses whatever is already cached rather than
-    // re-harvesting — a large competitor's full tree can run to tens of
-    // thousands of URLs and take minutes to walk, which turns "test one
-    // product" into a wait that looks like the app has hung. A full run
-    // (no product named) always harvests fresh, which is how the cache
-    // stays current for everyone else.
+    // A run scoped to a named set of products (one, or an uploaded list) is a
+    // targeted check, not a catalogue-wide sweep, so it reuses whatever is
+    // already cached rather than re-harvesting — a large competitor's full
+    // tree can run to tens of thousands of URLs and take minutes to walk,
+    // which turns "check these products" into a wait that looks like the app
+    // has hung. A full run (no products named) always harvests fresh, which
+    // is how the cache stays current for everyone else.
     if ((competitor.config?.discovery ?? 'sitemap') === 'sitemap') {
       const alreadyCached = await countCachedUrls(competitor.id);
-      const reuseCache = productId != null && alreadyCached > 0 && !forceHarvest;
+      const reuseCache = productIds != null && alreadyCached > 0 && !forceHarvest;
 
       if (reuseCache) {
         logger.info(
           'runner',
-          `[${competitor.slug}] single-product run — searching ${alreadyCached} previously ` +
-            'cached URL(s) rather than re-harvesting the sitemap',
+          `[${competitor.slug}] scoped run (${productIds!.length} product(s)) — searching ` +
+            `${alreadyCached} previously cached URL(s) rather than re-harvesting the sitemap`,
         );
       } else {
         const refresh = await refreshCompetitorUrls(competitor);
@@ -225,14 +250,14 @@ async function runCompetitor(
       }
     }
 
-    const result = await discoverUnmatchedProducts(runId, competitor, limit, productId);
+    const result = await discoverUnmatchedProducts(runId, competitor, limit, productIds);
     ok += result.ok;
     errored += result.errored;
     skipped += result.skipped;
   }
 
   if (mode === 'prices' || mode === 'both') {
-    const result = await scrapeConfirmedMatches(runId, competitor, limit, productId);
+    const result = await scrapeConfirmedMatches(runId, competitor, limit, productIds);
     ok += result.ok;
     errored += result.errored;
   }
@@ -245,7 +270,7 @@ async function scrapeConfirmedMatches(
   runId: number,
   competitor: Competitor,
   limit: number | null,
-  productId: number | null,
+  productIds: number[] | null,
 ): Promise<{ ok: number; errored: number }> {
   const { rows: matches } = await query<MatchRow>(
     `SELECT m.id AS match_id, m.product_id, m.competitor_id, m.competitor_url, p.internal_sku
@@ -254,10 +279,10 @@ async function scrapeConfirmedMatches(
      -- A delisted product is no longer sold by us, so re-checking a
      -- competitor's price for it would only add noise.
      WHERE m.competitor_id = $1 AND m.status = 'confirmed' AND p.delisted_at IS NULL
-       AND ($2::bigint IS NULL OR m.product_id = $2)
+       AND ($2::bigint[] IS NULL OR m.product_id = ANY($2::bigint[]))
      ORDER BY m.id
      ${limit ? 'LIMIT ' + Number(limit) : ''}`,
-    [competitor.id, productId],
+    [competitor.id, productIds],
   );
 
   let ok = 0;
@@ -334,18 +359,18 @@ async function discoverUnmatchedProducts(
   runId: number,
   competitor: Competitor,
   limit: number | null,
-  productId: number | null,
+  productIds: number[] | null,
 ): Promise<{ ok: number; errored: number; skipped: number }> {
   const { rows: products } = await query<Product>(
     `SELECT p.* FROM products p
      -- Only products the latest feed still lists. Without this a one-product
      -- test feed would still scan everything imported before it.
      WHERE p.delisted_at IS NULL
-       AND ($2::bigint IS NULL OR p.id = $2)
-       -- Asking for one product means "look at this one now". Skipping it for
-       -- already having a candidate would make that run silently do nothing,
-       -- which is the opposite of what a test run is for.
-       AND ($2::bigint IS NOT NULL OR NOT EXISTS (
+       AND ($2::bigint[] IS NULL OR p.id = ANY($2::bigint[]))
+       -- Naming products means "look at these now". Skipping one for already
+       -- having a candidate would make the run you just asked for silently do
+       -- nothing for it, which is the opposite of what a targeted run is for.
+       AND ($2::bigint[] IS NOT NULL OR NOT EXISTS (
          SELECT 1 FROM product_matches m
          WHERE m.product_id = p.id
            AND m.competitor_id = $1
@@ -353,7 +378,7 @@ async function discoverUnmatchedProducts(
        ))
      ORDER BY p.id
      ${limit ? 'LIMIT ' + Number(limit) : ''}`,
-    [competitor.id, productId],
+    [competitor.id, productIds],
   );
 
   let ok = 0;

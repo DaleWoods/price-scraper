@@ -173,6 +173,8 @@ export interface ScrapeRun {
   competitor_id: number | null;
   /** Set when the run was scoped to a single product for testing. */
   product_id: number | null;
+  /** Set instead of product_id when the run was scoped to an uploaded list of several products. */
+  product_count: number | null;
   ok_count: number;
   error_count: number;
   skipped_count: number;

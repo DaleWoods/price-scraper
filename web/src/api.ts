@@ -287,6 +287,8 @@ export interface ScrapeRun {
   /** Set when the run was aimed at a single product for testing. */
   product_sku?: string | null;
   product_name?: string | null;
+  /** Set instead of product_sku when the run was scoped to an uploaded list of several products. */
+  product_count?: number | null;
   ok_count: number;
   error_count: number;
   skipped_count: number;
@@ -519,9 +521,13 @@ export const api = {
     productId?: number | null;
     sku?: string;
     productUrl?: string;
+    skus?: string[];
     forceHarvest?: boolean;
   }) =>
-    request<{ run: ScrapeRun }>('/api/runs', { method: 'POST', body: JSON.stringify(body) }),
+    request<{ run: ScrapeRun; unresolvedSkus?: string[] }>('/api/runs', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   recentErrors: () =>
     request<{ errors: (RunItem & { run_id: number; created_at: string })[] }>('/api/runs/errors/recent'),
 };

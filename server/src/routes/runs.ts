@@ -71,10 +71,49 @@ runsRouter.post('/', async (req, res) => {
       productId = rows[0].id;
     }
 
+    // A larger, specific set of products — an uploaded list of SKUs rather
+    // than one. Resolved the same way as a single SKU: case-insensitively,
+    // and against products currently listed. Unlike a single SKU, one that
+    // doesn't match isn't a hard failure — the rest of the list is still
+    // worth scanning — so unmatched ones are reported back instead, the same
+    // way a feed import reports rows it couldn't use rather than refusing
+    // the whole file.
+    const skusInput: string[] = Array.isArray(req.body?.skus)
+      ? req.body.skus
+          .filter((value: unknown): value is string => typeof value === 'string' && value.trim() !== '')
+          .map((value: string) => value.trim())
+      : [];
+    let productIds: number[] | null = null;
+    let unresolvedSkus: string[] = [];
+    if (!productId && !sku && !productUrl && skusInput.length > 0) {
+      const { rows } = await query<{ id: number; internal_sku: string }>(
+        'SELECT id, internal_sku FROM products WHERE lower(internal_sku) = ANY($1::text[])',
+        [skusInput.map((value) => value.toLowerCase())],
+      );
+      const found = new Set(rows.map((row) => row.internal_sku.toLowerCase()));
+      productIds = rows.map((row) => row.id);
+      unresolvedSkus = skusInput.filter((value) => !found.has(value.toLowerCase()));
+
+      if (productIds.length === 0) {
+        res.status(404).json({
+          error: `None of the ${skusInput.length} uploaded SKU(s) matched a product. Check the file, or import its feed first.`,
+        });
+        return;
+      }
+    }
+
     const forceHarvest = req.body?.forceHarvest === true;
 
-    const run = await startRun({ mode, competitorId, limit, productId, forceHarvest, trigger: 'manual' });
-    res.status(202).json({ run });
+    const run = await startRun({
+      mode,
+      competitorId,
+      limit,
+      productId,
+      productIds,
+      forceHarvest,
+      trigger: 'manual',
+    });
+    res.status(202).json({ run, ...(unresolvedSkus.length > 0 ? { unresolvedSkus } : {}) });
   } catch (err) {
     res.status(409).json({ error: (err as Error).message });
   }
