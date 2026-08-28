@@ -136,8 +136,12 @@ comparisonRouter.get('/', async (req, res, next) => {
 /** CSV export of the current comparison view (Spec §5.6). */
 comparisonRouter.get('/export.csv', async (req, res, next) => {
   try {
+    // An export should contain everything the current filters match, not just
+    // one page of it — omitting limit/offset here (rather than reusing
+    // whatever page size the on-screen table happens to be showing) is what
+    // makes that true.
     const filters = parseFilters(req.query as Record<string, unknown>);
-    const { rows } = await getComparison({ ...filters, limit: 500, offset: 0 });
+    const { rows } = await getComparison({ ...filters, limit: undefined, offset: undefined });
 
     const header = [
       'internal_sku',

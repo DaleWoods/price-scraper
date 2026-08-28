@@ -145,21 +145,6 @@ export interface ComparisonRow {
   observedAt: string | null;
   /** True when we hold no price of our own yet, so no comparison is possible. */
   ourPriceMissing: boolean;
-  competitorPrices: {
-    competitorId: number;
-    competitorName: string;
-    competitorSlug: string;
-    competitorHasLogo: boolean;
-    price: number | null;
-    wasPrice: number | null;
-    promo: boolean;
-    inStock: boolean | null;
-    position: PricePosition | null;
-    deltaAbs: number | null;
-    deltaPct: number | null;
-    sourceUrl: string;
-    observedAt: string;
-  }[];
   matchStatus: {
     confirmed: number;
     pending: number;

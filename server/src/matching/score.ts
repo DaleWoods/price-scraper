@@ -69,6 +69,11 @@ function candidateAttributes(listing: CandidateListing): SpecAttributes {
   return attributes;
 }
 
+/** Escapes regex metacharacters so a value gets matched literally, not interpreted. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Does the candidate's free text support this value, when it has no structured
  * attribute of its own? Used so a title like "Blue Dial Steel Bracelet" can still
@@ -76,7 +81,12 @@ function candidateAttributes(listing: CandidateListing): SpecAttributes {
  */
 function textSupports(attribute: string, normalisedOurs: string, haystack: string): boolean {
   if (normalisedOurs.length < 3) return false;
-  if (attribute === 'case_size') return new RegExp(`\\b${normalisedOurs}\\s*mm\\b`).test(haystack);
+  if (attribute === 'case_size') {
+    // A case size like "40.5" normalises with a literal decimal point, which
+    // is also a regex wildcard — escape it, or a title containing something
+    // like "40X5mm" would wrongly count as matching "40.5mm".
+    return new RegExp(`\\b${escapeRegExp(normalisedOurs)}\\s*mm\\b`).test(haystack);
+  }
   return haystack.includes(normalisedOurs);
 }
 

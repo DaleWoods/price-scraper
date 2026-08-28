@@ -10,6 +10,25 @@ export function classifyPosition(ourPrice: number, competitorPrice: number): Pri
   return delta < 0 ? 'lower' : 'higher';
 }
 
+/**
+ * The one place "how much cheaper/dearer" gets computed, so the Comparison
+ * page and an undercut alert for the identical pair of prices always agree.
+ * They used to compute this separately with different denominators —
+ * comparison.ts against the competitor's price, alerts.ts against ours — so
+ * the same £20-cheaper gap read as two different percentages depending on
+ * which page you were looking at. Percentage is always relative to *our*
+ * price: "they are 20% cheaper than us" naturally means 20% of what we
+ * charge, and that is the number an undercut alert already promised.
+ */
+export function priceDelta(
+  ourPrice: number,
+  competitorPrice: number,
+): { deltaAbs: number; deltaPct: number } {
+  const deltaAbs = round2(ourPrice - competitorPrice);
+  const deltaPct = ourPrice !== 0 ? round2((deltaAbs / ourPrice) * 100) : 0;
+  return { deltaAbs, deltaPct };
+}
+
 export interface ComparisonFilters {
   /** Which of our fascias to price against. Defaults to the first enabled one. */
   fasciaCode?: string | null;
@@ -59,12 +78,32 @@ export interface ComparisonPage {
 }
 
 /**
+ * Not a page size — a hard ceiling on how many products one comparison
+ * request will ever process, so a filter that happens to match everything
+ * can't run away with memory. Well above any catalogue this app has ever
+ * seen (three UK sites' worth of watches and jewellery); bump it if that
+ * changes.
+ */
+const PRODUCT_SAFETY_CAP = 5000;
+
+/**
  * Comparison view (Spec §5.5): our price vs each competitor's latest price,
  * classified lower / equal / higher with £ and % delta, plus the cheapest
  * competitor per product.
  */
 export async function getComparison(filters: ComparisonFilters = {}): Promise<ComparisonPage> {
-  const limit = Math.min(Math.max(filters.limit ?? 100, 1), 500);
+  // `limit`/`offset` page the *returned* rows only. The summary tiles and the
+  // position filter both need to see every product matching brand/category/
+  // search — not just whichever page happened to be requested — so the query
+  // below fetches the whole filtered set (up to the safety cap) regardless,
+  // and paging is applied as the very last step.
+  //
+  // This used to run entirely inside SQL's LIMIT/OFFSET: a catalogue larger
+  // than one page had the "they are cheaper" stat tile and the position
+  // filter both silently undercounting past the first page, with nothing on
+  // screen to say so — exactly backwards for a comparison meant to cover the
+  // whole catalogue at once.
+  const pageLimit = filters.limit != null ? Math.max(filters.limit, 1) : null;
   const offset = Math.max(filters.offset ?? 0, 0);
 
   // Delisted products are not sold by any of our sites any more, so they are
@@ -105,7 +144,11 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
 
   const { rows: products } = await query<Product & { total_count: number }>(
     `SELECT p.id, p.internal_sku, p.brand, p.product_name, p.ean_mpn, p.category,
-            p.our_product_url, p.specs, p.created_at, p.updated_at,
+            -- Per-fascia when we have it — the same SKU can have a different
+            -- page at each of our sites — falling back to the single shared
+            -- column for a product with no fascia_prices row at all.
+            COALESCE(fp.product_url, p.our_product_url) AS our_product_url,
+            p.specs, p.created_at, p.updated_at,
             fp.price          AS our_price,
             fp.regular_price  AS our_was_price,
             fp.on_sale        AS our_on_sale,
@@ -116,7 +159,7 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
        ON fp.product_id = p.id AND fp.fascia_id = $${fasciaParam}
      ${where}
      ORDER BY p.brand, p.product_name
-     LIMIT ${limit} OFFSET ${offset}`,
+     LIMIT ${PRODUCT_SAFETY_CAP}`,
     params,
   );
 
@@ -169,28 +212,28 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
     // invented for it.
     const ourPrice = product.our_price;
 
+    // Not returned on the row — only ever used here to pick the cheapest
+    // purchasable competitor. Building the full per-competitor breakdown was
+    // previously serialised on every row for every product/competitor pair
+    // and sent to the client, which stopped reading it once the drawer's
+    // coverage table (services/comparison.ts's getProductCoverage) took over
+    // showing every competitor's outcome — this is the one place it is still
+    // needed, to compute a single "best" figure per row.
     const competitorPrices = productObservations.map((observation) => {
       const canCompare = ourPrice != null && observation.price != null;
+      const { deltaAbs, deltaPct } = canCompare
+        ? priceDelta(ourPrice, observation.price!)
+        : { deltaAbs: null, deltaPct: null };
       const position = canCompare ? classifyPosition(ourPrice, observation.price!) : null;
-      const deltaAbs = canCompare ? round2(ourPrice - observation.price!) : null;
-      const deltaPct =
-        canCompare && observation.price !== 0
-          ? round2(((ourPrice - observation.price!) / observation.price!) * 100)
-          : null;
 
       return {
         competitorId: observation.competitor_id,
         competitorName: observation.competitor_name,
-        competitorSlug: observation.competitor_slug,
-        competitorHasLogo: observation.competitor_has_logo,
         price: observation.price,
-        wasPrice: observation.was_price,
-        promo: observation.promo,
         inStock: observation.in_stock,
         position,
         deltaAbs,
         deltaPct,
-        sourceUrl: observation.source_url,
         observedAt: observation.observed_at,
       };
     });
@@ -217,7 +260,6 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
       deltaPct: cheapest?.deltaPct ?? null,
       observedAt: cheapest?.observedAt ?? null,
       ourPriceMissing: ourPrice == null,
-      competitorPrices,
       matchStatus: {
         confirmed: counts?.confirmed ?? 0,
         pending: counts?.pending ?? 0,
@@ -233,7 +275,11 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
       })
     : rows;
 
-  return { rows: filtered, total, summary: summarise(rows) };
+  // Summary and the position filter above both already saw every matching
+  // product; only the rows actually handed back are paged, right at the end.
+  const paged = pageLimit != null ? filtered.slice(offset, offset + pageLimit) : filtered;
+
+  return { rows: paged, total, summary: summarise(rows) };
 }
 
 function summarise(rows: ComparisonRow[]): ComparisonPage['summary'] {

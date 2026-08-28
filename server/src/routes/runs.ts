@@ -54,11 +54,19 @@ runsRouter.post('/', async (req, res) => {
 
     const productUrl = typeof req.body?.productUrl === 'string' ? req.body.productUrl.trim() : '';
     if (!productId && !sku && productUrl) {
-      // our_product_url comes straight from the feed's link column, so a
-      // trailing-slash difference is the only normalisation worth doing —
-      // anything pasted from the site itself matches exactly.
+      // The URL comes straight from a feed's link column, so a trailing-slash
+      // difference is the only normalisation worth doing — anything pasted
+      // from the site itself matches exactly. fascia_prices.product_url is
+      // the correct source: the same SKU can be sold at more than one of our
+      // sites, each with its own page, so products.our_product_url (a single
+      // column, last-fascia-imported-wins) is only checked as a fallback —
+      // it still matters for a product with no fascia_prices row at all
+      // (out of stock, or added by hand rather than from a feed).
       const { rows } = await query<{ id: number }>(
-        `SELECT id FROM products WHERE rtrim(our_product_url, '/') = rtrim($1, '/')`,
+        `SELECT product_id AS id FROM fascia_prices WHERE rtrim(product_url, '/') = rtrim($1, '/')
+         UNION
+         SELECT id FROM products WHERE rtrim(our_product_url, '/') = rtrim($1, '/')
+         LIMIT 1`,
         [productUrl],
       );
       if (!rows[0]) {

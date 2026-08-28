@@ -203,3 +203,67 @@ for problems that have actually happened, with the real numbers.
   unmatched SKU is reported back in the response rather than failing the
   whole request, since the rest of the list is still worth scanning — unlike
   a single unknown SKU, which still 404s outright.
+- **`getComparison`'s summary tiles and position filter used to only see one
+  page of the catalogue, not the whole filtered set.** The products query
+  carried the request's `LIMIT`/`OFFSET` directly, so `summarise(rows)` and
+  the `position` filter — both computed from that same paginated `rows`
+  array — silently missed anything past the page. A catalogue bigger than
+  the frontend's 200-row request had the "they are cheaper" stat tile
+  undercounting past the first 200 (alphabetically by brand/name), and
+  filtering to `position=higher` could hide a genuine undercut on product
+  #350 entirely. Fixed by decoupling paging from filtering: the products
+  query now always fetches the whole filtered set up to `PRODUCT_SAFETY_CAP`
+  (5000 — a ceiling against a pathological query, not a real page size), and
+  `limit`/`offset` are applied with `.slice()` as the very last step, after
+  `summary` and the position filter have both already seen everything.
+  `/export.csv` used to reuse this same page-limited path with a hardcoded
+  `limit: 500` (so a bigger catalogue's CSV export was silently incomplete,
+  too) — it now passes no limit at all, which this function treats as "give
+  me everything the safety cap allows."
+- **Undercut alerts and the Comparison page used to compute `deltaPct`
+  against different reference prices for the identical £ gap.**
+  `alerts.ts`'s `raiseAlert` divided by our own price; `comparison.ts`
+  divided by the competitor's price — same £100-vs-£80 gap read as 20% on
+  the Alerts page and 25% on Comparison. `comparison.ts` now exports
+  `priceDelta(ourPrice, competitorPrice)` as the one place this is computed,
+  always relative to our price ("they are 20% cheaper than us" means 20% of
+  what we charge), and both call sites use it — a future third consumer
+  should too, rather than reimplementing the formula again.
+- **The same `internal_sku` sold at more than one fascia only had one shared
+  `products.our_product_url`.** Every feed import overwrote it
+  unconditionally (`ON CONFLICT ... SET our_product_url = EXCLUDED...`), so
+  whichever fascia's feed was imported last silently won — pasting an
+  earlier-imported site's own product URL into "Scan by URL" 404'd even
+  though it came straight from that site's feed, because the column no
+  longer held it. `fascia_prices.product_url` (013_fascia_product_url.sql)
+  is now the correct, per-fascia value, written alongside price on every
+  import; `products.our_product_url` stays as a fallback for a product with
+  no `fascia_prices` row at all (out of stock, or added by hand) rather than
+  being removed outright. `routes/runs.ts`'s URL lookup and the `comparison`/
+  `matches` SELECTs all check the per-fascia column first now. See the
+  "keeps a separate product URL per fascia for the same SKU" test in
+  `feedImportDb.test.ts` before changing this again.
+- **`textSupports` in `matching/score.ts` built a `RegExp` straight from a
+  normalised attribute value without escaping it.** `normaliseCaseSize`
+  returns a literal decimal point for a size like "40.5", and an unescaped
+  `.` in a regex matches *any* character — a title containing "40X5mm" would
+  have wrongly counted as agreeing with a case size of "40.5mm". Fixed with
+  a small `escapeRegExp` used only for that interpolation; the deliberate,
+  intentional pattern-building elsewhere (`normaliseColour`'s
+  `word.replace(/_/g, '\\s*')`, matching whitespace-flexibly against a fixed
+  set of known synonym words, not attacker- or catalogue-controlled data) is
+  a different case and was left alone.
+- **A comparison row's full per-competitor price breakdown was computed and
+  serialised for every product on every request, but nothing has read it
+  since the drawer got its coverage table.** `getComparison` used to return
+  `competitorPrices` (every competitor's price, position and delta for that
+  product) on each `ComparisonRow` — needed once to build the old drawer
+  section, now only used internally to pick the cheapest purchasable
+  competitor for `bestCompetitorPrice` and friends. The array is still built
+  (that reduction needs it) but no longer put on the object returned to
+  callers, cutting the JSON response and the CSV-export computation down to
+  what is actually used. `CompetitorPrice` (`web/src/api.ts`) and the
+  matching nested type in `server/src/domain/types.ts` were removed with it
+  — if a future feature needs a specific competitor's price on a comparison
+  row again, prefer sourcing it from `getProductCoverage`
+  (`services/comparison.ts`), which already exists for exactly that.

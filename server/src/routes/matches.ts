@@ -45,7 +45,8 @@ matchesRouter.get('/', async (req, res, next) => {
               p.internal_sku, p.brand, p.product_name,
               fp.price AS our_price,
               COALESCE(fp.currency, 'GBP') AS currency,
-              p.category, p.ean_mpn, p.specs, p.our_product_url,
+              p.category, p.ean_mpn, p.specs,
+              COALESCE(fp.product_url, p.our_product_url) AS our_product_url,
               c.display_name AS competitor_name, c.slug AS competitor_slug
        FROM product_matches m
        JOIN products p    ON p.id = m.product_id

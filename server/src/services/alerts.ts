@@ -1,5 +1,5 @@
 import { query } from '../db/pool.js';
-import { classifyPosition } from './comparison.js';
+import { classifyPosition, priceDelta } from './comparison.js';
 
 /**
  * Undercut alerts (the `alerts` table has existed since the first migration;
@@ -40,8 +40,7 @@ async function raiseAlert(
   ourPrice: number,
   competitorPrice: number,
 ): Promise<void> {
-  const deltaAbs = ourPrice - competitorPrice;
-  const deltaPct = ourPrice > 0 ? (deltaAbs / ourPrice) * 100 : 0;
+  const { deltaAbs, deltaPct } = priceDelta(ourPrice, competitorPrice);
 
   const { rows } = await query<{ internal_sku: string; product_name: string }>(
     'SELECT internal_sku, product_name FROM products WHERE id = $1',

@@ -14,22 +14,6 @@ export interface Product {
 
 export type PricePosition = 'lower' | 'equal' | 'higher';
 
-export interface CompetitorPrice {
-  competitorId: number;
-  competitorName: string;
-  competitorSlug: string;
-  competitorHasLogo: boolean;
-  price: number | null;
-  wasPrice: number | null;
-  promo: boolean;
-  inStock: boolean | null;
-  position: PricePosition | null;
-  deltaAbs: number | null;
-  deltaPct: number | null;
-  sourceUrl: string;
-  observedAt: string;
-}
-
 export interface ComparisonRow {
   product: Product;
   bestCompetitorPrice: number | null;
@@ -39,7 +23,6 @@ export interface ComparisonRow {
   deltaPct: number | null;
   observedAt: string | null;
   ourPriceMissing: boolean;
-  competitorPrices: CompetitorPrice[];
   matchStatus: { confirmed: number; pending: number };
 }
 

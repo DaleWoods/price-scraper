@@ -15,6 +15,7 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
   let query: typeof import('../src/db/pool.ts').query;
   let closePool: typeof import('../src/db/pool.ts').closePool;
   let fasciaCode: string;
+  let secondFasciaCode: string;
 
   const HEADER =
     'id\ttitle\tdescription\tproduct_type\tlink\tavailability\tprice\tsale_price\t' +
@@ -28,10 +29,16 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
   function row(
     id: string,
     price: string,
-    { sale = '', window = '', visible = 'TRUE', availability = 'in stock' } = {},
+    {
+      sale = '',
+      window = '',
+      visible = 'TRUE',
+      availability = 'in stock',
+      link = `https://example.test/${id}`,
+    } = {},
   ): string {
     return [
-      id, `Test ${id}`, 'desc', 'Watches', `https://example.test/${id}`, availability,
+      id, `Test ${id}`, 'desc', 'Watches', link, availability,
       price, sale, window, visible, 'TestBrand', '', `MPN-${id}`, 'Steel',
     ].join('\t');
   }
@@ -42,9 +49,10 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
     ({ importFeed } = await import('../src/import/feedImport.ts'));
     ({ query, closePool } = await import('../src/db/pool.ts'));
     const { rows } = await query<{ code: string }>(
-      'SELECT code FROM fascias WHERE enabled ORDER BY code LIMIT 1',
+      'SELECT code FROM fascias WHERE enabled ORDER BY code LIMIT 2',
     );
     fasciaCode = rows[0]!.code;
+    secondFasciaCode = rows[1]?.code ?? rows[0]!.code;
     await query('DELETE FROM products WHERE internal_sku = ANY($1)', [skus]);
   });
 
@@ -189,6 +197,42 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
     );
     assert.equal(result.outOfStock, 0);
     assert.equal(result.pricesWritten, 1);
+  });
+
+  /**
+   * The reported bug: the same SKU sold at more than one of our sites had one
+   * shared products.our_product_url, so whichever fascia was imported last
+   * silently overwrote the other's page — pasting the earlier site's own URL
+   * into "Scan by URL" 404'd even though it came straight from that site's
+   * feed. fascia_prices.product_url now keeps them apart.
+   */
+  it('keeps a separate product URL per fascia for the same SKU', async (t) => {
+    if (secondFasciaCode === fasciaCode) {
+      t.skip('only one fascia enabled in this database');
+      return;
+    }
+
+    await importFeed(
+      feed([row(skus[0]!, '100.0 GBP', { link: 'https://site-a.test/watch' })]),
+      'site-a.tsv',
+      fasciaCode,
+    );
+    await importFeed(
+      feed([row(skus[0]!, '110.0 GBP', { link: 'https://site-b.test/watch' })]),
+      'site-b.tsv',
+      secondFasciaCode,
+    );
+
+    const { rows } = await query<{ code: string; product_url: string }>(
+      `SELECT f.code, fp.product_url FROM fascia_prices fp
+       JOIN products p ON p.id = fp.product_id
+       JOIN fascias f  ON f.id = fp.fascia_id
+       WHERE p.internal_sku = $1 ORDER BY f.code`,
+      [skus[0]],
+    );
+    const byFascia = Object.fromEntries(rows.map((r) => [r.code, r.product_url]));
+    assert.equal(byFascia[fasciaCode], 'https://site-a.test/watch');
+    assert.equal(byFascia[secondFasciaCode], 'https://site-b.test/watch');
   });
 
   /**

@@ -375,17 +375,24 @@ export async function importFeed(
           product.price!.onSale,
           product.price!.currency,
           feedImportId,
+          product.link,
         );
         tuples.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, now(), $${base + 7})`,
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, now(), $${base + 7}, $${base + 8})`,
         );
       }
       if (tuples.length === 0) continue;
 
+      // product_url is per fascia, not just per product: the same internal_sku
+      // can be sold at more than one of our sites, each with its own page.
+      // products.our_product_url (written above) stays a single, "last feed
+      // imported" value — good enough as a fallback for a delisted or manual
+      // product with no fascia_prices row — but this is the value that is
+      // actually correct for whichever fascia is being looked at.
       await client.query(
         `INSERT INTO fascia_prices
            (product_id, fascia_id, price, regular_price, on_sale, currency,
-            imported_at, feed_import_id)
+            imported_at, feed_import_id, product_url)
          VALUES ${tuples.join(', ')}
          ON CONFLICT (product_id, fascia_id) DO UPDATE SET
            feed_import_id = EXCLUDED.feed_import_id,
@@ -393,7 +400,8 @@ export async function importFeed(
            regular_price  = EXCLUDED.regular_price,
            on_sale        = EXCLUDED.on_sale,
            currency       = EXCLUDED.currency,
-           imported_at    = now()`,
+           imported_at    = now(),
+           product_url    = EXCLUDED.product_url`,
         values,
       );
       result.pricesWritten += tuples.length;
