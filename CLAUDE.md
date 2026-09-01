@@ -267,3 +267,104 @@ for problems that have actually happened, with the real numbers.
   — if a future feature needs a specific competitor's price on a comparison
   row again, prefer sourcing it from `getProductCoverage`
   (`services/comparison.ts`), which already exists for exactly that.
+- **Rendering is HTTP-first: `auto` fetches over plain HTTP and escalates to
+  Chromium only on two specific extraction failures.** Every competitor config
+  used to say `rendering: "browser"`, so every page fetch launched a browser
+  context — the dominant compute cost, and what took the Render deploy over its
+  compute-time quota. Spec §5.4 always asked for the opposite. `auto` (now the
+  schema default) lives in `scraping/fetchAndExtract.ts`, which is a separate
+  module *because* `extract.ts` imports `FetchedPage` from `fetcher.ts` —
+  pairing them anywhere else is an import cycle. Three rules it must keep:
+  (1) escalate **only** on `layout_changed` and `no_price_found`. A `blocked`
+  403 escalated is working around a refusal (Spec §9); a `not_found` escalated
+  doubles the cost of the commonest failure; a timeout escalated pays twice to
+  fail. (2) Never mutate `competitor.config.rendering` — the same object is
+  shared across every product for that competitor and three competitors run
+  concurrently, so it is copied per attempt instead. (3) A bare `fetchPage`
+  call resolves `auto` to the browser, because only a caller that also extracts
+  can judge whether cheap HTML was usable; `discovery.ts`'s search path relies
+  on that. `price_observations.rendered_with` records what actually produced
+  each price, so "does this competitor really need a browser" is a query rather
+  than a guess.
+- **`scrape_run_items.status` has three values and only two of them are an
+  attempt.** Anything computing a rate from that table must know:
+  `ok` = we asked and it worked; `error` = we asked and it failed;
+  `skipped` = **we never asked** (the competitor does not stock the brand, or
+  nothing in their sitemap resembled the product). Most of our range is not
+  carried by most competitors, so `skipped` is the normal majority outcome by a
+  wide margin — including it in a denominator makes a healthy competitor read
+  as single-digit percent and produces a dashboard nobody believes.
+  `services/scrapeHealth.ts` is the reference implementation: attempts are
+  `ok + error`, `robots_disallowed` is counted separately because honouring a
+  site's rules is policy rather than breakage, and a competitor with zero
+  attempts returns `successPct: null` (rendered "not scanned") because never
+  tried and tried-and-always-failed are opposite states. Two more traps in that
+  query: the window filter belongs in the `LEFT JOIN ... ON` clause, since in a
+  `WHERE` clause it silently becomes an inner join and drops exactly the quiet
+  competitors you most need to see; and an `ok` discovery item is not proof a
+  price was recorded (a candidate can be found, opened and rejected), so the
+  column is labelled "worked", not "priced".
+- **`ERROR_KIND_COPY` lives in `web/src/errorKinds.ts` and nowhere else.** It is
+  shared by the run-detail table and the scrape-health card. A second copy
+  drifts, and then one failure reads as two different things depending which
+  page you are on.
+- **Postgres treats NULLs as DISTINCT in a unique index, which silently broke
+  dedupe for the two non-fascia alert types.** `alerts_open_undercut_idx`
+  covers `(type, product_id, competitor_id, fascia_id) WHERE state = 'open'`.
+  `price_drop` and `listing_gone` are facts about a competitor's own listing
+  rather than about one of our sites, so they carry `fascia_id NULL` — and a
+  NULL never equals a NULL, so that index (and any `ON CONFLICT` targeting it)
+  provides them **no dedupe at all**: every run would insert another copy of
+  the same still-true open alert, forever. `alerts_open_no_fascia_idx`
+  (015_alert_settings_and_types.sql) is the partial unique index that actually
+  covers them, and `insertAlert` in `services/alerts.ts` targets *that* index's
+  column list. There is a test for exactly this ("raises exactly one
+  listing_gone however many runs report it") — dropping the index makes four
+  tests fail, which is how it should be.
+- **The two undercut thresholds are ANDed, and both default to 0.** Spec §5.5
+  words it as "by more than X% (or £Y)", which reads like OR, but AND with
+  zero defaults is the reading that is safe either way: both at zero preserves
+  the old alert-on-anything behaviour exactly, and setting one applies only
+  that one. The Admin form and the guide both say so explicitly, because two
+  fields side by side otherwise read as OR. Raising a threshold **resolves**
+  open alerts that no longer qualify rather than stranding them.
+- **`inStock === null` means the page did not say, and must not raise
+  `listing_gone`.** Plenty of sites never publish availability; alerting on
+  unknown would fire constantly. Only an explicit `false` counts. Every alert
+  call in `runner.ts` is also `.catch()`-wrapped and logged: a failed alert
+  write must never lose a price that was scraped successfully.
+- **`syncPriceDropAlert` compares against `OFFSET 1`, not the latest
+  observation.** By the time alerts run, the new observation has already been
+  inserted — comparing to "the most recent" compares the price to itself and
+  never fires. It also returns early when there is no previous price, since a
+  first sighting is not a drop from zero.
+- **Runner tests talk to a real local site, because `runner.ts` has no
+  injection seam.** Competitors come from the database and are reached over
+  HTTP, so `server/test/helpers/standInCompetitor.ts` starts a stand-in
+  retailer (robots.txt, sitemap, product pages) on port 0 and the test inserts
+  a competitor row pointing at it. Four things about that helper are load-
+  bearing. Its JSON-LD offer needs its own `"@type": "Offer"`, because
+  `extract.ts` finds the offer node by type and an unlabelled object reads as a
+  page with no price — a fixture bug that has twice looked like an app bug.
+  Its product URLs are realistic slugs (`/p/testbrand-runner-watch-a`, built by
+  `slugFor`), never the short handle, because sitemap discovery ranks cached
+  URLs by full-text search over the slug words and `/p/a` carries no searchable
+  word at all. It records every request, which is the only way to assert that a
+  non-retryable failure was not retried and that the brand gate skipped a
+  product *before* any network call. And every run must be scoped by
+  `competitorId`, or a real competitor left enabled in a dev database sends the
+  suite out to the internet.
+- **`startRun` is fire-and-forget, so a test must poll the run row.** It
+  returns as soon as the row exists and the scrape continues in the background.
+  Poll `scrape_runs.status` rather than `getActiveRunId()`: the in-memory flag
+  is cleared in a `finally` that can win the race against the final UPDATE, so
+  a test waiting on it can read counters that are not written yet. Related: all
+  runner tests live in **one file**, since `activeRunId` is module-level and two
+  test files would fight over it.
+- **The no-concurrent-runs guard needs a synchronous reservation.**
+  `activeRunId` alone cannot enforce it: the id only exists after the INSERT
+  that creates the run row, and awaiting that INSERT yields the event loop, so
+  two callers arriving together (a double-clicked "Run now", two tabs, a
+  retried request) both saw `null` and both started a run — double-scraping
+  every competitor and racing the counters. `runStarting` is set in the same
+  tick as the check, which is what actually closes the window.

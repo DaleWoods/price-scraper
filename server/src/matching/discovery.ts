@@ -3,7 +3,8 @@ import type { Competitor, MatchTier, Product } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { buildSearchUrl } from '../scraping/competitorRegistry.js';
 import { ScrapeError } from '../scraping/errors.js';
-import { extractListing, extractSearchResults } from '../scraping/extract.js';
+import { extractSearchResults } from '../scraping/extract.js';
+import { fetchAndExtract } from '../scraping/fetchAndExtract.js';
 import { fetchPage } from '../scraping/fetcher.js';
 import { canonicalAttributeName } from './attributes.js';
 import { findCandidateUrls } from './sitemapDiscovery.js';
@@ -192,8 +193,12 @@ export async function discoverMatchesForProduct(
     // Open the product page for structured attributes and the EAN, which is what
     // lifts a candidate from a fuzzy name guess to a confident match.
     try {
-      const page = await fetchPage(competitor, result.url, { maxAttempts: 1 });
-      const extracted = extractListing(competitor, page);
+      // maxAttempts: 1 applies to each leg — an unproven candidate is opened
+      // once over HTTP and, only if that HTML turns out to be unreadable, once
+      // through a browser. Retrying a guess is what made discovery take minutes.
+      const { page, listing: extracted } = await fetchAndExtract(competitor, result.url, {
+        maxAttempts: 1,
+      });
       listing = {
         url: page.finalUrl,
         title: extracted.title ?? result.title,

@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import { query } from '../db/pool.js';
+import { getAlertSettings, updateAlertSettings } from '../services/alertSettings.js';
 
 export const alertsRouter: Router = Router();
 
+/** The alert types this app raises (Spec §5.5). */
+const ALERT_TYPES = ['undercut', 'price_drop', 'listing_gone'];
+
 /**
- * Undercut alerts. Open by default, since that is the actionable state — the
- * badge in the sidebar counts the same query.
+ * Alerts. Open by default, since that is the actionable state — the badge in
+ * the sidebar counts the same query.
  */
 alertsRouter.get('/', async (req, res, next) => {
   try {
@@ -15,13 +19,24 @@ alertsRouter.get('/', async (req, res, next) => {
       return;
     }
 
+    const type = typeof req.query.type === 'string' ? req.query.type : 'all';
+    if (type !== 'all' && !ALERT_TYPES.includes(type)) {
+      res.status(400).json({ error: `type must be one of ${ALERT_TYPES.join(', ')}, all` });
+      return;
+    }
+
     const limit = Math.min(Number.parseInt(String(req.query.limit ?? '100'), 10) || 100, 500);
     const params: unknown[] = [];
-    let where = '';
+    const conditions: string[] = [];
     if (state !== 'all') {
       params.push(state);
-      where = 'WHERE a.state = $1';
+      conditions.push(`a.state = $${params.length}`);
     }
+    if (type !== 'all') {
+      params.push(type);
+      conditions.push(`a.type = $${params.length}`);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
     const { rows } = await query(
       `SELECT a.*, count(*) OVER () AS total_count,
@@ -42,6 +57,60 @@ alertsRouter.get('/', async (req, res, next) => {
     res.json({ alerts: rows, total: rows[0]?.total_count ?? 0 });
   } catch (err) {
     next(err);
+  }
+});
+
+/* ---------- thresholds (Spec §5.5) --------------------------------------- */
+
+alertsRouter.get('/settings', async (_req, res, next) => {
+  try {
+    res.json(await getAlertSettings());
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Update the thresholds. Validated field by field so a bad value names itself
+ * rather than failing as a database constraint violation.
+ */
+alertsRouter.put('/settings', async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const patch: Record<string, number | boolean> = {};
+
+    const percentFields = ['undercutMinPct', 'priceDropMinPct'] as const;
+    for (const field of percentFields) {
+      if (body[field] === undefined || body[field] === null) continue;
+      const value = Number(body[field]);
+      if (!Number.isFinite(value) || value < 0 || value > 100) {
+        res.status(400).json({ error: `${field} must be a percentage between 0 and 100.` });
+        return;
+      }
+      patch[field] = value;
+    }
+
+    if (body.undercutMinAbs !== undefined && body.undercutMinAbs !== null) {
+      const value = Number(body.undercutMinAbs);
+      if (!Number.isFinite(value) || value < 0) {
+        res.status(400).json({ error: 'undercutMinAbs must be zero or a positive amount.' });
+        return;
+      }
+      patch.undercutMinAbs = value;
+    }
+
+    for (const field of ['priceDropEnabled', 'listingGoneEnabled'] as const) {
+      if (body[field] === undefined || body[field] === null) continue;
+      if (typeof body[field] !== 'boolean') {
+        res.status(400).json({ error: `${field} must be true or false.` });
+        return;
+      }
+      patch[field] = body[field];
+    }
+
+    res.json(await updateAlertSettings(patch));
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message });
   }
 });
 

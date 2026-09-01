@@ -7,8 +7,7 @@ import {
   syncCompetitorsToDatabase,
 } from '../scraping/competitorRegistry.js';
 import { ScrapeError } from '../scraping/errors.js';
-import { extractListing } from '../scraping/extract.js';
-import { fetchPage } from '../scraping/fetcher.js';
+import { fetchAndExtract } from '../scraping/fetchAndExtract.js';
 import { checkRobots } from '../scraping/robots.js';
 import { env } from '../config/env.js';
 import {
@@ -180,14 +179,17 @@ competitorsRouter.post('/:slug/test-url', async (req, res) => {
     }
 
     const robots = await checkRobots(url, competitor.config.userAgent ?? env.scraperUserAgent);
-    const page = await fetchPage(competitor, url);
-    const listing = extractListing(competitor, page);
+    const { page, listing, escalated } = await fetchAndExtract(competitor, url);
 
     res.json({
       ok: true,
       robots,
       finalUrl: page.finalUrl,
       renderedWith: page.renderedWith,
+      // True when a plain HTTP fetch was tried first and turned out unusable.
+      // Worth seeing here: a competitor that always escalates is one to pin to
+      // 'browser' explicitly rather than pay for the failed attempt every time.
+      escalated,
       extracted: listing,
     });
   } catch (err) {

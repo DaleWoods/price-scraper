@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '26 August 2026';
+const GUIDE_UPDATED = '1 September 2026';
 
 function Section({
   id,
@@ -153,12 +153,32 @@ export function GuidePage() {
           review, so clearing a comparison never re-opens a candidate you have already turned down.
         </Term>
         <Term label="Alerts">
-          Raised automatically the moment a confirmed competitor price drops below ours at one of our
-          sites, and <strong>resolved automatically</strong> the moment it no longer does — nothing
-          here is typed in by hand, and you never need to check whether an old alert is still true.
-          <strong>Acknowledging</strong> one only marks that you have seen it; it does not touch any
-          price or match. The sidebar badge counts open alerts, the same way Match review's badge
-          counts pending candidates.
+          Three things raise one, all of them automatically as runs find them — nothing here is
+          typed in by hand:
+          <br />
+          <br />
+          <strong>Undercut</strong> — a confirmed competitor price has dropped below ours at one of
+          our sites. This one is per site, since we charge different prices at each.{' '}
+          <strong>Price drop</strong> — a competitor cut <em>their own</em> price sharply, measured
+          against what we last saw them charging. It does not necessarily mean they are cheaper than
+          us; it means something moved and may be worth a look.{' '}
+          <strong>Listing gone</strong> — a product we had matched is showing out of stock there, or
+          the page has gone entirely.
+          <br />
+          <br />
+          Undercut and Listing gone <strong>resolve themselves</strong> the moment they stop being
+          true, so you never need to check whether an old one still stands. A price drop is a
+          moment in time rather than an ongoing state, so it stays until acknowledged.{' '}
+          <strong>Acknowledging</strong> only marks that you have seen it; it touches no price or
+          match. The sidebar badge counts open alerts, the same way Match review's badge counts
+          pending candidates.
+          <br />
+          <br />
+          How big a difference is worth raising one is set under <strong>Admin → Alert
+          thresholds</strong>. An undercut has two figures, a percentage and an amount, and{' '}
+          <strong>both</strong> must be met — leave either at zero to ignore it. Both start at zero,
+          so out of the box every undercut alerts, which is noisy against a full catalogue: a penny
+          off a five-figure watch is not news.
         </Term>
         <Term label="Match review">
           Candidate matches the scraper found, strongest first. Confirm the ones that are genuinely
@@ -181,6 +201,15 @@ export function GuidePage() {
           the sum of all of them. Each competitor's own requests are still spaced out exactly as
           before — this only overlaps waiting on <em>different</em> competitors, it does not scan
           any one of them any less politely.
+          <br />
+          <br />
+          Most competitor pages publish their price in the page itself, so a scan reads them with a
+          plain web request and only starts a full browser for the pages that genuinely need one —
+          where the price is filled in by the site's own JavaScript after loading. That is most of
+          why a run is quicker now, and it is a large saving in what the app costs to run, since a
+          browser is by far the most expensive thing it does. Admin's{' '}
+          <strong>Test a product URL</strong> panel names which route a page took, so a competitor
+          that always needs the browser is visible rather than guessed at.
           <br />
           <br />
           A run can be scoped three ways. Putting a <strong>SKU</strong> in the single-product box —
@@ -240,6 +269,27 @@ export function GuidePage() {
           exclude it from runs without losing its history. <em>Test a product URL</em> fetches a
           single page and shows exactly what was extracted, which is the quickest way to tell a
           layout change from a genuine absence; it stores nothing.
+        </Term>
+        <Term label="Scrape health">
+          One row per competitor: how much of what we asked them actually worked, what is failing,
+          and when each last produced a price. This is the page to open when you suspect a
+          competitor has quietly broken rather than simply having nothing to sell us.
+          <br />
+          <br />
+          <strong>Read the percentage carefully — it is not a share of your catalogue.</strong> Most
+          of our range is not carried by most competitors, so the great majority of targets are
+          never asked about at all. Those appear as <strong>Not stocked</strong> and are deliberately
+          left out of the percentage, which counts only pages we genuinely tried to read. A
+          competitor showing <strong>not scanned</strong> has had nothing attempted in the window,
+          which is a different thing from failing everything. A run declined by a competitor's{' '}
+          robots.txt is listed separately for the same reason: honouring their rules is the system
+          working, not a fault.
+          <br />
+          <br />
+          What deserves attention is a competitor that was working and stopped —{' '}
+          <em>Page layout changed</em> or <em>No price on the page</em> mean their site moved and our
+          configuration needs a look. <em>Site actively blocked us</em> means they are refusing
+          automated access, which is a signal to drop that source rather than press harder.
         </Term>
       </Section>
 

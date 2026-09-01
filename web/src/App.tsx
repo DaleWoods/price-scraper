@@ -30,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
 
 const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
   '/comparison': { eyebrow: 'Monitor', title: 'Price comparison' },
-  '/alerts': { eyebrow: 'Monitor', title: 'Undercut alerts' },
+  '/alerts': { eyebrow: 'Monitor', title: 'Alerts' },
   '/review': { eyebrow: 'Monitor', title: 'Match review queue' },
   '/runs': { eyebrow: 'Monitor', title: 'Scrape runs' },
   '/import': { eyebrow: 'Configure', title: 'Import product feed' },

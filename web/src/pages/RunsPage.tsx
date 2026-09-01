@@ -9,6 +9,7 @@ import {
   type ScrapeRun,
 } from '../api';
 import { Alert, Card, EmptyState, TableSkeleton, useToast } from '../components/ui';
+import { ERROR_KIND_COPY } from '../errorKinds';
 import { AddTestProductCard } from '../components/AddTestProduct';
 
 const MODE_COPY: Record<string, string> = {
@@ -29,19 +30,6 @@ function parseSkuList(text: string): string[] {
   }
   return out;
 }
-
-const ERROR_KIND_COPY: Record<string, string> = {
-  robots_disallowed: 'Blocked by robots.txt',
-  blocked: 'Site actively blocked us',
-  not_found: 'Listing 404s',
-  layout_changed: 'Page layout changed',
-  no_price_found: 'No price on the page',
-  implausible_price: 'Price failed sanity check',
-  timeout: 'Timed out',
-  http_error: 'HTTP error',
-  navigation_failed: 'Navigation failed',
-  brand_not_stocked: 'Brand not stocked',
-};
 
 export function RunsPage() {
   const toast = useToast();

@@ -28,8 +28,13 @@ export interface CompetitorConfig {
    * competitor we have looked at disallows in robots.txt.
    */
   discovery?: 'sitemap' | 'search';
-  /** 'http' uses fetch + cheerio; 'browser' uses Playwright for JS-rendered pages. */
-  rendering: 'http' | 'browser';
+  /**
+   * 'http' uses fetch + cheerio; 'browser' uses Playwright for JS-rendered
+   * pages; 'auto' tries HTTP first and escalates to the browser only when the
+   * HTTP response turns out not to be extractable (Spec §5.4 — the browser is
+   * "slower and heavier", so it is the fallback, not the default).
+   */
+  rendering: 'http' | 'browser' | 'auto';
   userAgent?: string;
   rateLimit?: {
     minDelayMs?: number;

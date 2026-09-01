@@ -20,7 +20,11 @@ export const competitorConfigSchema = z.object({
    * any site that permits it.
    */
   discovery: z.enum(['sitemap', 'search']).default('sitemap'),
-  rendering: z.enum(['http', 'browser']).default('browser'),
+  /**
+   * Defaults to 'auto': a new competitor gets the cheap HTTP path first and
+   * only pays for Chromium on the pages that actually need it.
+   */
+  rendering: z.enum(['http', 'browser', 'auto']).default('auto'),
   userAgent: z.string().optional(),
   rateLimit: z
     .object({

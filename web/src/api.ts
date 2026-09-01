@@ -125,6 +125,57 @@ export interface ProductCoverage {
   notSoldAnywhere: boolean;
 }
 
+/** Configurable thresholds that decide which alerts are worth raising (Spec §5.5). */
+export interface AlertSettings {
+  /** Minimum percentage cheaper before an undercut alerts. Applied WITH the amount below. */
+  undercutMinPct: number;
+  /** Minimum amount cheaper before an undercut alerts. */
+  undercutMinAbs: number;
+  priceDropEnabled: boolean;
+  /** How far a competitor's own price must fall against their previous price. */
+  priceDropMinPct: number;
+  listingGoneEnabled: boolean;
+}
+
+/** One competitor's scrape health over a window (Spec §3). */
+export interface CompetitorHealth {
+  competitorId: number;
+  competitorName: string;
+  competitorSlug: string;
+  enabled: boolean;
+  /** ok + error. Excludes skipped: those are products we never asked about. */
+  attempts: number;
+  ok: number;
+  errored: number;
+  skipped: number;
+  robotsDisallowed: number;
+  /** Null when nothing was attempted — which is not the same as 0%. */
+  successPct: number | null;
+  topErrors: { kind: string; count: number }[];
+  lastOkAt: string | null;
+  lastErrorAt: string | null;
+  lastErrorKind: string | null;
+  lastErrorMessage: string | null;
+  medianDurationMs: number | null;
+}
+
+export interface ScrapeHealthResponse {
+  windowDays: number;
+  competitors: CompetitorHealth[];
+}
+
+/** Result of Admin's dry-run "Test a product URL" panel. */
+export interface TestUrlResult {
+  ok: boolean;
+  finalUrl: string;
+  /** Which transport actually read the page: a plain request, or a full browser. */
+  renderedWith: string;
+  /** True when the plain request was tried first and turned out unusable. */
+  escalated?: boolean;
+  robots: { allowed: boolean; reason: string };
+  extracted: Record<string, unknown>;
+}
+
 export interface AlertRow {
   id: number;
   type: string;
@@ -432,6 +483,9 @@ export const api = {
 
   robotsCheck: () => request<RobotsCheckResult>('/api/admin/robots-check', { method: 'POST' }),
 
+  scrapeHealth: (days = 7) =>
+    request<ScrapeHealthResponse>(`/api/admin/scrape-health?days=${days}`),
+
   sitemapCheck: () =>
     request<SitemapCheckResult>('/api/admin/sitemap-check', { method: 'POST' }),
 
@@ -470,8 +524,15 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ ids, decision }) },
     ),
 
-  alerts: (state: string = 'open') =>
-    request<{ alerts: AlertRow[]; total: number }>(`/api/alerts${qs({ state })}`),
+  alerts: (state: string = 'open', type: string = 'all') =>
+    request<{ alerts: AlertRow[]; total: number }>(`/api/alerts${qs({ state, type })}`),
+
+  alertSettings: () => request<AlertSettings>('/api/alerts/settings'),
+  saveAlertSettings: (patch: Partial<AlertSettings>) =>
+    request<AlertSettings>('/api/alerts/settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
   acknowledgeAlert: (id: number) =>
     request<{ alert: AlertRow }>(`/api/alerts/${id}/acknowledge`, { method: 'POST' }),
   acknowledgeAllAlerts: () =>
@@ -490,10 +551,10 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
   testUrl: (slug: string, url: string) =>
-    request<{ ok: boolean; finalUrl: string; renderedWith: string; robots: { allowed: boolean; reason: string }; extracted: Record<string, unknown> }>(
-      `/api/competitors/${slug}/test-url`,
-      { method: 'POST', body: JSON.stringify({ url }) },
-    ),
+    request<TestUrlResult>(`/api/competitors/${slug}/test-url`, {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    }),
 
   runs: () => request<{ runs: ScrapeRun[]; activeRunId: number | null }>('/api/runs'),
   run: (id: number) => request<{ run: ScrapeRun; items: RunItem[] }>(`/api/runs/${id}`),

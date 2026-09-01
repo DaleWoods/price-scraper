@@ -73,6 +73,10 @@ export async function fetchPage(
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await withRateLimit(url, rateLimit, () =>
+        // 'auto' resolves to the browser here, deliberately. Only the caller
+        // that also extracts can tell whether a cheap HTTP response was
+        // actually usable, so 'auto' is resolved in fetchAndExtract.ts; a bare
+        // fetchPage has no such signal and takes the option that always works.
         competitor.config.rendering === 'http'
           ? httpFetch(url, userAgent)
           : browserFetch(url, userAgent),

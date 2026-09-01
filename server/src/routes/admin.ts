@@ -4,8 +4,26 @@ import { env } from '../config/env.js';
 import { inspectRobots } from '../scraping/robots.js';
 import { surveySitemaps } from '../scraping/sitemap.js';
 import { buildSearchUrl, listCompetitors } from '../scraping/competitorRegistry.js';
+import { getScrapeHealth } from '../services/scrapeHealth.js';
 
 export const adminRouter: Router = Router();
+
+/** Windows offered for the scrape-health report. Whitelisted, not free-form. */
+const HEALTH_WINDOWS = [7, 30, 90];
+
+/**
+ * Scrape health per competitor (Spec §3). See services/scrapeHealth.ts for why
+ * skipped items are excluded from the success denominator.
+ */
+adminRouter.get('/scrape-health', async (req, res, next) => {
+  try {
+    const requested = Number(req.query.days);
+    const days = HEALTH_WINDOWS.includes(requested) ? requested : 7;
+    res.json(await getScrapeHealth(days));
+  } catch (err) {
+    next(err);
+  }
+});
 
 export interface SystemStatus {
   catalogue: {

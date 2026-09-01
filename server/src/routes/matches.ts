@@ -3,8 +3,7 @@ import { query } from '../db/pool.js';
 import type { Product } from '../domain/types.js';
 import { scoreCandidate } from '../matching/score.js';
 import { getCompetitorById } from '../scraping/competitorRegistry.js';
-import { extractListing } from '../scraping/extract.js';
-import { fetchPage } from '../scraping/fetcher.js';
+import { fetchAndExtract } from '../scraping/fetchAndExtract.js';
 import { ScrapeError } from '../scraping/errors.js';
 
 export const matchesRouter: Router = Router();
@@ -220,8 +219,7 @@ matchesRouter.post('/', async (req, res, next) => {
       return;
     }
 
-    const page = await fetchPage(competitor, url);
-    const listing = extractListing(competitor, page);
+    const { page, listing } = await fetchAndExtract(competitor, url);
     const scored = scoreCandidate(product, {
       url: page.finalUrl,
       title: listing.title ?? url,

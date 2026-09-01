@@ -14,7 +14,7 @@
     "Rado"
   ],
   "config": {
-    "rendering": "browser",
+    "rendering": "auto",
     "rateLimit": {
       "minDelayMs": 5000,
       "jitterMs": 3000,

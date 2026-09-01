@@ -3,12 +3,16 @@ import type { Competitor, Product, ScrapeRun } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { discoverMatchesForProduct } from '../matching/discovery.js';
 import { countCachedUrls, refreshCompetitorUrls } from '../matching/sitemapDiscovery.js';
-import { syncUndercutAlerts } from '../services/alerts.js';
+import {
+  raiseListingGoneAlert,
+  resolveListingGone,
+  syncPriceDropAlert,
+  syncUndercutAlerts,
+} from '../services/alerts.js';
 import { closeBrowser } from './browser.js';
 import { listCompetitors } from './competitorRegistry.js';
 import { ScrapeError } from './errors.js';
-import { extractListing } from './extract.js';
-import { fetchPage } from './fetcher.js';
+import { fetchAndExtract } from './fetchAndExtract.js';
 
 export type RunMode = 'prices' | 'discover' | 'both';
 
@@ -48,6 +52,20 @@ export interface StartRunOptions {
 
 let activeRunId: number | null = null;
 
+/**
+ * Set synchronously the moment a run is accepted, and cleared once the run row
+ * exists (or the insert fails).
+ *
+ * `activeRunId` cannot guard this on its own: it is only known *after* the
+ * INSERT that creates the run row, and awaiting that INSERT yields the event
+ * loop. Two callers arriving together — a double-clicked "Run now", two open
+ * tabs, a retried request — would both read `activeRunId === null`, both pass
+ * the guard, and both start a run, double-scraping every competitor and racing
+ * the run counters. This flag closes that window, because the check and the
+ * set happen in the same tick.
+ */
+let runStarting = false;
+
 export function getActiveRunId(): number | null {
   return activeRunId;
 }
@@ -67,50 +85,60 @@ interface MatchRow {
  * background and its progress is readable from scrape_runs / scrape_run_items.
  */
 export async function startRun(options: StartRunOptions = {}): Promise<ScrapeRun> {
-  if (activeRunId !== null) {
-    throw new Error(`A scrape run is already in progress (run #${activeRunId}). Wait for it to finish.`);
+  if (activeRunId !== null || runStarting) {
+    // The id is only available once the row exists, so a caller that loses the
+    // race by a few milliseconds is told a run is in progress without one.
+    const which = activeRunId !== null ? ` (run #${activeRunId})` : '';
+    throw new Error(`A scrape run is already in progress${which}. Wait for it to finish.`);
   }
+  runStarting = true;
 
-  const mode = options.mode ?? 'both';
-  // Normalise the two scoping options into one list, so everything past this
-  // point only has to reason about "a set of product ids, or none". A single
-  // product still gets its own product_id column (existing single-product
-  // test UI reads that); a list of several gets product_count instead, since
-  // there is no one product to point a foreign key at.
-  const productIds =
-    options.productIds && options.productIds.length > 0
-      ? options.productIds
-      : options.productId != null
-        ? [options.productId]
-        : null;
-  const singleProductId = productIds && productIds.length === 1 ? productIds[0] : null;
-  const productCount = productIds && productIds.length > 1 ? productIds.length : null;
+  try {
+    const mode = options.mode ?? 'both';
+    // Normalise the two scoping options into one list, so everything past this
+    // point only has to reason about "a set of product ids, or none". A single
+    // product still gets its own product_id column (existing single-product
+    // test UI reads that); a list of several gets product_count instead, since
+    // there is no one product to point a foreign key at.
+    const productIds =
+      options.productIds && options.productIds.length > 0
+        ? options.productIds
+        : options.productId != null
+          ? [options.productId]
+          : null;
+    const singleProductId = productIds && productIds.length === 1 ? productIds[0] : null;
+    const productCount = productIds && productIds.length > 1 ? productIds.length : null;
 
-  const { rows } = await query<ScrapeRun>(
-    `INSERT INTO scrape_runs (trigger, status, competitor_id, product_id, product_count)
-     VALUES ($1, 'running', $2, $3, $4)
-     RETURNING *`,
-    [options.trigger ?? 'manual', options.competitorId ?? null, singleProductId, productCount],
-  );
+    const { rows } = await query<ScrapeRun>(
+      `INSERT INTO scrape_runs (trigger, status, competitor_id, product_id, product_count)
+       VALUES ($1, 'running', $2, $3, $4)
+       RETURNING *`,
+      [options.trigger ?? 'manual', options.competitorId ?? null, singleProductId, productCount],
+    );
 
-  const run = rows[0];
-  if (!run) throw new Error('Failed to create scrape run');
-  activeRunId = run.id;
+    const run = rows[0];
+    if (!run) throw new Error('Failed to create scrape run');
+    activeRunId = run.id;
 
-  // Deliberately not awaited: the HTTP caller gets the run id immediately.
-  void executeRun(run.id, mode, productIds, options)
-    .catch(async (err) => {
-      logger.error('runner', `run ${run.id} failed: ${(err as Error).message}`, err);
-      await query(
-        `UPDATE scrape_runs SET status = 'failed', error = $2, finished_at = now() WHERE id = $1`,
-        [run.id, (err as Error).message],
-      ).catch(() => undefined);
-    })
-    .finally(() => {
-      activeRunId = null;
-    });
+    // Deliberately not awaited: the HTTP caller gets the run id immediately.
+    void executeRun(run.id, mode, productIds, options)
+      .catch(async (err) => {
+        logger.error('runner', `run ${run.id} failed: ${(err as Error).message}`, err);
+        await query(
+          `UPDATE scrape_runs SET status = 'failed', error = $2, finished_at = now() WHERE id = $1`,
+          [run.id, (err as Error).message],
+        ).catch(() => undefined);
+      })
+      .finally(() => {
+        activeRunId = null;
+      });
 
-  return run;
+    return run;
+  } finally {
+    // By here `activeRunId` is set (or the insert threw and no run exists), so
+    // the reservation has done its job either way.
+    runStarting = false;
+  }
 }
 
 async function executeRun(
@@ -291,14 +319,13 @@ async function scrapeConfirmedMatches(
   for (const match of matches) {
     const startedAt = Date.now();
     try {
-      const page = await fetchPage(competitor, match.competitor_url);
-      const listing = extractListing(competitor, page);
+      const { page, listing } = await fetchAndExtract(competitor, match.competitor_url);
 
       await query(
         `INSERT INTO price_observations
            (product_id, competitor_id, match_id, scrape_run_id, price, was_price, currency,
-            promo, in_stock, availability_text, source_url)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            promo, in_stock, availability_text, source_url, rendered_with)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           match.product_id,
           match.competitor_id,
@@ -311,15 +338,47 @@ async function scrapeConfirmedMatches(
           listing.inStock,
           listing.availabilityText,
           page.finalUrl,
+          // What actually produced this price, after any escalation — not what
+          // the competitor is configured to prefer.
+          page.renderedWith,
         ],
       );
 
       // A price outlives its own scrape: alert state is checked against every
       // fascia this product prices, not just recorded and left for someone to
       // notice on the comparison page.
+      //
+      // Every alert call is caught and logged rather than awaited bare: a
+      // failed alert write must never lose a price that was scraped
+      // successfully. The scrape is the valuable part.
       await syncUndercutAlerts(match.product_id, match.competitor_id, listing.price).catch((err) => {
         logger.warn('runner', `alert sync failed for ${match.internal_sku}: ${(err as Error).message}`);
       });
+
+      // The competitor's own price falling sharply is its own signal (Spec
+      // §5.5), separate from whether it undercuts us.
+      await syncPriceDropAlert(match.product_id, match.competitor_id, listing.price).catch((err) => {
+        logger.warn('runner', `price-drop alert failed for ${match.internal_sku}: ${(err as Error).message}`);
+      });
+
+      // inStock is boolean | null, and null means the page did not say —
+      // alerting on unknown would fire constantly on sites that never publish
+      // availability, so only an explicit false counts.
+      if (listing.inStock === false) {
+        await raiseListingGoneAlert(
+          match.product_id,
+          match.competitor_id,
+          'it is showing as out of stock',
+        ).catch((err) => {
+          logger.warn('runner', `listing-gone alert failed for ${match.internal_sku}: ${(err as Error).message}`);
+        });
+      } else {
+        // Back in stock and readable again — clear any standing alert rather
+        // than leaving it open with nothing behind it.
+        await resolveListingGone(match.product_id, match.competitor_id).catch((err) => {
+          logger.warn('runner', `listing-gone resolve failed for ${match.internal_sku}: ${(err as Error).message}`);
+        });
+      }
 
       await recordRunItem(runId, {
         matchId: match.match_id,
@@ -337,6 +396,19 @@ async function scrapeConfirmedMatches(
         'runner',
         `[${competitor.slug}] ${match.internal_sku} ${match.competitor_url} failed (${kind}): ${(err as Error).message}`,
       );
+
+      // A confirmed match whose page has gone is a signal the team wants, not
+      // just a run error to scroll past (Spec §5.5).
+      if (kind === 'not_found') {
+        await raiseListingGoneAlert(
+          match.product_id,
+          match.competitor_id,
+          'the listing no longer exists',
+        ).catch((alertErr) => {
+          logger.warn('runner', `listing-gone alert failed: ${(alertErr as Error).message}`);
+        });
+      }
+
       await recordRunItem(runId, {
         matchId: match.match_id,
         productId: match.product_id,

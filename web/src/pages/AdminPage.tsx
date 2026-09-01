@@ -7,10 +7,15 @@ import {
   type RobotsCheckResult,
   type SitemapCheckResult,
   type SitemapCheckRow,
+  type AlertSettings,
+  type ScrapeHealthResponse,
   type SystemStatus,
+  type TestUrlResult,
 } from '../api';
 import { CompetitorLogoUpload } from '../components/CompetitorLogoUpload';
-import { Alert, Card, Stat, TableSkeleton, useToast } from '../components/ui';
+import { CompetitorLabel } from '../components/CompetitorLogo';
+import { errorKindLabel } from '../errorKinds';
+import { Alert, Card, EmptyState, PriceAge, Stat, TableSkeleton, useToast } from '../components/ui';
 
 /**
  * Administration: the things you set up or check on, rather than the things you
@@ -64,6 +69,8 @@ export function AdminPage() {
       )}
 
       <SystemStatusSection status={status} loading={loading} />
+      <ScrapeHealthSection />
+      <AlertSettingsSection toast={toast} />
       <CompetitorsSection
         competitors={competitors}
         loading={loading}
@@ -418,6 +425,308 @@ function hostOf(url: string): string {
  * publishes — a sitemap being the crawler-sanctioned way to the same product
  * pages when search is disallowed.
  */
+/**
+ * What is worth raising an alert about (Spec §5.5).
+ *
+ * The undercut thresholds are ANDed, and both default to zero — so out of the
+ * box every undercut alerts, and setting just one of them applies just that
+ * one. The form says so, because "or" is the more natural reading of two
+ * fields side by side and getting it wrong means silently missing alerts.
+ */
+function AlertSettingsSection({
+  toast,
+}: {
+  toast: (message: string, tone?: 'ok' | 'error' | 'info') => void;
+}) {
+  const [settings, setSettings] = useState<AlertSettings | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api
+      .alertSettings()
+      .then(setSettings)
+      .catch(() => undefined);
+  }, []);
+
+  const save = async () => {
+    if (!settings) return;
+    setSaving(true);
+    try {
+      setSettings(await api.saveAlertSettings(settings));
+      toast('Alert thresholds saved.', 'ok');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not save thresholds', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const patch = (change: Partial<AlertSettings>) =>
+    setSettings((current) => (current ? { ...current, ...change } : current));
+
+  return (
+    <Card
+      title="Alert thresholds"
+      subtitle="How big a difference has to be before anyone is told about it"
+      actions={
+        <button
+          type="button"
+          className="btn btn--sm btn--accent"
+          onClick={() => void save()}
+          disabled={saving || !settings}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      }
+    >
+      {!settings ? (
+        <p className="small muted" style={{ margin: 0 }}>
+          Loading…
+        </p>
+      ) : (
+        <>
+          <div className="filter-bar">
+            <div className="field">
+              <label className="label" htmlFor="undercut-pct">
+                Undercut at least (%)
+              </label>
+              <input
+                id="undercut-pct"
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                step="0.5"
+                style={{ width: 140 }}
+                value={settings.undercutMinPct}
+                onChange={(event) => patch({ undercutMinPct: Number(event.target.value) })}
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="undercut-abs">
+                …and at least (£)
+              </label>
+              <input
+                id="undercut-abs"
+                className="input"
+                type="number"
+                min={0}
+                step="1"
+                style={{ width: 140 }}
+                value={settings.undercutMinAbs}
+                onChange={(event) => patch({ undercutMinAbs: Number(event.target.value) })}
+              />
+            </div>
+            <div className="field">
+              <label className="label" htmlFor="drop-pct">
+                Price drop at least (%)
+              </label>
+              <input
+                id="drop-pct"
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                step="0.5"
+                style={{ width: 140 }}
+                value={settings.priceDropMinPct}
+                disabled={!settings.priceDropEnabled}
+                onChange={(event) => patch({ priceDropMinPct: Number(event.target.value) })}
+              />
+            </div>
+            <div className="field">
+              <span className="label">Also alert on</span>
+              <label className="row small" style={{ gap: 8, cursor: 'pointer', marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.priceDropEnabled}
+                  onChange={(event) => patch({ priceDropEnabled: event.target.checked })}
+                />
+                Competitor price drops
+              </label>
+              <label className="row small" style={{ gap: 8, cursor: 'pointer', marginTop: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.listingGoneEnabled}
+                  onChange={(event) => patch({ listingGoneEnabled: event.target.checked })}
+                />
+                Listings gone or out of stock
+              </label>
+            </div>
+          </div>
+
+          <p className="small muted" style={{ marginTop: 'var(--sp-4)', marginBottom: 0 }}>
+            An undercut alert needs <strong>both</strong> undercut figures to be met, not either —
+            leave one at zero to ignore it. Raising a threshold quietly resolves alerts that no
+            longer qualify rather than leaving them open. A price drop is measured against that
+            competitor's own previous price, not against ours.
+          </p>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Scrape health per competitor (Spec §3).
+ *
+ * The number that needs explaining is the success rate: it counts only what we
+ * actually asked for. Most of our range is not carried by most competitors, so
+ * the great majority of run items are "skipped" — not failures, questions we
+ * never put. Including them would make a healthy competitor read as single
+ * digits, so they are shown as their own figure instead.
+ */
+function ScrapeHealthSection() {
+  const [days, setDays] = useState(7);
+  const [report, setReport] = useState<ScrapeHealthResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api
+      .scrapeHealth(days)
+      .then((response) => {
+        if (!cancelled) {
+          setReport(response);
+          setError(null);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : 'Could not load health');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [days]);
+
+  /** Colour by how much of what we asked actually worked. */
+  const rateTone = (pct: number | null): string => {
+    if (pct === null) return 'badge--neutral';
+    if (pct >= 90) return 'badge--lower';
+    if (pct >= 50) return 'badge--warn';
+    return 'badge--danger';
+  };
+
+  const rows = report?.competitors ?? [];
+
+  return (
+    <Card
+      title="Scrape health"
+      subtitle="How much of what we asked each competitor actually worked, and what is failing"
+      actions={
+        <select
+          className="select"
+          style={{ width: 150 }}
+          value={days}
+          onChange={(event) => setDays(Number(event.target.value))}
+          aria-label="Health window"
+        >
+          <option value={7}>Last 7 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+        </select>
+      }
+      bodyless
+    >
+      {error && (
+        <div style={{ padding: 'var(--sp-4) var(--sp-6)' }}>
+          <Alert tone="danger" title="Could not load scrape health">
+            {error}
+          </Alert>
+        </div>
+      )}
+
+      {loading && !report ? (
+        <TableSkeleton columns={6} />
+      ) : rows.length === 0 ? (
+        <EmptyState title="No competitors configured" body="Add one to start measuring." />
+      ) : (
+        <>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Competitor</th>
+                  <th>Worked</th>
+                  <th className="num">Asked</th>
+                  <th className="num">Not stocked</th>
+                  <th>Failing on</th>
+                  <th className="num">Last worked</th>
+                  <th className="num">Typical</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.competitorId} style={{ opacity: row.enabled ? 1 : 0.55 }}>
+                    <td>
+                      <CompetitorLabel
+                        slug={row.competitorSlug}
+                        displayName={row.competitorName}
+                        hasLogo={false}
+                        className="cell-primary"
+                      />
+                      {!row.enabled && <div className="cell-secondary xs">disabled</div>}
+                    </td>
+                    <td>
+                      {row.successPct === null ? (
+                        <span className="badge badge--neutral" title="Nothing has been attempted in this window">
+                          not scanned
+                        </span>
+                      ) : (
+                        <span className={`badge ${rateTone(row.successPct)}`}>
+                          {row.successPct}%
+                        </span>
+                      )}
+                    </td>
+                    <td className="num">{row.attempts}</td>
+                    <td className="num muted" title="Products this competitor was never asked about">
+                      {row.skipped}
+                    </td>
+                    <td className="xs muted" style={{ maxWidth: 260 }}>
+                      {row.topErrors.length === 0 ? (
+                        '—'
+                      ) : (
+                        <>
+                          {errorKindLabel(row.topErrors[0]!.kind)} ({row.topErrors[0]!.count})
+                          {row.robotsDisallowed > 0 && (
+                            <div title="Honouring their robots.txt is policy, not a breakage">
+                              {row.robotsDisallowed} declined by robots.txt
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </td>
+                    <td className="num muted xs nowrap">
+                      {row.lastOkAt ? <PriceAge observedAt={row.lastOkAt} /> : 'never'}
+                    </td>
+                    <td className="num muted xs nowrap">
+                      {row.medianDurationMs == null ? '—' : `${(row.medianDurationMs / 1000).toFixed(1)}s`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ padding: 'var(--sp-4) var(--sp-6)' }}>
+            <Alert tone="info" title="“Worked” only counts what we actually asked">
+              Most of our range is not carried by most competitors, so the great majority of targets
+              are never asked about at all — those are the <strong>Not stocked</strong> column, and
+              they are not failures. The percentage is of the pages we did try to read. A competitor
+              reading <strong>not scanned</strong> has had nothing attempted in this window, which is
+              a different thing from failing everything.
+            </Alert>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function RobotsSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | 'info') => void }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<RobotsCheckResult | null>(null);
@@ -567,7 +876,7 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
   const [slug, setSlug] = useState('');
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<unknown>(null);
+  const [result, setResult] = useState<TestUrlResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Pick a default once competitors arrive, without overriding a later choice.
@@ -651,6 +960,17 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
         <div style={{ marginTop: 'var(--sp-4)' }}>
           <Alert tone="ok" title="Extraction succeeded">
             Review the parsed values below — check the price matches what the page displays.
+            {result.renderedWith === 'http' && (
+              <> This page was read with a plain web request, the cheap and fast route.</>
+            )}
+            {result.renderedWith === 'browser' && (
+              <>
+                {' '}
+                {result.escalated
+                  ? 'A plain web request could not read a price here, so a full browser was started instead. If that is true of every page on this site, pin its rendering to "browser" so it stops paying for the failed attempt each time.'
+                  : 'This competitor is configured to always use a full browser.'}
+              </>
+            )}
           </Alert>
           <pre
             className="mono"

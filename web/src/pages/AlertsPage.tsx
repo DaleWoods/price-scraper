@@ -3,21 +3,44 @@ import { api, ApiError, formatMoney, relativeTime, type AlertRow } from '../api'
 import { Alert, Card, EmptyState, TableSkeleton, useToast } from '../components/ui';
 import { CompetitorLabel } from '../components/CompetitorLogo';
 
+/** The three alert types (Spec §5.5), and how each is presented. */
+const TYPE_COPY: Record<string, { label: string; badge: string; hint: string }> = {
+  undercut: {
+    label: 'Undercut',
+    badge: 'badge--higher',
+    hint: 'A competitor is cheaper than us at one of our sites.',
+  },
+  price_drop: {
+    label: 'Price drop',
+    badge: 'badge--warn',
+    hint: "A competitor cut their own price sharply — not necessarily below ours.",
+  },
+  listing_gone: {
+    label: 'Listing gone',
+    badge: 'badge--neutral',
+    hint: 'A product we had matched is out of stock there, or the page has gone.',
+  },
+};
+
 const STATE_COPY: Record<string, { label: string; empty: string }> = {
-  open: { label: 'open', empty: 'Nothing currently undercuts you. New alerts appear as runs find them.' },
+  open: { label: 'open', empty: 'Nothing needs attention. New alerts appear as runs find them.' },
   acknowledged: { label: 'acknowledged', empty: 'Nothing has been acknowledged yet.' },
   resolved: { label: 'resolved', empty: 'Nothing has resolved yet — resolved means a competitor stopped undercutting you.' },
   all: { label: 'total', empty: 'No alerts have ever been raised.' },
 };
 
 /**
- * Undercut alerts: a competitor's confirmed price has dropped below ours at
- * one of our sites. Raised and resolved automatically by every scrape run —
- * nothing here is a manual entry.
+ * Alerts (Spec §5.5). Three types, all raised by scrape runs rather than
+ * entered by hand: an undercut (a competitor cheaper than us at one of our
+ * sites), a price drop (a competitor cutting their own price sharply), and a
+ * listing gone (a matched product out of stock or 404ing there). Undercut and
+ * listing_gone resolve themselves when they stop being true; a price drop is a
+ * point-in-time event, so it is acknowledged rather than resolved.
  */
 export function AlertsPage({ onQueueChange }: { onQueueChange: () => void }) {
   const toast = useToast();
   const [state, setState] = useState('open');
+  const [type, setType] = useState('all');
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -28,14 +51,14 @@ export function AlertsPage({ onQueueChange }: { onQueueChange: () => void }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.alerts(state);
+      const response = await api.alerts(state, type);
       setAlerts(response.alerts);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load alerts');
     } finally {
       setLoading(false);
     }
-  }, [state]);
+  }, [state, type]);
 
   useEffect(() => {
     void load();
@@ -74,19 +97,32 @@ export function AlertsPage({ onQueueChange }: { onQueueChange: () => void }) {
   return (
     <div className="page">
       <p className="page__intro">
-        Raised the moment a confirmed competitor price drops below ours at one of our sites, and{' '}
-        <strong>resolved automatically</strong> the moment it no longer does — you never need to chase
-        whether an alert is still true. Acknowledging one just marks that you have seen it; it does not
-        change any price or match.
+        Three things raise an alert: a competitor going <strong>cheaper than us</strong> at one of
+        our sites, a competitor <strong>cutting their own price</strong> sharply, and a product we
+        had matched <strong>going out of stock or disappearing</strong> from their site. The first
+        and last <strong>resolve automatically</strong> once they stop being true, so you never need
+        to chase whether an alert still stands. How big a gap is worth raising one is set under
+        Admin. Acknowledging just marks that you have seen it; it changes no price or match.
       </p>
 
       {error && <Alert tone="danger" title="Could not load alerts">{error}</Alert>}
 
       <Card
-        title="Undercut alerts"
+        title="Alerts"
         subtitle={`${alerts.length} ${copy.label}`}
         actions={
           <>
+            <select
+              className="select"
+              value={type}
+              onChange={(event) => setType(event.target.value)}
+              aria-label="Alert type"
+            >
+              <option value="all">All types</option>
+              <option value="undercut">Undercut</option>
+              <option value="price_drop">Price drop</option>
+              <option value="listing_gone">Listing gone</option>
+            </select>
             <select className="select" value={state} onChange={(event) => setState(event.target.value)}>
               <option value="open">Open</option>
               <option value="acknowledged">Acknowledged</option>
@@ -112,8 +148,9 @@ export function AlertsPage({ onQueueChange }: { onQueueChange: () => void }) {
               <thead>
                 <tr>
                   <th>Product</th>
+                  <th>Type</th>
                   <th>Competitor</th>
-                  <th className="num">Undercut</th>
+                  <th className="num">Difference</th>
                   <th className="num">Raised</th>
                   <th />
                 </tr>
@@ -130,6 +167,17 @@ export function AlertsPage({ onQueueChange }: { onQueueChange: () => void }) {
                         {row.fascia_name ? ` · ${row.fascia_name}` : ''}
                         {row.delisted_at ? ' · delisted' : ''}
                       </div>
+                      {row.type !== 'undercut' && (
+                        <div className="cell-secondary xs">{row.message}</div>
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${TYPE_COPY[row.type]?.badge ?? 'badge--neutral'}`}
+                        title={TYPE_COPY[row.type]?.hint ?? row.type}
+                      >
+                        {TYPE_COPY[row.type]?.label ?? row.type}
+                      </span>
                     </td>
                     <td>
                       <CompetitorLabel
