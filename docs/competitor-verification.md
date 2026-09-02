@@ -261,9 +261,38 @@ volume is modest.
 Two honest caveats. It is a commercial and legal decision rather than a
 technical one, and it should have sign-off from whoever owns that risk, because
 it means paying to get past a measure the site put up deliberately. And it does
-not fix a legal block or a login wall. If we go this way, the integration is a
-configurable fetch backend rather than per-competitor code — the app already
-routes every request through one place.
+not fix a legal block or a login wall.
+
+**The app is already wired for this.** Set two environment variables and it
+works; leave them unset and nothing changes and nothing costs money:
+
+```
+UNBLOCKER_PROVIDER=zyte | brightdata | scrapingbee | scraperapi
+UNBLOCKER_API_KEY=…
+UNBLOCKER_MAX_CALLS_PER_RUN=250     # hard ceiling per run
+```
+
+Four guards keep it from becoming an open invoice, and they are worth knowing
+before anyone signs anything:
+
+- It is reached **only from a block**, never from a slow page or a wrong
+  selector.
+- And not from every block. A **rate limit is not retried** — that is us asking
+  too fast, and paying to avoid slowing down is money for nothing. A **legal
+  block or login wall is not retried** either, because no service gets past
+  them. Only the walls a backend genuinely clears are worth a paid call.
+- **Only confirmed matches can spend.** Discovery opens several unproven
+  candidates per product and rejects most; paying to unblock one buys a maybe.
+  It is given no allowance at all.
+- **A per-run ceiling**, defaulting to 250 calls. Past it the run continues
+  unblocked rather than failing — a partial scan beats a stopped one, and beats
+  a bill nobody approved.
+
+Set a competitor's `unblocker` to `"never"` in its config file to opt it out
+individually. Admin's **Test a product URL** panel spends exactly one call, so
+you can confirm a subscription works on a site that refuses us before running
+anything at scale, and the transport is reported per page so paid fetches are
+visible rather than inferred.
 
 ### 6. Buy the answer instead (paid)
 

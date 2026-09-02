@@ -13,7 +13,11 @@ export interface FetchedPage {
   finalUrl: string;
   html: string;
   status: number;
-  renderedWith: 'http' | 'browser';
+  /**
+   * Which transport read this page. Recorded on every observation so the cost
+   * of a competitor is visible: 'unblocker' is the only one that bills.
+   */
+  renderedWith: 'http' | 'browser' | 'unblocker';
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

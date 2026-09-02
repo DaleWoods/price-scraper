@@ -45,6 +45,34 @@ export const env = {
   /** Set to 'false' only for local testing against your own fixtures. */
   respectRobotsTxt: (process.env.RESPECT_ROBOTS_TXT ?? 'true').toLowerCase() !== 'false',
 
+  /**
+   * Optional paid unblocking backend, for competitors that refuse us directly.
+   *
+   * Unset means the app behaves exactly as it always has — every request goes
+   * out from this host and nothing costs money. Set both provider and key and
+   * a *blocked* request can be retried through that provider; see
+   * scraping/unblocker.ts for which blocks are worth retrying and which are
+   * money burnt.
+   */
+  unblockerProvider: (process.env.UNBLOCKER_PROVIDER?.trim().toLowerCase() || null) as
+    | 'zyte'
+    | 'brightdata'
+    | 'scrapingbee'
+    | 'scraperapi'
+    | null,
+  unblockerApiKey: process.env.UNBLOCKER_API_KEY?.trim() || null,
+  /** Bright Data addresses its unlocker by zone; ignored by the others. */
+  unblockerZone: process.env.UNBLOCKER_ZONE?.trim() || null,
+  /**
+   * Hard ceiling on paid calls in a single run.
+   *
+   * A per-request charge with no cap is how a scan of 30,000 products turns
+   * into an invoice nobody approved, and this project has already had one
+   * compute-quota outage. The run carries on without the unblocker once the
+   * ceiling is hit; it does not fail.
+   */
+  unblockerMaxCallsPerRun: optionalInt('UNBLOCKER_MAX_CALLS_PER_RUN', 250),
+
   get isProduction(): boolean {
     return this.nodeEnv === 'production';
   },

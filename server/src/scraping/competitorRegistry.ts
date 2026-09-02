@@ -26,6 +26,7 @@ export const competitorConfigSchema = z.object({
    */
   rendering: z.enum(['http', 'browser', 'auto']).default('auto'),
   identity: z.enum(['bot', 'browser']).default('bot'),
+  unblocker: z.enum(['auto', 'never']).default('auto'),
   userAgent: z.string().optional(),
   rateLimit: z
     .object({

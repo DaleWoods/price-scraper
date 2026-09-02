@@ -176,6 +176,8 @@ export interface TestUrlResult {
   /** True when the plain request was tried first and turned out unusable. */
   escalated?: boolean;
   robots: { allowed: boolean; reason: string };
+  /** Whether a paid unblocking backend is configured, and which. */
+  unblocker?: { configured: boolean; provider: string | null; maxCallsPerRun: number };
   extracted: Record<string, unknown>;
 }
 

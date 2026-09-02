@@ -4,6 +4,12 @@ import { describeBlock, diagnoseBlock } from './blockDiagnosis.js';
 import { ScrapeError, type ScrapeErrorKind } from './errors.js';
 import { extractListing, type ExtractedListing } from './extract.js';
 import { fetchPage, type FetchPageOptions, type FetchedPage } from './fetcher.js';
+import {
+  fetchViaUnblocker,
+  isUnblockerConfigured,
+  isWorthUnblocking,
+  type UnblockerBudget,
+} from './unblocker.js';
 
 /**
  * Fetching and extracting live in separate modules — extract.ts imports
@@ -32,6 +38,19 @@ export interface FetchAndExtractResult {
   escalated: boolean;
 }
 
+export interface FetchAndExtractOptions extends FetchPageOptions {
+  /**
+   * The run's remaining allowance of paid unblocking calls.
+   *
+   * Passed in rather than read from a module global so a run's spend is
+   * bounded by the run that started it, and so a caller with no budget object
+   * — the Admin test-URL panel, say — simply never reaches the paid path.
+   */
+  unblockerBudget?: UnblockerBudget;
+  /** Per-competitor override: 'never' opts a competitor out of paid retries. */
+  unblockerMode?: 'auto' | 'never';
+}
+
 /** A copy of the competitor with one rendering mode forced, leaving the original untouched. */
 function withRendering(competitor: Competitor, rendering: 'http' | 'browser'): Competitor {
   // Deliberately a copy: the same Competitor object is shared across every
@@ -54,14 +73,18 @@ function withRendering(competitor: Competitor, rendering: 'http' | 'browser'): C
 export async function fetchAndExtract(
   competitor: Competitor,
   url: string,
-  options: FetchPageOptions = {},
+  options: FetchAndExtractOptions = {},
 ): Promise<FetchAndExtractResult> {
   const mode = competitor.config.rendering ?? 'auto';
 
   // An explicit choice is honoured as-is — 'auto' is a default, not a policy.
   if (mode !== 'auto') {
-    const page = await fetchPage(competitor, url, options);
-    return { page, listing: extractListing(competitor, page), escalated: false };
+    try {
+      const page = await fetchPage(competitor, url, options);
+      return { page, listing: extractListing(competitor, page), escalated: false };
+    } catch (err) {
+      return await unblockOrThrow(competitor, url, err, options);
+    }
   }
 
   try {
@@ -69,7 +92,9 @@ export async function fetchAndExtract(
     return { page, listing: extractListing(competitor, page), escalated: false };
   } catch (err) {
     const kind = err instanceof ScrapeError ? err.kind : 'unknown';
-    if (!ESCALATABLE.has(kind as ScrapeErrorKind)) throw err;
+    if (!ESCALATABLE.has(kind as ScrapeErrorKind)) {
+      return await unblockOrThrow(competitor, url, err, options);
+    }
 
     logger.info(
       'fetch',
@@ -95,13 +120,58 @@ export async function fetchAndExtract(
         extractionFailed: true,
       });
       if (diagnosis.cause === 'soft_block') {
-        throw new ScrapeError('blocked', `${url}: ${describeBlock(diagnosis)}`, {
+        const softBlock = new ScrapeError('blocked', `${url}: ${describeBlock(diagnosis)}`, {
           url,
           retryable: false,
           diagnosis,
         });
+        return await unblockOrThrow(competitor, url, softBlock, options);
       }
     }
     throw err;
   }
+}
+
+/**
+ * Last rung: retry a block through the paid backend, or rethrow.
+ *
+ * Every guard that stops this costing money lives here, in one place, rather
+ * than being restated at each call site where it could be forgotten:
+ *
+ *   - the failure must be a block, and one the diagnosis says a backend could
+ *     actually get past. A rate limit is not (slow down instead); a legal
+ *     block or login wall is not (nothing gets past those);
+ *   - a provider must be configured at all;
+ *   - the competitor must not be opted out;
+ *   - the run must have budget left.
+ *
+ * A failure of the paid attempt itself is thrown as its own error rather than
+ * being swallowed back into the original block, so a subscription that has
+ * stopped working is visible instead of looking like the retailer's doing.
+ */
+async function unblockOrThrow(
+  competitor: Competitor,
+  url: string,
+  err: unknown,
+  options: FetchAndExtractOptions,
+): Promise<FetchAndExtractResult> {
+  const blocked = err instanceof ScrapeError && err.kind === 'blocked';
+  if (
+    !blocked ||
+    !isWorthUnblocking((err as ScrapeError).diagnosis) ||
+    !isUnblockerConfigured() ||
+    options.unblockerMode === 'never' ||
+    competitor.config.unblocker === 'never' ||
+    !options.unblockerBudget?.take()
+  ) {
+    throw err;
+  }
+
+  logger.info(
+    'fetch',
+    `[${competitor.slug}] ${url} was blocked (${(err as ScrapeError).diagnosis?.cause}); retrying through the unblocking service`,
+  );
+
+  const page = await fetchViaUnblocker(url, competitor.config.userAgent ?? '');
+  return { page, listing: extractListing(competitor, page), escalated: true };
 }

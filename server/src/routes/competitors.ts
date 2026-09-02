@@ -8,6 +8,7 @@ import {
 } from '../scraping/competitorRegistry.js';
 import { ScrapeError } from '../scraping/errors.js';
 import { fetchAndExtract } from '../scraping/fetchAndExtract.js';
+import { UnblockerBudget, unblockerStatus } from '../scraping/unblocker.js';
 import { checkRobots } from '../scraping/robots.js';
 import { env } from '../config/env.js';
 import {
@@ -179,7 +180,12 @@ competitorsRouter.post('/:slug/test-url', async (req, res) => {
     }
 
     const robots = await checkRobots(url, competitor.config.userAgent ?? env.scraperUserAgent);
-    const { page, listing, escalated } = await fetchAndExtract(competitor, url);
+    // A budget of one: this panel is where you find out whether the unblocking
+    // subscription actually works on a site that refuses us, and doing that
+    // should cost exactly one call, not a page's worth.
+    const { page, listing, escalated } = await fetchAndExtract(competitor, url, {
+      unblockerBudget: new UnblockerBudget(1),
+    });
 
     res.json({
       ok: true,
@@ -190,6 +196,7 @@ competitorsRouter.post('/:slug/test-url', async (req, res) => {
       // Worth seeing here: a competitor that always escalates is one to pin to
       // 'browser' explicitly rather than pay for the failed attempt every time.
       escalated,
+      unblocker: unblockerStatus(),
       extracted: listing,
     });
   } catch (err) {

@@ -43,6 +43,14 @@ export interface CompetitorConfig {
    * outright. robots.txt is evaluated against the bot identity either way.
    */
   identity?: 'bot' | 'browser';
+  /**
+   * Whether a block against this competitor may be retried through the paid
+   * unblocking backend. 'auto' (the default) allows it when one is configured
+   * and the block is the kind a backend can get past; 'never' opts the
+   * competitor out entirely, which is how you stop paying for a source that
+   * is not worth it.
+   */
+  unblocker?: 'auto' | 'never';
   userAgent?: string;
   rateLimit?: {
     minDelayMs?: number;

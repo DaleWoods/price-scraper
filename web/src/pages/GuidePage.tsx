@@ -305,6 +305,15 @@ export function GuidePage() {
           worth knowing about on its own: the site returns a perfectly normal page that simply is
           not the product page, which otherwise looks exactly like a layout change and sends you
           hunting for a selector that was never wrong.
+          <br />
+          <br />
+          If a paid <strong>unblocking service</strong> has been set up, a site that refuses us can
+          be read through it — but only where that could actually work. A rate limit is never
+          retried that way, because the fix is to slow down rather than to pay; nor is a legal block
+          or a login wall, because nothing gets past those. Only pages we have already confirmed as
+          the right product can use it, never the speculative candidates discovery opens, and each
+          run has a hard ceiling on how many paid requests it may make. With no service set up,
+          nothing here costs anything and every request goes out from the app itself.
         </Term>
       </Section>
 

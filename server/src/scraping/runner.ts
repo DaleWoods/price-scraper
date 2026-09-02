@@ -13,6 +13,7 @@ import { closeBrowser } from './browser.js';
 import { listCompetitors } from './competitorRegistry.js';
 import { ScrapeError } from './errors.js';
 import { fetchAndExtract } from './fetchAndExtract.js';
+import { UnblockerBudget, isUnblockerConfigured } from './unblocker.js';
 
 export type RunMode = 'prices' | 'discover' | 'both';
 
@@ -174,9 +175,30 @@ async function executeRun(
     // page, and letting every enabled competitor render at once on a small
     // deployment is exactly what starved the process enough to fail its own
     // health check once already (see CLAUDE.md).
+    // One allowance for the whole run, shared across competitors. Per
+    // competitor it would multiply by however many are enabled, which is
+    // exactly the number nobody thinks about when setting a ceiling.
+    const unblockerBudget = new UnblockerBudget();
+
     const results = await mapWithConcurrency(competitors, COMPETITOR_CONCURRENCY, (competitor) =>
-      runCompetitor(runId, competitor, mode, options.limit ?? null, productIds, options.forceHarvest),
+      runCompetitor(
+        runId,
+        competitor,
+        mode,
+        options.limit ?? null,
+        productIds,
+        options.forceHarvest,
+        unblockerBudget,
+      ),
     );
+
+    if (isUnblockerConfigured() && unblockerBudget.spent > 0) {
+      logger.info(
+        'runner',
+        `run ${runId} used ${unblockerBudget.spent} paid unblocking call(s)` +
+          `${unblockerBudget.exhausted ? ' and hit the per-run ceiling' : ''}`,
+      );
+    }
 
     let ok = 0;
     let errored = 0;
@@ -233,6 +255,7 @@ async function runCompetitor(
   limit: number | null,
   productIds: number[] | null,
   forceHarvest: boolean | undefined,
+  unblockerBudget: UnblockerBudget,
 ): Promise<{ ok: number; errored: number; skipped: number }> {
   let ok = 0;
   let errored = 0;
@@ -285,7 +308,13 @@ async function runCompetitor(
   }
 
   if (mode === 'prices' || mode === 'both') {
-    const result = await scrapeConfirmedMatches(runId, competitor, limit, productIds);
+    const result = await scrapeConfirmedMatches(
+      runId,
+      competitor,
+      limit,
+      productIds,
+      unblockerBudget,
+    );
     ok += result.ok;
     errored += result.errored;
   }
@@ -294,11 +323,23 @@ async function runCompetitor(
 }
 
 /** Scrape the stored URL of every confirmed match (Spec §5.4 — direct-URL path). */
+/**
+ * Re-read the price for every confirmed match.
+ *
+ * This is the only path that may spend on the paid unblocking backend, and
+ * deliberately so: a confirmed match is a page we already know is the right
+ * product, so an unblocked fetch of it buys a price we actually want.
+ * Discovery, by contrast, opens candidates that are still guesses — several
+ * per product, most of which are rejected — so paying to unblock one would be
+ * paying for a maybe. It is given no budget and therefore never reaches the
+ * paid path at all.
+ */
 async function scrapeConfirmedMatches(
   runId: number,
   competitor: Competitor,
   limit: number | null,
   productIds: number[] | null,
+  unblockerBudget: UnblockerBudget,
 ): Promise<{ ok: number; errored: number }> {
   const { rows: matches } = await query<MatchRow>(
     `SELECT m.id AS match_id, m.product_id, m.competitor_id, m.competitor_url, p.internal_sku
@@ -319,7 +360,9 @@ async function scrapeConfirmedMatches(
   for (const match of matches) {
     const startedAt = Date.now();
     try {
-      const { page, listing } = await fetchAndExtract(competitor, match.competitor_url);
+      const { page, listing } = await fetchAndExtract(competitor, match.competitor_url, {
+        unblockerBudget,
+      });
 
       await query(
         `INSERT INTO price_observations

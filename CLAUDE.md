@@ -414,3 +414,27 @@ for problems that have actually happened, with the real numbers.
   scheduling luck and surfaced only when new test files shifted the timing.
   Fixture prefixes keep the *rows* apart; they cannot keep shared singletons or
   a shared schema apart.
+- **The paid unblocking backend is opt-in, and every guard against spending
+  lives in `unblockOrThrow`.** Unset `UNBLOCKER_PROVIDER` and the app is exactly
+  what it was: nothing costs money. Configured, it becomes a third rung after
+  HTTP and browser, reached only from a `blocked` error whose diagnosis says a
+  vendor could plausibly help. That last condition is the point — retrying a
+  429 through a paid backend is paying not to slow down, and retrying a 451 or
+  a login wall is paying for a request that cannot succeed. The decision reads
+  `vendorWouldHelp` off the diagnosis rather than restating the rule per call
+  site.
+- **Only confirmed matches may spend; discovery never does.** A confirmed match
+  is a page already known to be the right product, so unblocking it buys a
+  price we want. Discovery opens several still-unproven candidates per product
+  and rejects most of them, so unblocking one buys a maybe. It is simply passed
+  no `UnblockerBudget`, and `options.unblockerBudget?.take()` being undefined
+  is what stops it — there is no second code path to keep in step.
+- **`UnblockerBudget` is per run, not global or per competitor.** A run is the
+  unit a person starts and watches, so it is the unit whose cost they can
+  reason about. Per competitor it would silently multiply by however many are
+  enabled. Hitting the ceiling does not fail the run: it carries on unblocked,
+  because a partial scan beats a stopped one and beats a surprise invoice.
+- **A failure of the paid fetch is thrown as its own error, never folded back
+  into the original block.** A subscription that has expired or run out of
+  credit otherwise looks exactly like the retailer blocking us, and nobody ever
+  goes and looks at the billing page.

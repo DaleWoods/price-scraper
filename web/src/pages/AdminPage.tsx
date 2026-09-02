@@ -1007,6 +1007,17 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
       <p className="small muted" style={{ marginTop: 'var(--sp-4)' }}>
         Use this to tune selectors against the live site before enabling a competitor. A failure here
         tells you exactly which stage broke — robots.txt, navigation, or extraction.
+        {result?.unblocker &&
+          (result.unblocker.configured ? (
+            <>
+              {' '}
+              An unblocking service (<strong>{result.unblocker.provider}</strong>) is configured, and
+              is tried only when a site refuses us outright — never for a slow page or a bad
+              selector. A run may spend at most {result.unblocker.maxCallsPerRun} paid calls.
+            </>
+          ) : (
+            <> No unblocking service is configured, so every request goes out from this host.</>
+          ))}
       </p>
 
       {error && (
@@ -1055,6 +1066,14 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
                 {result.escalated
                   ? 'A plain web request could not read a price here, so a full browser was started instead. If that is true of every page on this site, pin its rendering to "browser" so it stops paying for the failed attempt each time.'
                   : 'This competitor is configured to always use a full browser.'}
+              </>
+            )}
+            {result.renderedWith === 'unblocker' && (
+              <>
+                {' '}
+                This site refused us directly, so the page was read through the{' '}
+                <strong>unblocking service</strong> — the only route here that costs money per
+                request. It working is the answer to "is the subscription set up correctly".
               </>
             )}
           </Alert>
