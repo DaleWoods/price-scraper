@@ -181,6 +181,34 @@ export interface TestUrlResult {
   extracted: Record<string, unknown>;
 }
 
+/** One competitor's end-to-end verification result. */
+export interface CompetitorVerification {
+  slug: string;
+  displayName: string;
+  enabled: boolean;
+  verdict: 'ready' | 'needs_config' | 'blocked' | 'no_sitemap' | 'unreachable';
+  headline: string;
+  whatToDo: string;
+  robots: {
+    reachable: boolean;
+    allowsProductPages: boolean;
+    declaredSitemaps: number;
+    crawlDelaySeconds: number | null;
+    detail: string | null;
+  };
+  sitemap: { urlsFound: number };
+  samples: {
+    url: string;
+    price: number | null;
+    currency: string | null;
+    title: string | null;
+    error: string | null;
+  }[];
+  blockCause: string | null;
+  blockVendor: string | null;
+  checkedAt: string;
+}
+
 /** What kind of wall a refusal was, and what would actually get past it. */
 export interface BlockDiagnosis {
   cause: string;
@@ -517,6 +545,9 @@ export const api = {
 
   sitemapCheck: () =>
     request<SitemapCheckResult>('/api/admin/sitemap-check', { method: 'POST' }),
+
+  verifyCompetitor: (slug: string) =>
+    request<CompetitorVerification>(`/api/admin/verify-competitor/${slug}`, { method: 'POST' }),
 
   uploadLogo: (slug: string, file: File) => {
     const form = new FormData();

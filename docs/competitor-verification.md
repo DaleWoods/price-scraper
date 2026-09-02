@@ -76,10 +76,38 @@ accuracy and compute win available here: a retailer that does not carry Rolex
 should skip every Rolex product before a single request is made, which the run
 detail records as `skipped / brand_not_stocked`.
 
-## How to verify one competitor
+## How to verify: the short version
 
-Work through them one at a time, in the order the table lists them. Replace
-`<host>` with the deployed app's host and `<slug>` with the competitor's slug.
+Open the deployed app, go to **Admin → Can we read each competitor?**, and press
+**Check every competitor**. It visits each site for real and fills in a verdict
+per competitor: whether we are allowed in, whether their product pages can be
+found, and whether a price can be read off one. Roughly half a minute each.
+
+Five verdicts:
+
+| Verdict | Meaning | Next step |
+| --- | --- | --- |
+| **Working** | Read a price from at least two real product pages. | Open the sample links it shows and check each price against the page. Then enable. |
+| **Needs config** | Reachable, but no price could be read. | A selector problem, not an access problem. Use *Test a product URL* and fix the config file. |
+| **Refused us** | The site turned us away. | Read the stated cause — some are free to fix. See "If a competitor really does block us" below. |
+| **No product list** | Allowed in, but no usable sitemap. | Every competitor blocks their own search, so a sitemap is the only route. Check whether they publish one at all. |
+| **Unreachable** | Could not reach the site. | **If every competitor says this, it is the app's own network, not the retailers.** Check that before concluding anything. |
+
+Record the outcome in the table above, then update the competitor's config file
+and its `_notes` block, which currently says the config is unverified — a
+statement that becomes untrue the moment you verify it.
+
+## How to verify by hand
+
+The panel above covers all of this. These are the same checks as individual API
+calls, for when you want the raw output. Replace `<host>` with the deployed
+app's host and `<slug>` with the competitor's slug.
+
+```bash
+curl -s -X POST https://<host>/api/admin/verify-competitor/<slug> | python3 -m json.tool
+```
+
+The stage-by-stage detail below is what that call does internally.
 
 ### A. Crawl permissions
 

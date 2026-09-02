@@ -5,6 +5,7 @@ import { inspectRobots } from '../scraping/robots.js';
 import { surveySitemaps } from '../scraping/sitemap.js';
 import { buildSearchUrl, listCompetitors } from '../scraping/competitorRegistry.js';
 import { getScrapeHealth } from '../services/scrapeHealth.js';
+import { verifyCompetitor } from '../services/competitorVerification.js';
 
 export const adminRouter: Router = Router();
 
@@ -181,6 +182,32 @@ export interface RobotsCheckRow {
   sitemaps?: string[];
   disallowRules?: string[];
 }
+
+/**
+ * Verify one competitor end to end: allowed in, product pages findable, price
+ * readable off a real listing.
+ *
+ * One competitor per request, deliberately. Checking all eleven in a single
+ * call means a request running for minutes behind whatever proxy the host puts
+ * in front of us — and a timeout would lose every result, including the ones
+ * that had already succeeded. Per competitor, each call is short, the browser
+ * shows results as they arrive, and a failure costs one competitor rather than
+ * the whole survey.
+ */
+adminRouter.post('/verify-competitor/:slug', async (req, res, next) => {
+  try {
+    const competitors = await listCompetitors(false);
+    const competitor = competitors.find((entry) => entry.slug === req.params.slug);
+    if (!competitor) {
+      res.status(404).json({ error: `No competitor with slug "${req.params.slug}"` });
+      return;
+    }
+
+    res.json(await verifyCompetitor(competitor));
+  } catch (err) {
+    next(err);
+  }
+});
 
 adminRouter.post('/robots-check', async (_req, res) => {
   try {

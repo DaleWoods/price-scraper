@@ -438,3 +438,25 @@ for problems that have actually happened, with the real numbers.
   into the original block.** A subscription that has expired or run out of
   credit otherwise looks exactly like the retailer blocking us, and nobody ever
   goes and looks at the billing page.
+- **The verification check runs one competitor per request, from the browser.**
+  Eleven competitors each fetching robots, a sitemap and three product pages is
+  minutes of work; as a single server call it sits behind whatever proxy the
+  host puts in front of it and a timeout loses every result, including the ones
+  already gathered. `POST /api/admin/verify-competitor/:slug` does one, and the
+  Admin panel loops so rows fill in as they finish.
+- **"Needs config" and "refused us" must never be confused, in either
+  direction.** A site that serves us happily but publishes no readable price is
+  a selector problem worth ten minutes; calling it blocked starts a conversation
+  about paying for proxies to solve a config bug. And a site that refuses us is
+  not fixed by editing selectors. `verifyCompetitor` distinguishes them by
+  whether the failure was a `blocked` ScrapeError, and there is a test for each
+  direction.
+- **Two priced samples out of three is the bar for "working", not one.** A
+  single simple product with clean JSON-LD passes by luck on sites where
+  everything else fails. The check also returns the prices it read and the URLs
+  it read them from, because a verdict nobody can check against the live page is
+  a verdict nobody should act on.
+- **A verification sample stops at the first refusal.** Three pages are lined up
+  but a `blocked` on the first ends it: the rest would be refused identically,
+  and making a site that just said no say it twice more is both pointless and
+  rude. There is a test asserting exactly one request reaches a walled site.

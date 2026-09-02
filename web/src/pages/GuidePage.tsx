@@ -264,6 +264,16 @@ export function GuidePage() {
           here changes a price or starts a run.
           <br />
           <br />
+          <strong>Can we read each competitor?</strong> is the one to start with. Every competitor
+          but one was set up <em>without internet access</em>, so nothing about them has ever been
+          confirmed against a real site — the check visits each one for real and says whether we are
+          allowed in, whether we can find their products, and whether we can read a price. It takes
+          about half a minute per competitor and shows the prices it read, so you can open a page
+          and compare. One warning: if <em>every</em> competitor comes back unreachable, that is
+          this app's own internet access rather than the retailers, and nothing should be concluded
+          about any of them until that is sorted.
+          <br />
+          <br />
           Adding a competitor is a JSON file in the <span className="mono">competitors</span>{' '}
           directory plus <em>Re-sync from config</em> — never a code change. Toggle one off to
           exclude it from runs without losing its history. <em>Test a product URL</em> fetches a

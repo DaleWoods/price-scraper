@@ -5,6 +5,7 @@ import {
   formatDateTime,
   type BlockDiagnosis,
   type Competitor,
+  type CompetitorVerification,
   type RobotsCheckResult,
   type SitemapCheckResult,
   type SitemapCheckRow,
@@ -78,6 +79,7 @@ export function AdminPage() {
         onChange={load}
         toast={toast}
       />
+      <VerificationSection competitors={competitors} toast={toast} />
       <RobotsSection toast={toast} />
       <SitemapSection toast={toast} />
       <UrlTesterSection competitors={competitors} />
@@ -622,6 +624,208 @@ const BLOCK_CAUSE_COPY: Record<string, { label: string; hint: string; ours: bool
     ours: false,
   },
 };
+
+/** How each verdict reads, and how loudly. */
+const VERDICT_COPY: Record<string, { label: string; tone: string; mark: string }> = {
+  ready: { label: 'Working', tone: 'badge--lower', mark: '\u2713' },
+  needs_config: { label: 'Needs config', tone: 'badge--warn', mark: '!' },
+  blocked: { label: 'Refused us', tone: 'badge--higher', mark: '\u26d4' },
+  no_sitemap: { label: 'No product list', tone: 'badge--warn', mark: '?' },
+  unreachable: { label: 'Unreachable', tone: 'badge--neutral', mark: '\u2014' },
+};
+
+/**
+ * Check every competitor against the live web and say, per competitor, whether
+ * this app can actually read prices from them.
+ *
+ * Runs them one at a time from the browser rather than in one server call.
+ * Eleven competitors each fetching robots, a sitemap and three product pages
+ * is minutes of work: as a single request it would sit behind a proxy timeout
+ * and lose every result including the ones already gathered. One at a time,
+ * rows fill in as they finish and a failure costs one competitor.
+ */
+function VerificationSection({
+  competitors,
+  toast,
+}: {
+  competitors: Competitor[];
+  toast: (message: string, tone?: 'ok' | 'error' | 'info') => void;
+}) {
+  const [results, setResults] = useState<Record<string, CompetitorVerification>>({});
+  const [running, setRunning] = useState<string | null>(null);
+  const [queue, setQueue] = useState<string[]>([]);
+
+  const checkAll = async () => {
+    setResults({});
+    const slugs = competitors.map((competitor) => competitor.slug);
+    setQueue(slugs);
+
+    let ready = 0;
+    for (const slug of slugs) {
+      setRunning(slug);
+      try {
+        const result = await api.verifyCompetitor(slug);
+        setResults((current) => ({ ...current, [slug]: result }));
+        if (result.verdict === 'ready') ready += 1;
+      } catch (err) {
+        toast(
+          err instanceof ApiError ? `${slug}: ${err.message}` : `Could not check ${slug}`,
+          'error',
+        );
+      }
+    }
+    setRunning(null);
+    setQueue([]);
+    toast(`Checked ${slugs.length} competitor(s) — ${ready} can be read right now.`, 'ok');
+  };
+
+  const checkOne = async (slug: string) => {
+    setRunning(slug);
+    try {
+      const result = await api.verifyCompetitor(slug);
+      setResults((current) => ({ ...current, [slug]: result }));
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : `Could not check ${slug}`, 'error');
+    } finally {
+      setRunning(null);
+    }
+  };
+
+  const checked = Object.values(results);
+  const readyCount = checked.filter((row) => row.verdict === 'ready').length;
+  const blockedCount = checked.filter((row) => row.verdict === 'blocked').length;
+  const busy = running !== null;
+
+  return (
+    <Card
+      title="Can we read each competitor?"
+      subtitle="Checks the live sites: are we allowed in, can we find their products, can we read a price"
+      actions={
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={() => void checkAll()}
+          disabled={busy || competitors.length === 0}
+        >
+          {busy && <span className="spinner" />}
+          {busy ? `Checking ${running}…` : 'Check every competitor'}
+        </button>
+      }
+    >
+      <p className="small muted">
+        Every competitor except one was configured <strong>without internet access</strong>, so
+        nothing about them has ever been confirmed against a real site. This is the check that
+        confirms it. It fetches a handful of real pages per competitor and takes about half a minute
+        each, so give it a few minutes for all of them.
+      </p>
+      <p className="small muted">
+        <strong>If every single one comes back "unreachable", that is this app's own internet
+        access, not the retailers.</strong> Do not conclude anything about a competitor from that —
+        check where the app is running first.
+      </p>
+
+      {checked.length > 0 && (
+        <div className="stat-grid" style={{ marginTop: 'var(--sp-4)' }}>
+          <Stat label="Can be read now" value={readyCount} tone="lower" icon="✓" />
+          <Stat label="Refused us" value={blockedCount} tone={blockedCount > 0 ? 'higher' : 'info'} icon="⛔" />
+          <Stat label="Checked" value={`${checked.length}/${competitors.length}`} tone="info" icon="…" />
+        </div>
+      )}
+
+      <div className="table-wrap" style={{ marginTop: 'var(--sp-4)' }}>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Competitor</th>
+              <th>Verdict</th>
+              <th>What it means, and what to do</th>
+              <th className="num">Pages found</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {competitors.map((competitor) => {
+              const row = results[competitor.slug];
+              const isRunning = running === competitor.slug;
+              const isQueued = queue.includes(competitor.slug) && !row && !isRunning;
+
+              return (
+                <tr key={competitor.slug}>
+                  <td>
+                    <CompetitorLabel
+                      slug={competitor.slug}
+                      displayName={competitor.display_name}
+                      hasLogo={competitor.has_logo}
+                      className="cell-primary"
+                    />
+                    <div className="cell-secondary xs">
+                      {competitor.enabled ? 'enabled' : 'not enabled'}
+                    </div>
+                  </td>
+                  <td>
+                    {isRunning ? (
+                      <span className="badge badge--neutral">checking…</span>
+                    ) : isQueued ? (
+                      <span className="badge badge--neutral">queued</span>
+                    ) : row ? (
+                      <span className={`badge ${VERDICT_COPY[row.verdict]?.tone ?? 'badge--neutral'}`}>
+                        {VERDICT_COPY[row.verdict]?.label ?? row.verdict}
+                      </span>
+                    ) : (
+                      <span className="muted xs">not checked</span>
+                    )}
+                  </td>
+                  <td className="xs" style={{ maxWidth: 420 }}>
+                    {row ? (
+                      <>
+                        <div>{row.headline}</div>
+                        <div className="muted" style={{ marginTop: 4 }}>
+                          {row.whatToDo}
+                        </div>
+                        {row.samples.some((sample) => sample.price != null) && (
+                          <div style={{ marginTop: 6 }}>
+                            <strong>Check these against the site:</strong>
+                            {row.samples
+                              .filter((sample) => sample.price != null)
+                              .map((sample) => (
+                                <div key={sample.url} className="truncate">
+                                  <a href={sample.url} target="_blank" rel="noreferrer">
+                                    {sample.title ?? sample.url}
+                                  </a>{' '}
+                                  — we read{' '}
+                                  <strong>
+                                    {sample.currency === 'GBP' || sample.currency == null ? '£' : ''}
+                                    {sample.price}
+                                  </strong>
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
+                  <td className="num muted xs">{row ? row.sitemap.urlsFound.toLocaleString() : '—'}</td>
+                  <td className="num">
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--ghost"
+                      onClick={() => void checkOne(competitor.slug)}
+                      disabled={busy}
+                    >
+                      {row ? 'Re-check' : 'Check'}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
 
 function ScrapeHealthSection() {
   const [days, setDays] = useState(7);
