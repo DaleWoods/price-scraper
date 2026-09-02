@@ -3,6 +3,7 @@ import {
   api,
   ApiError,
   formatDateTime,
+  type BlockDiagnosis,
   type Competitor,
   type RobotsCheckResult,
   type SitemapCheckResult,
@@ -576,6 +577,52 @@ function AlertSettingsSection({
  * never put. Including them would make a healthy competitor read as single
  * digits, so they are shown as their own figure instead.
  */
+/**
+ * How each kind of wall reads in the health table.
+ *
+ * `ours` marks the ones we caused and can fix ourselves — those are shown in
+ * the milder tone, because treating a self-inflicted rate limit with the same
+ * alarm as a hard bot gate would send someone off looking for a vendor when
+ * the answer is one config value.
+ */
+const BLOCK_CAUSE_COPY: Record<string, { label: string; hint: string; ours: boolean }> = {
+  rate_limited: {
+    label: 'rate limited',
+    hint: 'We asked too fast. Raise the delay for this competitor — they are willing to serve us.',
+    ours: true,
+  },
+  ua_or_waf: {
+    label: 'refused outright',
+    hint: 'No challenge page, usually our user agent. Try a real contact address or the browser identity first.',
+    ours: true,
+  },
+  bot_challenge: {
+    label: 'bot challenge',
+    hint: 'A gate on what we are, not how fast we ask. Politeness will not clear it.',
+    ours: false,
+  },
+  soft_block: {
+    label: 'soft block',
+    hint: 'A normal 200 hiding an interstitial. The selectors are probably fine.',
+    ours: false,
+  },
+  geo_or_legal: {
+    label: 'legally blocked',
+    hint: 'Unavailable to us for legal or regional reasons. No tool answers this.',
+    ours: false,
+  },
+  login_required: {
+    label: 'needs an account',
+    hint: 'The price is only shown to signed-in customers, so it cannot be compared automatically.',
+    ours: false,
+  },
+  unclassified: {
+    label: 'refused, cause unclear',
+    hint: 'Not a pattern we recognise. Look at the response before deciding anything.',
+    ours: false,
+  },
+};
+
 function ScrapeHealthSection() {
   const [days, setDays] = useState(7);
   const [report, setReport] = useState<ScrapeHealthResponse | null>(null);
@@ -698,6 +745,17 @@ function ScrapeHealthSection() {
                               {row.robotsDisallowed} declined by robots.txt
                             </div>
                           )}
+                          {row.blockCauses.map((block) => (
+                            <div
+                              key={block.cause}
+                              className={
+                                BLOCK_CAUSE_COPY[block.cause]?.ours ? 'price-age--ageing' : 'price-age--stale'
+                              }
+                              title={BLOCK_CAUSE_COPY[block.cause]?.hint ?? block.cause}
+                            >
+                              {BLOCK_CAUSE_COPY[block.cause]?.label ?? block.cause} ({block.count})
+                            </div>
+                          ))}
                         </>
                       )}
                     </td>
@@ -878,6 +936,7 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TestUrlResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diagnosis, setDiagnosis] = useState<BlockDiagnosis | null>(null);
 
   // Pick a default once competitors arrive, without overriding a later choice.
   useEffect(() => {
@@ -888,10 +947,12 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
     setBusy(true);
     setResult(null);
     setError(null);
+    setDiagnosis(null);
     try {
       setResult(await api.testUrl(slug, url));
     } catch (err) {
       setError(err instanceof ApiError ? `${err.kind ?? 'error'}: ${err.message}` : 'Test failed');
+      if (err instanceof ApiError && err.diagnosis) setDiagnosis(err.diagnosis);
     } finally {
       setBusy(false);
     }
@@ -952,6 +1013,31 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
         <div style={{ marginTop: 'var(--sp-4)' }}>
           <Alert tone="danger" title="Extraction failed">
             {error}
+          </Alert>
+        </div>
+      )}
+
+      {diagnosis && (
+        <div style={{ marginTop: 'var(--sp-3)' }}>
+          <Alert
+            tone={diagnosis.cause === 'rate_limited' ? 'warn' : 'info'}
+            title={`What blocked us: ${diagnosis.label}`}
+          >
+            {diagnosis.remedy}
+            {diagnosis.retryAfterSeconds != null && (
+              <>
+                {' '}
+                They asked us to wait <strong>{diagnosis.retryAfterSeconds}s</strong> before trying
+                again.
+              </>
+            )}
+            {diagnosis.vendor && (
+              <>
+                {' '}
+                The protection in front of the site identifies itself as{' '}
+                <strong>{diagnosis.vendor}</strong>.
+              </>
+            )}
           </Alert>
         </div>
       )}

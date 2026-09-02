@@ -27,6 +27,13 @@ export interface StandInProduct {
   gtin?: string;
   /** Force an HTTP status instead of serving the page — 404 or 403, typically. */
   status?: number;
+  /**
+   * Serve a bot-challenge page instead of the product, the way a protection
+   * product does: Cloudflare's ray-id header and its interstitial copy. Pair
+   * with `status: 403` for a hard block, or leave the status at 200 for a soft
+   * block — the case that otherwise reads as a layout change.
+   */
+  challenge?: boolean;
   /** Defaults to true. False publishes an OutOfStock availability. */
   inStock?: boolean;
 }
@@ -133,6 +140,18 @@ export async function startStandIn(products: StandInProduct[]): Promise<StandIn>
       if (!product) {
         res.writeHead(404, { 'content-type': 'text/plain' });
         res.end('no such product');
+        return;
+      }
+      if (product.challenge) {
+        res.writeHead(product.status ?? 200, {
+          'content-type': 'text/html',
+          'cf-ray': '8a1b2c3d4e5f6789-LHR',
+        });
+        res.end(
+          '<html><head><title>Just a moment…</title></head><body>' +
+            '<h1>Checking your browser before accessing the site.</h1>' +
+            '</body></html>',
+        );
         return;
       }
       if (product.status && product.status !== 200) {

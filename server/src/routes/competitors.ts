@@ -194,7 +194,16 @@ competitorsRouter.post('/:slug/test-url', async (req, res) => {
     });
   } catch (err) {
     if (err instanceof ScrapeError) {
-      res.status(422).json({ ok: false, kind: err.kind, error: err.message, url });
+      // The diagnosis is the useful half of a block: it names what refused us
+      // and what would actually get past it, which is the question this panel
+      // exists to answer.
+      res.status(422).json({
+        ok: false,
+        kind: err.kind,
+        error: err.message,
+        diagnosis: err.diagnosis ?? null,
+        url,
+      });
       return;
     }
     res.status(500).json({ ok: false, kind: 'unknown', error: (err as Error).message, url });

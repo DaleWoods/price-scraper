@@ -51,6 +51,7 @@ describe('scrape runner', { skip: !DATABASE_URL && 'DATABASE_URL not set' }, () 
     { slug: 'e', name: 'Runner Watch E', brand: 'TestBrand', status: 403 },
     { slug: 'f', name: 'Runner Watch F', brand: 'TestBrand' }, // served, but no price
     { slug: 'g', name: 'Runner Watch G', brand: 'TestBrand', price: '400.00', inStock: false },
+    { slug: 'h', name: 'Runner Watch H', brand: 'TestBrand', status: 403, challenge: true },
   ];
 
   before(async () => {
@@ -164,7 +165,7 @@ describe('scrape runner', { skip: !DATABASE_URL && 'DATABASE_URL not set' }, () 
    */
   async function runToCompletion(options: RunOptions): Promise<number> {
     const run = await startRun({ trigger: 'tst-runner', ...options });
-    for (let attempt = 0; attempt < 200; attempt += 1) {
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
       const { rows } = await query<{ status: string }>(
         'SELECT status FROM scrape_runs WHERE id = $1',
         [run.id],
@@ -172,7 +173,14 @@ describe('scrape runner', { skip: !DATABASE_URL && 'DATABASE_URL not set' }, () 
       if (rows[0] && rows[0].status !== 'running') return run.id;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    throw new Error(`run ${run.id} did not finish within 10s`);
+    // Generous on purpose. env.minRequestDelayMs puts a 3s floor under every
+    // request no matter what the competitor config says, so a run touching a
+    // handful of pages legitimately takes tens of seconds. Timing out early
+    // here does not just fail one test: the next beforeEach deletes the run
+    // row out from under the still-running scrape, and the foreign key
+    // violation that follows looks like a bug in the runner rather than an
+    // impatient test.
+    throw new Error(`run ${run.id} did not finish within 60s`);
   }
 
   interface ItemRow {
@@ -448,6 +456,43 @@ describe('scrape runner', { skip: !DATABASE_URL && 'DATABASE_URL not set' }, () 
         [competitorId, brandLimitedId],
       ]);
     }
+  });
+
+  it('records what kind of wall a block was, not just that there was one', async () => {
+    // "blocked" alone cannot be acted on. A Cloudflare challenge and a rate
+    // limit are both blocks and have nothing in common as problems, so the
+    // cause is what gets stored and reported.
+    await confirmMatch('h');
+    // 'prices' only: a 'both' run would also discover against this product and
+    // add a second item, which has nothing to do with what is being asserted.
+    const runId = await runToCompletion({
+      competitorId,
+      productIds: [productIds.get('h')!],
+      mode: 'prices',
+    });
+
+    const items = await itemsFor(runId);
+    assert.equal(items.length, 1);
+    assert.equal(items[0]!.status, 'error');
+    assert.equal(items[0]!.error_kind, 'blocked');
+
+    const { rows } = await query<{ block_cause: string | null }>(
+      'SELECT block_cause FROM scrape_run_items WHERE run_id = $1',
+      [runId],
+    );
+    assert.equal(rows[0]!.block_cause, 'bot_challenge');
+    // The remedy has to reach the person reading the run, not stop at the type.
+    assert.match(items[0]!.error ?? '', /Cloudflare/);
+  });
+
+  it('does not retry a bot challenge, since nothing about a retry would differ', async () => {
+    await confirmMatch('h');
+    await runToCompletion({
+      competitorId,
+      productIds: [productIds.get('h')!],
+      mode: 'prices',
+    });
+    assert.equal(standIn.hits('h'), 1);
   });
 
   it('refuses to start a second run while one is in flight', async () => {

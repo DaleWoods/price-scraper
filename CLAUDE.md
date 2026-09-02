@@ -368,3 +368,49 @@ for problems that have actually happened, with the real numbers.
   retried request) both saw `null` and both started a run — double-scraping
   every competitor and racing the counters. `runStarting` is set in the same
   tick as the check, which is what actually closes the window.
+- **"Blocked" is four different problems and only one of them is a wall.**
+  `blockDiagnosis.ts` tells them apart: a 429 is ours to fix by slowing down, a
+  bare 403 is usually just our user agent, a Cloudflare/DataDome/Akamai
+  interstitial is a gate on what we are that politeness cannot clear, and a 451
+  or login wall is final. The cause is stored on `scrape_run_items.block_cause`
+  and shown per competitor in scrape health, because the remedies are unrelated
+  and the expensive one (paying an unblocking vendor) is only right for one of
+  them. Diagnosis is deliberately conservative — an unrecognised refusal comes
+  back `unclassified` rather than guessed at, since a wrong guess sends someone
+  off to buy a subscription for a config problem.
+- **A soft block is a 200 that hides an interstitial, and it is the one that
+  wastes days.** The status is healthy, the HTML is valid, and every layer above
+  reads it as a layout change — so someone rewrites selectors that were never
+  wrong. `fetchAndExtract` re-checks after the browser attempt also fails to
+  find a price, and only re-labels when the page actually carries challenge
+  markers. A genuine redesign must stay `layout_changed`; there is a test for
+  exactly that, because the tempting shortcut (any 200 that fails extraction is
+  a soft block) would report every redesign as a block.
+- **robots.txt is always evaluated against our own identity, never a browser
+  string.** `competitor.config.identity` may be set to `'browser'` so the
+  browser transport sends a normal Chrome user agent — some edge rules reject
+  any non-browser agent outright, and on that path the fetch really is Chromium.
+  But `checkRobots` is called with `env.scraperUserAgent` regardless. Picking
+  the identity that gets past a Disallow would be circumvention, which this app
+  does not do, and a rule written for us still applies when we happen to be
+  driving a browser.
+- **`SCRAPER_USER_AGENT` ships with a placeholder contact address.** The default
+  is `...contact: trading@example.com`, which is both useless to a retailer
+  wanting to reach us and a plausible reason to be refused outright. Setting a
+  real address on the deployment costs nothing and is the first thing to try
+  against a bare 403 — before any conversation about proxies or vendors.
+- **The runner tests poll for up to 60s, not 10s.** `env.minRequestDelayMs`
+  puts a 3s floor under every request whatever the competitor config says, so a
+  run touching a handful of pages legitimately takes tens of seconds. Timing out
+  early does not just fail one test: the next `beforeEach` deletes the run row
+  out from under the still-running scrape, and the foreign-key violation that
+  follows looks like a runner bug rather than an impatient test.
+- **The server suite runs `--test-concurrency=1`, and must keep doing so.** Every
+  database-backed test file shares one Postgres database, and two of them share
+  a single *row*: `alert_settings` is a singleton, so `alertThresholds.test.ts`
+  raising a threshold while `alerts.test.ts` runs concurrently makes the latter
+  see no alerts and fail with "expected 1, actual 0" — a failure that points at
+  the alerts code, where nothing is wrong. It passed for a while purely on
+  scheduling luck and surfaced only when new test files shifted the timing.
+  Fixture prefixes keep the *rows* apart; they cannot keep shared singletons or
+  a shared schema apart.

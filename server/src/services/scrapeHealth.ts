@@ -43,6 +43,15 @@ export interface CompetitorHealth {
   lastErrorKind: string | null;
   lastErrorMessage: string | null;
   medianDurationMs: number | null;
+  /**
+   * Which walls this competitor put up, worst first, when any did.
+   *
+   * Separate from `topErrors` because the remedies are unrelated: a
+   * `layout_changed` is a selector to fix, whereas a block is a decision about
+   * whether this source is reachable at all — and *which* block decides
+   * whether the answer is "slow down", "ask them for access", or "drop it".
+   */
+  blockCauses: { cause: string; count: number }[];
 }
 
 export interface ScrapeHealthReport {
@@ -124,6 +133,28 @@ export async function getScrapeHealth(days = 7): Promise<ScrapeHealthReport> {
     [days],
   );
 
+  const { rows: blockRows } = await query<{
+    competitor_id: number;
+    block_cause: string;
+    count: number;
+  }>(
+    `SELECT competitor_id, block_cause, count(*)::int AS count
+     FROM scrape_run_items
+     WHERE block_cause IS NOT NULL
+       AND competitor_id IS NOT NULL
+       AND created_at >= now() - ($1::int * interval '1 day')
+     GROUP BY competitor_id, block_cause
+     ORDER BY count DESC`,
+    [days],
+  );
+
+  const blocksByCompetitor = new Map<number, { cause: string; count: number }[]>();
+  for (const row of blockRows) {
+    const list = blocksByCompetitor.get(row.competitor_id) ?? [];
+    list.push({ cause: row.block_cause, count: row.count });
+    blocksByCompetitor.set(row.competitor_id, list);
+  }
+
   const errorsByCompetitor = new Map<number, { kind: string; count: number }[]>();
   for (const row of errorRows) {
     const list = errorsByCompetitor.get(row.competitor_id) ?? [];
@@ -157,6 +188,7 @@ export async function getScrapeHealth(days = 7): Promise<ScrapeHealthReport> {
       lastErrorMessage: lastError?.error ?? null,
       medianDurationMs:
         row.median_duration_ms == null ? null : Math.round(Number(row.median_duration_ms)),
+      blockCauses: blocksByCompetitor.get(row.competitor_id) ?? [],
     };
   });
 

@@ -35,6 +35,14 @@ export interface CompetitorConfig {
    * "slower and heavier", so it is the fallback, not the default).
    */
   rendering: 'http' | 'browser' | 'auto';
+  /**
+   * Which user agent to present. 'bot' (the default) sends our own named,
+   * contactable crawler string on every transport. 'browser' sends a normal
+   * Chrome string, but only on the browser transport — where the fetch really
+   * is Chromium — for sites whose edge rules reject non-browser agents
+   * outright. robots.txt is evaluated against the bot identity either way.
+   */
+  identity?: 'bot' | 'browser';
   userAgent?: string;
   rateLimit?: {
     minDelayMs?: number;

@@ -25,6 +25,7 @@ export const competitorConfigSchema = z.object({
    * only pays for Chromium on the pages that actually need it.
    */
   rendering: z.enum(['http', 'browser', 'auto']).default('auto'),
+  identity: z.enum(['bot', 'browser']).default('bot'),
   userAgent: z.string().optional(),
   rateLimit: z
     .object({

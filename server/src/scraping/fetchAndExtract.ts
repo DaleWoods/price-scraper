@@ -1,5 +1,6 @@
 import type { Competitor } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
+import { describeBlock, diagnoseBlock } from './blockDiagnosis.js';
 import { ScrapeError, type ScrapeErrorKind } from './errors.js';
 import { extractListing, type ExtractedListing } from './extract.js';
 import { fetchPage, type FetchPageOptions, type FetchedPage } from './fetcher.js';
@@ -77,5 +78,30 @@ export async function fetchAndExtract(
   }
 
   const page = await fetchPage(withRendering(competitor, 'browser'), url, options);
-  return { page, listing: extractListing(competitor, page), escalated: true };
+  try {
+    return { page, listing: extractListing(competitor, page), escalated: true };
+  } catch (err) {
+    // Last chance to catch a soft block. Both transports have now failed to
+    // find a price on a page that returned 200 both times, which is the exact
+    // signature of an interstitial: a challenge page is valid HTML and a
+    // perfectly healthy status, so every layer above reads it as a layout
+    // change and someone spends an afternoon on selectors that were never
+    // wrong. Only re-labelled when the page actually carries challenge
+    // markers — a genuine redesign must stay a layout change.
+    if (err instanceof ScrapeError && ESCALATABLE.has(err.kind)) {
+      const diagnosis = diagnoseBlock({
+        status: page.status,
+        html: page.html,
+        extractionFailed: true,
+      });
+      if (diagnosis.cause === 'soft_block') {
+        throw new ScrapeError('blocked', `${url}: ${describeBlock(diagnosis)}`, {
+          url,
+          retryable: false,
+          diagnosis,
+        });
+      }
+    }
+    throw err;
+  }
 }

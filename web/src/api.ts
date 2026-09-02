@@ -157,6 +157,9 @@ export interface CompetitorHealth {
   lastErrorKind: string | null;
   lastErrorMessage: string | null;
   medianDurationMs: number | null;
+  /** Which walls this competitor put up, if any. Separate from topErrors
+   *  because a block is a question about access, not about selectors. */
+  blockCauses: { cause: string; count: number }[];
 }
 
 export interface ScrapeHealthResponse {
@@ -174,6 +177,16 @@ export interface TestUrlResult {
   escalated?: boolean;
   robots: { allowed: boolean; reason: string };
   extracted: Record<string, unknown>;
+}
+
+/** What kind of wall a refusal was, and what would actually get past it. */
+export interface BlockDiagnosis {
+  cause: string;
+  vendor: string | null;
+  label: string;
+  remedy: string;
+  retryAfterSeconds: number | null;
+  vendorWouldHelp: boolean;
 }
 
 export interface AlertRow {
@@ -346,12 +359,19 @@ export interface RunItem {
 export class ApiError extends Error {
   readonly status: number;
   readonly kind: string | undefined;
+  /**
+   * Set when the failure was a block the server could classify. The message
+   * alone says a request failed; this says which wall it was and what would
+   * get past it, which is the part worth putting on screen.
+   */
+  readonly diagnosis: BlockDiagnosis | undefined;
 
-  constructor(message: string, status: number, kind?: string) {
+  constructor(message: string, status: number, kind?: string, diagnosis?: BlockDiagnosis) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.kind = kind;
+    this.diagnosis = diagnosis;
   }
 }
 
@@ -381,8 +401,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const body = payload as { error?: string; kind?: string } | null;
-    throw new ApiError(body?.error ?? `Request failed (${response.status})`, response.status, body?.kind);
+    const body = payload as
+      | { error?: string; kind?: string; diagnosis?: BlockDiagnosis | null }
+      | null;
+    throw new ApiError(
+      body?.error ?? `Request failed (${response.status})`,
+      response.status,
+      body?.kind,
+      body?.diagnosis ?? undefined,
+    );
   }
 
   return payload as T;

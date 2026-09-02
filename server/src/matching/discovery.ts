@@ -23,7 +23,11 @@ export interface DiscoveryOutcome {
    * looks identical in a run's output to one that was never found at all.
    */
   bestAttempt?: { url: string; confidence: number; reason: string } | null;
-  error?: { kind: string; message: string };
+  /**
+   * `blockCause` is carried alongside the kind because 'blocked' on its own
+   * cannot be acted on — see blockDiagnosis.ts for the four walls it hides.
+   */
+  error?: { kind: string; message: string; blockCause?: string | null };
 }
 
 /** Turn a rejected score into a sentence a person can act on. */
@@ -120,7 +124,11 @@ export async function discoverMatchesForProduct(
       searchResults = extractSearchResults(competitor, page);
     } catch (err) {
       const kind = err instanceof ScrapeError ? err.kind : 'unknown';
-      outcome.error = { kind, message: (err as Error).message };
+      outcome.error = {
+        kind,
+        message: (err as Error).message,
+        blockCause: err instanceof ScrapeError ? (err.diagnosis?.cause ?? null) : null,
+      };
       return outcome;
     }
 

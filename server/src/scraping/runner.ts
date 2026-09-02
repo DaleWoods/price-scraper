@@ -416,6 +416,7 @@ async function scrapeConfirmedMatches(
         url: match.competitor_url,
         status: 'error',
         errorKind: kind,
+        blockCause: err instanceof ScrapeError ? (err.diagnosis?.cause ?? null) : null,
         error: (err as Error).message,
         durationMs: Date.now() - startedAt,
       });
@@ -505,6 +506,7 @@ async function discoverUnmatchedProducts(
         competitorId: competitor.id,
         status: 'error',
         errorKind: outcome.error.kind,
+        blockCause: outcome.error.blockCause ?? null,
         error: outcome.error.message,
         durationMs: Date.now() - startedAt,
       });
@@ -543,6 +545,8 @@ interface RunItemInput {
   url?: string | null;
   status: 'ok' | 'error' | 'skipped';
   errorKind?: string | null;
+  /** Set only on a block: which kind of wall, so the remedy is knowable. */
+  blockCause?: string | null;
   error?: string | null;
   durationMs?: number | null;
 }
@@ -550,8 +554,9 @@ interface RunItemInput {
 async function recordRunItem(runId: number, item: RunItemInput): Promise<void> {
   await query(
     `INSERT INTO scrape_run_items
-       (run_id, match_id, product_id, competitor_id, url, status, error_kind, error, duration_ms)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       (run_id, match_id, product_id, competitor_id, url, status, error_kind, error,
+        duration_ms, block_cause)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       runId,
       item.matchId ?? null,
@@ -562,6 +567,7 @@ async function recordRunItem(runId: number, item: RunItemInput): Promise<void> {
       item.errorKind ?? null,
       item.error ?? null,
       item.durationMs ?? null,
+      item.blockCause ?? null,
     ],
   );
 

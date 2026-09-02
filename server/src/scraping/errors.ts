@@ -1,3 +1,5 @@
+import type { BlockDiagnosis } from './blockDiagnosis.js';
+
 /**
  * Scrape failures are typed so a competitor changing their page layout surfaces
  * as a loud, attributable error rather than a silently wrong price (Spec §5.4).
@@ -20,17 +22,30 @@ export class ScrapeError extends Error {
   readonly url: string | undefined;
   /** Retrying a transient failure is worthwhile; a layout change is not. */
   readonly retryable: boolean;
+  /**
+   * What kind of wall this was, on a `blocked`. "Blocked" alone tells you
+   * nothing you can act on — a rate limit is ours to fix by slowing down, a
+   * bot challenge is not fixable by politeness at all. Set only where the
+   * response gave us enough to say.
+   */
+  readonly diagnosis: BlockDiagnosis | undefined;
 
   constructor(
     kind: ScrapeErrorKind,
     message: string,
-    options: { url?: string; retryable?: boolean; cause?: unknown } = {},
+    options: {
+      url?: string;
+      retryable?: boolean;
+      cause?: unknown;
+      diagnosis?: BlockDiagnosis;
+    } = {},
   ) {
     super(message, { cause: options.cause });
     this.name = 'ScrapeError';
     this.kind = kind;
     this.url = options.url;
     this.retryable = options.retryable ?? DEFAULT_RETRYABLE.has(kind);
+    this.diagnosis = options.diagnosis;
   }
 }
 

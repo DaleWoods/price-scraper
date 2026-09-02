@@ -177,6 +177,118 @@ compute usage before adding the next. Three enabled competitors is a sensible
 first target, not eleven — enabling all ten dormant configs at once multiplies
 scan cost immediately.
 
+## If a competitor really does block us
+
+Assume nothing here applies until a verification pass from a network-capable
+host says it does. When one genuinely refuses us, work down this list. It is
+ordered by cost, and the cheap options at the top resolve more cases than people
+expect.
+
+### 0. Find out which wall it is
+
+Run the URL through **Admin → Test a product URL**. A refusal now reports what
+refused us and what would get past it, and the same cause is stored per run item
+and totalled per competitor in **Scrape health**. Four different problems hide
+behind the word "blocked" and only one of them justifies spending money:
+
+| What it says | What it means | What to do |
+| --- | --- | --- |
+| Rate limited | We asked too fast. They are willing to serve us. | Raise `minDelayMs`, drop `maxConcurrent` to 1, spread the scan over more hours. |
+| Refused outright | A 403 with no challenge page — usually our identity, not our behaviour. | Steps 1 and 2 below. |
+| Bot challenge | Cloudflare, DataDome, Akamai or similar gating on *what we are*. | Steps 3 onward. Politeness will not clear it. |
+| Soft block | A normal 200 hiding an interstitial. | Same as a bot challenge — but do not touch the selectors, they are fine. |
+| Legally blocked / needs an account | Final. | Record it and drop the source. |
+
+### 1. Set a real contact address (free, do this first)
+
+`SCRAPER_USER_AGENT` still ships with `contact: trading@example.com`. A named
+crawler with a working address is something a retailer can look up, contact and
+whitelist; a placeholder is something an edge rule bins. Set it on the deployment
+before concluding anything about a 403.
+
+### 2. Slow down, and scan at night (free)
+
+The strongest argument for this app is the one the business already makes: a
+person could open every one of these pages by hand. That is true — and it is
+also the shape of request pattern that nobody blocks. Blocking is triggered by
+*rate*, and rate is entirely ours to choose. A full catalogue spread across an
+overnight window at one request every few seconds is indistinguishable from
+ordinary browsing, and there is no business reason to want prices faster than
+daily.
+
+### 3. Ask them (free, and better than any workaround)
+
+Retailers whitelist identified crawlers on request more often than people
+assume, particularly between UK businesses that already know each other. The
+worst outcome is being told no, which is information we do not currently have.
+
+### 4. Take the prices from a licensed feed instead (the strongest route)
+
+This is the option worth pursuing hardest, because it removes the problem rather
+than fighting it. Most of these retailers run affiliate programmes, and an
+affiliate programme comes with a **product data feed**: SKU, title, brand,
+price, availability and product URL, refreshed daily, delivered as a file.
+That is the same data a scrape is trying to reconstruct, except licensed,
+structured, complete, and immune to layout changes and blocking alike. It is
+what price comparison sites actually run on.
+
+Known so far:
+
+- **Beaverbrooks** — [Awin](https://ui.awin.com/merchant-profile/5856), also
+  linked from their own [affiliates page](https://www.beaverbrooks.co.uk/info/affiliates).
+- **Ernest Jones** — [FlexOffers](https://www.flexoffers.com/affiliate-programs/ernest-jones-affiliate-program/).
+- **Fraser Hart** — [FlexOffers](https://www.flexoffers.com/affiliate-programs/fraser-hart-affiliate-program/).
+- H. Samuel shares Signet's UK operation with Ernest Jones, so check the same
+  networks.
+
+Two things to check before committing: acceptance into each programme is at the
+merchant's discretion, and the programme terms should be read for what the feed
+may be used for — using it for competitive analysis rather than promotion is a
+question for whoever signs it, not an assumption to make quietly. If the answer
+is yes, importing a competitor feed is a much smaller build than it sounds,
+because this app already imports and reconciles a feed of exactly this shape for
+our own catalogue.
+
+### 5. Commercial unblocking services (paid)
+
+Zyte, Bright Data, ScrapingBee and ScraperAPI sell request infrastructure that
+handles the challenge layer. This is ordinary practice in price intelligence and
+priced per thousand requests — roughly $1.50 per 1,000 records at Bright Data,
+from cents to double digits per 1,000 at Zyte depending on how hard the target
+is, and ScrapingBee from about $49/month. At a nightly full-catalogue scan the
+volume is modest.
+
+Two honest caveats. It is a commercial and legal decision rather than a
+technical one, and it should have sign-off from whoever owns that risk, because
+it means paying to get past a measure the site put up deliberately. And it does
+not fix a legal block or a login wall. If we go this way, the integration is a
+configurable fetch backend rather than per-competitor code — the app already
+routes every request through one place.
+
+### 6. Buy the answer instead (paid)
+
+Price2Spy, Prisync, Competera, Skuuudle and DataWeave sell competitor price
+monitoring as a service. They have already solved blocking and maintain the
+extraction themselves. Worth pricing against the engineering time the equivalent
+in-house capability costs, especially if the requirement grows beyond a handful
+of UK jewellers.
+
+### What this app will not do
+
+Two lines are not crossed regardless of which route is chosen, because they turn
+a defensible commercial practice into an indefensible one.
+
+**robots.txt is honoured, always.** Every fetch is checked against it first, and
+`identity: 'browser'` does not change that — robots is evaluated against our own
+crawler identity even when the request is driven by Chromium, so switching
+identity can never be used to get past a `Disallow`. Worth noting this costs us
+nothing today: every competitor examined allows product pages and disallows only
+`/search`, which is precisely why discovery reads sitemaps.
+
+**Nothing behind a login.** Reading a price that is only shown to signed-in
+customers is a different thing legally from reading a public page, and the app
+reports it as out of scope rather than attempting it.
+
 ## Known config caveat
 
 `searchUrlPattern` is schema-checked for containing `{query}` but nothing

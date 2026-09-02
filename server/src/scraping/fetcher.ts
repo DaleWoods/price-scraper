@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import type { Competitor } from '../domain/types.js';
 import { getBrowser } from './browser.js';
+import { describeBlock, diagnoseBlock } from './blockDiagnosis.js';
 import { ScrapeError, isBlockingStatus } from './errors.js';
 import { withRateLimit } from './rateLimiter.js';
 import { checkRobots } from './robots.js';
@@ -17,8 +18,28 @@ export interface FetchedPage {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-function userAgentFor(competitor: Competitor): string {
-  return competitor.config.userAgent ?? env.scraperUserAgent;
+/**
+ * A current desktop Chrome string, used only by the browser path and only when
+ * a competitor is explicitly set to `identity: 'browser'`.
+ *
+ * This is not a disguise: on that path the fetch really is Chromium, driven by
+ * Playwright, at the same request rate as before. What it stops announcing is
+ * that a person is not the one clicking. Some retail edge rules reject any
+ * non-browser user agent outright, which is why the option exists — but the
+ * default stays the honest self-identifying string, because a named crawler
+ * with a real contact address is the version a retailer can whitelist, and
+ * being whitelisted beats being tolerated.
+ */
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ' +
+  'Chrome/140.0.0.0 Safari/537.36';
+
+function userAgentFor(competitor: Competitor, transport: 'http' | 'browser'): string {
+  if (competitor.config.userAgent) return competitor.config.userAgent;
+  if (competitor.config.identity === 'browser' && transport === 'browser') {
+    return BROWSER_USER_AGENT;
+  }
+  return env.scraperUserAgent;
 }
 
 export interface FetchPageOptions {
@@ -54,8 +75,11 @@ export async function fetchPage(
     throw new ScrapeError('invalid_url', `Unsupported protocol ${parsed.protocol}`, { url });
   }
 
-  const userAgent = userAgentFor(competitor);
-  const decision = await checkRobots(url, userAgent);
+  // robots.txt is always evaluated against our own identity, never a browser
+  // string. A rule written for us must still apply when we happen to be
+  // driving Chromium — choosing the identity that gets past a Disallow would
+  // be exactly the circumvention this app does not do.
+  const decision = await checkRobots(url, env.scraperUserAgent);
   if (!decision.allowed) {
     throw new ScrapeError('robots_disallowed', decision.reason, { url, retryable: false });
   }
@@ -78,8 +102,8 @@ export async function fetchPage(
         // actually usable, so 'auto' is resolved in fetchAndExtract.ts; a bare
         // fetchPage has no such signal and takes the option that always works.
         competitor.config.rendering === 'http'
-          ? httpFetch(url, userAgent)
-          : browserFetch(url, userAgent),
+          ? httpFetch(url, userAgentFor(competitor, 'http'))
+          : browserFetch(url, userAgentFor(competitor, 'browser')),
       );
     } catch (err) {
       lastError = err;
@@ -121,7 +145,15 @@ async function httpFetch(url: string, userAgent: string): Promise<FetchedPage> {
     throw new ScrapeError(kind, `HTTP fetch failed for ${url}: ${message}`, { url, cause: err });
   }
 
-  assertUsableStatus(response.status, url);
+  if (response.status >= 400) {
+    // Read the body before throwing. A refusal usually says who refused us and
+    // why — a Cloudflare ray id, a Retry-After, an "enable JavaScript" page —
+    // and discarding it leaves every failure looking identically like
+    // "blocked", which is the least useful thing we could record.
+    const body = await response.text().catch(() => '');
+    assertUsableStatus(response.status, url, { headers: response.headers, html: body });
+  }
+
   return {
     url,
     finalUrl: response.url || url,
@@ -145,14 +177,22 @@ async function browserFetch(url: string, userAgent: string): Promise<FetchedPage
   // 404 on a previously-matched listing would be misreported as a network fault,
   // losing a signal the team needs (Spec §5.5).
   let mainFrameStatus: number | null = null;
+  // Kept alongside the status so a block can still be classified from the
+  // catch branch, where the response object is long out of scope.
+  let mainFrameHeaders: Record<string, string> | null = null;
+  let pageRef: import('playwright').Page | null = null;
 
   try {
     const page = await context.newPage();
+    pageRef = page;
     page.setDefaultTimeout(env.requestTimeoutMs);
 
     page.on('response', (response) => {
       if (response.url() === url || response.frame() === page.mainFrame()) {
-        if (mainFrameStatus === null) mainFrameStatus = response.status();
+        if (mainFrameStatus === null) {
+          mainFrameStatus = response.status();
+          mainFrameHeaders = response.headers();
+        }
       }
     });
 
@@ -171,7 +211,12 @@ async function browserFetch(url: string, userAgent: string): Promise<FetchedPage
     if (!response) {
       throw new ScrapeError('navigation_failed', `No response navigating to ${url}`, { url });
     }
-    assertUsableStatus(response.status(), url);
+    if (response.status() >= 400) {
+      assertUsableStatus(response.status(), url, {
+        headers: response.headers(),
+        html: await page.content().catch(() => ''),
+      });
+    }
 
     // Prices are frequently injected after hydration; settling the network is
     // best-effort and a timeout here is not itself a failure.
@@ -189,7 +234,12 @@ async function browserFetch(url: string, userAgent: string): Promise<FetchedPage
 
     // Prefer the observed HTTP status over the generic navigation error, so a
     // 404 or an active block is reported as what it actually is.
-    if (mainFrameStatus !== null) assertUsableStatus(mainFrameStatus, url);
+    if (mainFrameStatus !== null) {
+      assertUsableStatus(mainFrameStatus, url, {
+        headers: mainFrameHeaders,
+        html: pageRef ? await pageRef.content().catch(() => '') : '',
+      });
+    }
 
     const message = (err as Error).message;
     const kind = /timeout/i.test(message) ? 'timeout' : 'navigation_failed';
@@ -199,7 +249,13 @@ async function browserFetch(url: string, userAgent: string): Promise<FetchedPage
   }
 }
 
-function assertUsableStatus(status: number, url: string): void {
+/** What the response told us about itself, when we managed to read it. */
+interface ResponseEvidence {
+  headers?: Headers | Record<string, string> | null;
+  html?: string;
+}
+
+function assertUsableStatus(status: number, url: string, evidence: ResponseEvidence = {}): void {
   if (status === 404 || status === 410) {
     // A previously-matched listing that 404s is a real signal, not noise (Spec §5.5).
     throw new ScrapeError('not_found', `Listing no longer exists (HTTP ${status}): ${url}`, {
@@ -208,11 +264,16 @@ function assertUsableStatus(status: number, url: string): void {
     });
   }
   if (isBlockingStatus(status)) {
-    throw new ScrapeError(
-      'blocked',
-      `Site returned HTTP ${status} for ${url}. Treating as an active block — not retrying and not working around it.`,
-      { url, retryable: false },
-    );
+    const diagnosis = diagnoseBlock({
+      status,
+      headers: evidence.headers ?? null,
+      html: evidence.html ?? '',
+    });
+    throw new ScrapeError('blocked', `${url}: ${describeBlock(diagnosis)}`, {
+      url,
+      retryable: false,
+      diagnosis,
+    });
   }
   if (status >= 400) {
     throw new ScrapeError('http_error', `HTTP ${status} for ${url}`, { url });

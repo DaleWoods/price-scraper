@@ -12,7 +12,7 @@
     "migrate:prod": "node dist/db/migrate.js",
     "seed": "tsx src/db/seed.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --import tsx test/*.test.ts"
+    "test": "node --test --test-concurrency=1 --import tsx test/*.test.ts"
   },
   "dependencies": {
     "cheerio": "^1.0.0",

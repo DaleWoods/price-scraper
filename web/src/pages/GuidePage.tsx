@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '1 September 2026';
+const GUIDE_UPDATED = '2 September 2026';
 
 function Section({
   id,
@@ -268,7 +268,9 @@ export function GuidePage() {
           directory plus <em>Re-sync from config</em> — never a code change. Toggle one off to
           exclude it from runs without losing its history. <em>Test a product URL</em> fetches a
           single page and shows exactly what was extracted, which is the quickest way to tell a
-          layout change from a genuine absence; it stores nothing.
+          layout change from a genuine absence; it stores nothing. If the site refuses that page, it
+          also says what refused us, names the protection product where it identifies itself, and
+          tells you what would actually get past it.
         </Term>
         <Term label="Scrape health">
           One row per competitor: how much of what we asked them actually worked, what is failing,
@@ -288,8 +290,21 @@ export function GuidePage() {
           <br />
           What deserves attention is a competitor that was working and stopped —{' '}
           <em>Page layout changed</em> or <em>No price on the page</em> mean their site moved and our
-          configuration needs a look. <em>Site actively blocked us</em> means they are refusing
-          automated access, which is a signal to drop that source rather than press harder.
+          configuration needs a look.
+          <br />
+          <br />
+          When a site refuses us, the table says <strong>which kind of refusal</strong>, because
+          they are not the same problem and three of them are cheap to fix.{' '}
+          <em>Rate limited</em> and <em>refused outright</em> are ours: we asked too fast, or we did
+          not look like anything they recognise. Slow that competitor down, or give the app a real
+          contact address, and they will very often serve us happily.{' '}
+          <em>Bot challenge</em> and <em>soft block</em> are a gate on what we are rather than how
+          we behave, and no amount of politeness clears them — those are a decision about whether
+          the source is reachable at all.{' '}
+          <em>Legally blocked</em> and <em>needs an account</em> are final. A <em>soft block</em> is
+          worth knowing about on its own: the site returns a perfectly normal page that simply is
+          not the product page, which otherwise looks exactly like a layout change and sends you
+          hunting for a selector that was never wrong.
         </Term>
       </Section>
 
