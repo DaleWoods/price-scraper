@@ -154,8 +154,6 @@ export function App() {
         ))}
 
         <div className="sidebar__footer">
-          MVP / Phase 0 — manual runs only.
-          <br />
           Competitor data is public pricing only.
         </div>
       </aside>

@@ -60,7 +60,7 @@ currently monitors **one competitor**.
 | **§8** Retention | ❌ Pending | Nothing prunes `price_observations`. A retention window still needs agreeing. |
 | **§9** Scraping conduct | ✅ Done | robots.txt respected and failing closed, honest user agent, public data only, no defeat-of-protection logic, no media downloads. See [Scraping conduct](#scraping-conduct-spec-9). |
 | Manual trigger | ✅ Done | Run now, scoped to one product, an uploaded list of SKUs, or everything. |
-| Scheduling | ❌ Pending | By design for this phase. |
+| Scheduling | ✅ Done | One nightly job: collect the day's feeds, then scan. Local wall-clock time so it holds through the clock changes, with a bounded catch-up after a restart. **Off by default** — turning it on is deliberate. |
 
 ---
 
@@ -72,8 +72,8 @@ Ordered by how much it matters.
    configurations have never met a live site. See
    [`docs/competitor-verification.md`](docs/competitor-verification.md).
 2. **A retention policy for `price_observations`** (§8). The table only grows.
-3. **Scheduling.** Every run is manual, including feed collection. Deliberate
-   for this phase, but the tool is most valuable running nightly.
+3. **A daily report.** The data is all there — every observation is stored —
+   but nothing assembles it into "here is what moved overnight".
 4. **Alert delivery.** Alerts are raised and resolved in-app; nothing is sent
    anywhere.
 5. **History for our own price.** Only competitors' prices are historised — a
@@ -148,6 +148,7 @@ one npm workspace repo, deployed as a single Docker image.
 | `scrape_runs` / `scrape_run_items` | A run and its per-target outcome, so failures are attributable rather than aggregate. Items carry an error kind and, for a refusal, a `block_cause`. |
 | `alerts` | Open/acknowledged/resolved alerts of three types. Two partial unique indexes provide dedupe — see the decisions below. |
 | `alert_settings` | Single-row table holding the thresholds. |
+| `scheduled_jobs` | When each scheduled job last ran, and how it went. Outlives the process, so a restart neither repeats nor skips a night. |
 | `feed_imports` | One row per feed import, for the audit trail. `source_signature` identifies the remote file, so the same one is never imported twice. |
 | `users` | Created for later role separation; currently one shared password. |
 | `schema_migrations` | Applied migration filenames. |
@@ -579,6 +580,8 @@ see [`docs/competitor-data-sources-brief.md`](docs/competitor-data-sources-brief
 | `GET` | `/api/admin/fascias` | Our sites, for the fascia selectors |
 | `GET` | `/api/admin/scrape-health` | Success rate and failures per competitor (`?days=7\|30\|90`) |
 | `POST` | `/api/admin/verify-competitor/:slug` | End-to-end verification of one competitor |
+| `GET` | `/api/admin/schedule` | Whether the nightly job is on, and how the last run went |
+| `POST` | `/api/admin/run-nightly` | Run the nightly job now, without affecting the schedule |
 | `GET` | `/api/admin/feed-source` | What is in the feed FTP directory, and the configured patterns |
 | `POST` | `/api/admin/fetch-feeds` | Collect and import today's feeds (`?force=1` re-imports) |
 | `POST` | `/api/admin/robots-check` | What each competitor's robots.txt permits |

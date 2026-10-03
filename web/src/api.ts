@@ -181,6 +181,17 @@ export interface TestUrlResult {
   extracted: Record<string, unknown>;
 }
 
+/** The nightly job: whether it is on, and how the last run went. */
+export interface SchedulerStatus {
+  enabled: boolean;
+  at: string;
+  timeZone: string;
+  lastRunAt: string | null;
+  lastStatus: string | null;
+  lastDetail: string | null;
+  lastDurationMs: number | null;
+}
+
 /** What came back from collecting the daily feeds off the FTP location. */
 export interface FeedIngestReport {
   configured: boolean;
@@ -567,6 +578,11 @@ export const api = {
 
   sitemapCheck: () =>
     request<SitemapCheckResult>('/api/admin/sitemap-check', { method: 'POST' }),
+
+  schedule: () => request<SchedulerStatus>('/api/admin/schedule'),
+
+  runNightly: () =>
+    request<{ feeds: string; scan: string }>('/api/admin/run-nightly', { method: 'POST' }),
 
   feedSource: () => request<FeedSourceListing>('/api/admin/feed-source'),
 

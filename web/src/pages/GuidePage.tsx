@@ -264,6 +264,14 @@ export function GuidePage() {
           here changes a price or starts a run.
           <br />
           <br />
+          <strong>Nightly job</strong> is the one to check first if anything looks out of date. It
+          collects the day's feeds and then scans competitors, in that order, so the catalogue is
+          current before any price is compared. The panel says plainly when it last ran — and warns
+          when that was over a day ago, because an unattended job that has quietly stopped is
+          otherwise invisible: the comparison carries on showing prices, they just stop being
+          today's. <em>Run it now</em> does the same work on demand without affecting the schedule.
+          <br />
+          <br />
           <strong>Daily feeds</strong> collects the Google feeds straight from the location they are
           already delivered to, so nobody has to upload them. Press <em>Collect feeds now</em> and it
           takes the newest file for each site and imports it; running it twice costs nothing, because

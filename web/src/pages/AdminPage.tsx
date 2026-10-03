@@ -8,6 +8,7 @@ import {
   type CompetitorVerification,
   type FeedIngestReport,
   type FeedSourceListing,
+  type SchedulerStatus,
   type RobotsCheckResult,
   type SitemapCheckResult,
   type SitemapCheckRow,
@@ -81,6 +82,7 @@ export function AdminPage() {
         onChange={load}
         toast={toast}
       />
+      <ScheduleSection toast={toast} />
       <FeedSourceSection toast={toast} />
       <VerificationSection competitors={competitors} toast={toast} />
       <RobotsSection toast={toast} />
@@ -627,6 +629,129 @@ const BLOCK_CAUSE_COPY: Record<string, { label: string; hint: string; ours: bool
     ours: false,
   },
 };
+
+/**
+ * The nightly job, and how the last one went.
+ *
+ * Worth a panel of its own because an unattended job that has quietly stopped
+ * is invisible otherwise — the comparison carries on showing prices, they just
+ * stop being today's. Saying plainly when it last ran is what makes that
+ * noticeable.
+ */
+function ScheduleSection({
+  toast,
+}: {
+  toast: (message: string, tone?: 'ok' | 'error' | 'info') => void;
+}) {
+  const [status, setStatus] = useState<SchedulerStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await api.schedule());
+    } catch {
+      // A missing schedule is not worth a toast on page load.
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const runNow = async () => {
+    setBusy(true);
+    try {
+      const result = await api.runNightly();
+      toast(`Feeds: ${result.feeds}. ${result.scan}.`, 'ok');
+      await load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not start the nightly job', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stale =
+    status?.lastRunAt != null &&
+    Date.now() - new Date(status.lastRunAt).getTime() > 36 * 60 * 60 * 1000;
+
+  return (
+    <Card
+      title="Nightly job"
+      subtitle="Collects the day's feeds, then scans competitors"
+      actions={
+        <button type="button" className="btn btn--primary" onClick={() => void runNow()} disabled={busy}>
+          {busy && <span className="spinner" />}
+          {busy ? 'Starting…' : 'Run it now'}
+        </button>
+      }
+    >
+      {status && !status.enabled && (
+        <Alert tone="warn" title="Not scheduled — nothing runs on its own">
+          Prices only update when someone presses a button. Set{' '}
+          <span className="mono">SCHEDULE_ENABLED=true</span> to run every night at{' '}
+          <strong>{status.at}</strong> {status.timeZone}. It is off by default so a deployment
+          nobody is watching cannot start a full scan by surprise.
+        </Alert>
+      )}
+
+      {status?.enabled && (
+        <p className="small">
+          Runs every night at <strong>{status.at}</strong> ({status.timeZone}). Feeds are collected
+          first, so the catalogue is current before anything is compared.
+        </p>
+      )}
+
+      {status && (
+        <div className="stat-grid" style={{ marginTop: 'var(--sp-4)' }}>
+          <Stat
+            label="Last run"
+            value={status.lastRunAt ? formatDateTime(status.lastRunAt) : 'never'}
+            tone={stale ? 'higher' : status.lastRunAt ? 'lower' : 'info'}
+            icon={stale ? '▲' : '🕑'}
+          />
+          <Stat
+            label="Outcome"
+            value={status.lastStatus ?? '—'}
+            tone={
+              status.lastStatus === 'ok'
+                ? 'lower'
+                : status.lastStatus === 'failed'
+                  ? 'higher'
+                  : 'info'
+            }
+            icon={status.lastStatus === 'ok' ? '✓' : status.lastStatus === 'failed' ? '⛔' : '…'}
+          />
+          <Stat
+            label="Took"
+            value={
+              status.lastDurationMs == null
+                ? '—'
+                : `${(status.lastDurationMs / 1000).toFixed(0)}s to start`
+            }
+            tone="info"
+            icon="⏱"
+          />
+        </div>
+      )}
+
+      {stale && (
+        <div style={{ marginTop: 'var(--sp-3)' }}>
+          <Alert tone="danger" title="The nightly job has not run for over a day">
+            Every price on the comparison is older than it looks. Check the server logs before
+            trusting any of it.
+          </Alert>
+        </div>
+      )}
+
+      {status?.lastDetail && (
+        <p className="small muted" style={{ marginTop: 'var(--sp-3)' }}>
+          {status.lastDetail}
+        </p>
+      )}
+    </Card>
+  );
+}
 
 const INGEST_STATUS: Record<string, { label: string; tone: string }> = {
   imported: { label: 'Imported', tone: 'badge--lower' },

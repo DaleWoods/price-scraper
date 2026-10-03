@@ -492,3 +492,28 @@ for problems that have actually happened, with the real numbers.
   an empty buffer that looks exactly like an empty feed. Env must be set *before*
   importing anything that reads it: `config/env.ts` snapshots `process.env` at
   import time.
+- **The scheduler works in local wall-clock time, not UTC.** "Run at 03:00"
+  means 03:00 as the business reads it, in summer and winter alike. A scheduler
+  reasoning in UTC drifts an hour twice a year, so half the year the nightly
+  job runs at a different time than anyone configured. `localStamp` renders a
+  sortable local stamp and `isDue` compares those; there are tests for both
+  clock changes. Note `hourCycle: 'h23'` rather than `hour12: false` — the
+  latter renders midnight as "24" in some runtimes, which sorts after
+  everything and would make a job near midnight never look due.
+- **The schedule is claimed before the work, not recorded after it.** A scan
+  takes hours; writing the timestamp on completion would leave every tick in
+  between seeing a job that had not run and starting another one. The claim is
+  a conditional UPDATE, so two ticks cannot both win.
+- **A claim expires after 12 hours, and that escape hatch is load-bearing.**
+  Without it the claim is a one-way door: a process killed mid-scan — a deploy,
+  an OOM, a platform restart — leaves the row saying 'running' with nothing
+  running, and the nightly job never fires again. Completely silently, which is
+  the worst kind. There is a test for the abandoned case and one for a long but
+  genuinely live run.
+- **The nightly job scans even if the feed import failed.** A stale catalogue is
+  a much smaller problem than a night with no competitor prices at all, and
+  yesterday's products are still broadly the right ones.
+- **`startScheduler()` is called after the port is bound**, not before. A scan
+  beginning before the health check can answer makes the platform conclude the
+  deploy failed. The interval is `unref`'d so it never holds the process open
+  on shutdown.

@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
 import { closePool, query } from './db/pool.js';
 import { runMigrations } from './db/migrate.js';
+import { startScheduler, stopScheduler } from './scheduler.js';
 import { logger } from './lib/logger.js';
 import { authEnabled, requireAuth } from './middleware/auth.js';
 import { adminRouter } from './routes/admin.js';
@@ -73,10 +74,14 @@ async function start(): Promise<void> {
       logger.warn('server', 'APP_PASSWORD is not set — the app is running without a login gate.');
     }
     warnIfBrowsersPathMisconfigured();
+    // Started only once the port is bound: a scan that begins before the
+    // health check can answer makes the platform think the deploy failed.
+    startScheduler();
   });
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info('server', `${signal} received, shutting down`);
+    stopScheduler();
     server.close();
     await closeBrowser();
     await closePool();

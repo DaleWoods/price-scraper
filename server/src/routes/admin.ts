@@ -8,6 +8,7 @@ import { getScrapeHealth } from '../services/scrapeHealth.js';
 import { verifyCompetitor } from '../services/competitorVerification.js';
 import { ingestFeedsFromSource } from '../import/feedIngest.js';
 import { isFeedSourceConfigured, listFeedDirectory } from '../import/feedSource.js';
+import { runNightlyJob, schedulerStatus } from '../scheduler.js';
 
 export const adminRouter: Router = Router();
 
@@ -226,6 +227,29 @@ adminRouter.post('/fetch-feeds', async (req, res, next) => {
  * Exists so a pattern that matches nothing can be diagnosed by looking, rather
  * than by guessing at why an import found no file.
  */
+adminRouter.get('/schedule', async (_req, res, next) => {
+  try {
+    res.json(await schedulerStatus());
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Run tonight's job now: collect feeds, then start a scan.
+ *
+ * Does not claim the schedule, so an on-demand run neither marks tonight as
+ * done nor stops it happening. The runner's own guard is what prevents this
+ * overlapping with a scan already in progress.
+ */
+adminRouter.post('/run-nightly', async (_req, res, next) => {
+  try {
+    res.json(await runNightlyJob());
+  } catch (err) {
+    next(err);
+  }
+});
+
 adminRouter.get('/feed-source', async (_req, res, next) => {
   try {
     if (!isFeedSourceConfigured()) {

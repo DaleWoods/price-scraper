@@ -80,6 +80,31 @@ export const env = {
       .sort((a, b) => a.fasciaCode.localeCompare(b.fasciaCode));
   },
 
+  /**
+   * The nightly job: collect feeds, then scan.
+   *
+   * Off by default. A scan started by surprise on a deployment nobody was
+   * watching is the sort of thing that burns a compute quota overnight, so
+   * turning it on is a deliberate act.
+   */
+  scheduleEnabled: (process.env.SCHEDULE_ENABLED ?? 'false').toLowerCase() === 'true',
+  /** 24-hour local time, "HH:MM". */
+  scheduleAt: (process.env.SCHEDULE_AT?.trim() || '03:00'),
+  /**
+   * Defaults to UK local time, so "03:00" means 3am as the business reads it
+   * in summer and winter alike rather than drifting an hour twice a year.
+   */
+  scheduleTimeZone: process.env.SCHEDULE_TIMEZONE?.trim() || 'Europe/London',
+  /**
+   * How long after the scheduled time a missed run is still worth starting.
+   *
+   * If the app was down at 03:00 it should still run when it comes back at
+   * 03:40 — a day with no prices is the thing this job exists to prevent. But
+   * coming back at 6pm should wait for tonight rather than starting a full
+   * scan in the middle of the afternoon.
+   */
+  scheduleCatchUpHours: optionalInt('SCHEDULE_CATCH_UP_HOURS', 4),
+
   /** Set to 'false' only for local testing against your own fixtures. */
   respectRobotsTxt: (process.env.RESPECT_ROBOTS_TXT ?? 'true').toLowerCase() !== 'false',
 
