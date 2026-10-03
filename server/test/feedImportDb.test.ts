@@ -45,6 +45,9 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
 
   const skus = ['tst-90000001', 'tst-90000002', 'tst-90000003'];
 
+  /** Highest feed_imports id that existed before this suite ran. */
+  let feedImportWatermark = 0;
+
   before(async () => {
     ({ importFeed } = await import('../src/import/feedImport.ts'));
     ({ query, closePool } = await import('../src/db/pool.ts'));
@@ -54,10 +57,19 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
     fasciaCode = rows[0]!.code;
     secondFasciaCode = rows[1]?.code ?? rows[0]!.code;
     await query('DELETE FROM products WHERE internal_sku = ANY($1)', [skus]);
+
+    // Every import writes an audit row, and those are fixtures too. A
+    // watermark rather than a list of filenames, so adding a test later cannot
+    // quietly start leaving rows behind again.
+    const { rows: watermark } = await query<{ max: string | null }>(
+      'SELECT max(id)::text AS max FROM feed_imports',
+    );
+    feedImportWatermark = Number(watermark[0]?.max ?? 0);
   });
 
   after(async () => {
     await query('DELETE FROM products WHERE internal_sku = ANY($1)', [skus]);
+    await query('DELETE FROM feed_imports WHERE id > $1', [feedImportWatermark]);
     await closePool();
   });
 

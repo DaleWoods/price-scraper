@@ -42,6 +42,44 @@ export const env = {
   requestTimeoutMs: optionalInt('SCRAPER_TIMEOUT_MS', 30000),
   maxConcurrentScrapes: optionalInt('SCRAPER_MAX_CONCURRENCY', 2),
 
+  /**
+   * Where the daily Google feeds are delivered.
+   *
+   * Collecting them from here rather than by hand is not only about saving
+   * the upload: a feed that travels via someone's desktop tends to arrive
+   * having been opened in Excel, which destroys long GTINs into scientific
+   * notation and throws away the strongest matching key we have.
+   *
+   * Unset means nothing changes — feeds are uploaded manually as before.
+   */
+  feedFtpProtocol: ((process.env.FEED_FTP_PROTOCOL?.trim().toLowerCase() || 'sftp') as
+    | 'ftp'
+    | 'ftps'
+    | 'sftp'),
+  feedFtpHost: process.env.FEED_FTP_HOST?.trim() || null,
+  feedFtpPort: process.env.FEED_FTP_PORT ? optionalInt('FEED_FTP_PORT', 0) || null : null,
+  feedFtpUser: process.env.FEED_FTP_USER?.trim() || null,
+  feedFtpPassword: process.env.FEED_FTP_PASSWORD || null,
+  feedFtpDirectory: process.env.FEED_FTP_DIRECTORY?.trim() || '/',
+
+  /**
+   * Which filename belongs to which of our sites, as
+   * `FEED_FTP_PATTERN_<fascia code>=goldsmiths_*.csv`.
+   *
+   * Read from the environment by prefix rather than listed here, so adding a
+   * fourth fascia is a deployment setting and not a code change — the same
+   * rule the competitor configs follow.
+   */
+  get feedPatterns(): { fasciaCode: string; pattern: string }[] {
+    return Object.entries(process.env)
+      .filter(([key, value]) => key.startsWith('FEED_FTP_PATTERN_') && value?.trim())
+      .map(([key, value]) => ({
+        fasciaCode: key.slice('FEED_FTP_PATTERN_'.length),
+        pattern: value!.trim(),
+      }))
+      .sort((a, b) => a.fasciaCode.localeCompare(b.fasciaCode));
+  },
+
   /** Set to 'false' only for local testing against your own fixtures. */
   respectRobotsTxt: (process.env.RESPECT_ROBOTS_TXT ?? 'true').toLowerCase() !== 'false',
 

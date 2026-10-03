@@ -6,6 +6,8 @@ import { surveySitemaps } from '../scraping/sitemap.js';
 import { buildSearchUrl, listCompetitors } from '../scraping/competitorRegistry.js';
 import { getScrapeHealth } from '../services/scrapeHealth.js';
 import { verifyCompetitor } from '../services/competitorVerification.js';
+import { ingestFeedsFromSource } from '../import/feedIngest.js';
+import { isFeedSourceConfigured, listFeedDirectory } from '../import/feedSource.js';
 
 export const adminRouter: Router = Router();
 
@@ -194,6 +196,56 @@ export interface RobotsCheckRow {
  * shows results as they arrive, and a failure costs one competitor rather than
  * the whole survey.
  */
+/**
+ * Collect today's feeds from the FTP location and import them.
+ *
+ * Safe to call repeatedly: a file already imported is recognised and skipped,
+ * so this can be scheduled and triggered by hand without anyone having to
+ * work out whether it has already run.
+ */
+adminRouter.post('/fetch-feeds', async (req, res, next) => {
+  try {
+    const report = await ingestFeedsFromSource({ force: req.query.force === '1' });
+    if (!report.configured) {
+      res.status(400).json({
+        error:
+          'No feed location is configured. Set FEED_FTP_HOST, FEED_FTP_USER, ' +
+          'FEED_FTP_PASSWORD and a FEED_FTP_PATTERN_<fascia code> per site.',
+      });
+      return;
+    }
+    res.json(report);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * What is actually in the feed directory.
+ *
+ * Exists so a pattern that matches nothing can be diagnosed by looking, rather
+ * than by guessing at why an import found no file.
+ */
+adminRouter.get('/feed-source', async (_req, res, next) => {
+  try {
+    if (!isFeedSourceConfigured()) {
+      res.json({ configured: false, patterns: [], files: [] });
+      return;
+    }
+    const files = await listFeedDirectory();
+    res.json({
+      configured: true,
+      protocol: env.feedFtpProtocol,
+      directory: env.feedFtpDirectory,
+      patterns: env.feedPatterns,
+      // Newest first: the one about to be imported is the one worth seeing.
+      files: files.sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 50),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 adminRouter.post('/verify-competitor/:slug', async (req, res, next) => {
   try {
     const competitors = await listCompetitors(false);

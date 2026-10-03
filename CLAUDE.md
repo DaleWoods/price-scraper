@@ -460,3 +460,35 @@ for problems that have actually happened, with the real numbers.
   but a `blocked` on the first ends it: the rest would be refused identically,
   and making a site that just said no say it twice more is both pointless and
   rude. There is a test asserting exactly one request reaches a walled site.
+- **Collecting the feed off FTP is a matching-quality fix, not a convenience.**
+  Feeds that arrive via a person have usually been opened in Excel on the way,
+  which turns a 13-digit GTIN into `7.32E+11` — 263 of 266 in the first
+  Goldsmiths feed. `importFeed` refuses a damaged identifier rather than storing
+  a mangled barcode, so those products lose the strongest matching key there is
+  and fall back to fuzzy name matching. Taking the file off the server untouched
+  keeps it. `FeedImportResult.withUsableIdentifier` is the number that says
+  whether a feed arrived intact, and it is what the Admin panel reports.
+- **A feed import is deduplicated on `(fascia, source_signature)`, not on
+  filename.** These feeds are republished under the same name every day, so the
+  signature carries size and modified time too. Re-importing an identical feed
+  is not harmless: a feed is authoritative for its fascia, so it rewrites that
+  site's prices and churns the delist/relist counters for no new information.
+- **`recordSignature` releases the signature from the previous holder before
+  claiming it.** Without that release a forced re-import is impossible — the
+  unique index rejects the second claim, and the import fails *after* the data
+  has already been written, so the run reports a failure for work that
+  succeeded. A test covers exactly this. The old `feed_imports` row is kept as
+  the audit trail; it just stops holding the signature.
+- **Feed filename patterns use `*` only, and may not contain a path.** A naive
+  glob-to-regex leaves `.` meaning "any character", so `feed.csv` would also
+  match `feedxcsv`; and a pattern containing `/` would walk out of the
+  configured directory. `patternToRegExp` refuses both.
+- **A pattern with no match, or one fascia's feed failing, must not cost the
+  others their refresh.** One site's feed being late or half-written is a normal
+  morning. Each fascia is caught separately.
+- **The runner test helper's FTP equivalent is `ftp-srv`.** `feedIngest.test.ts`
+  runs a real FTP server over a temp directory, because the connect/list/download
+  path cannot be reasoned about — a wrong path join or an unflushed stream gives
+  an empty buffer that looks exactly like an empty feed. Env must be set *before*
+  importing anything that reads it: `config/env.ts` snapshots `process.env` at
+  import time.

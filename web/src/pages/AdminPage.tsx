@@ -6,6 +6,8 @@ import {
   type BlockDiagnosis,
   type Competitor,
   type CompetitorVerification,
+  type FeedIngestReport,
+  type FeedSourceListing,
   type RobotsCheckResult,
   type SitemapCheckResult,
   type SitemapCheckRow,
@@ -79,6 +81,7 @@ export function AdminPage() {
         onChange={load}
         toast={toast}
       />
+      <FeedSourceSection toast={toast} />
       <VerificationSection competitors={competitors} toast={toast} />
       <RobotsSection toast={toast} />
       <SitemapSection toast={toast} />
@@ -624,6 +627,188 @@ const BLOCK_CAUSE_COPY: Record<string, { label: string; hint: string; ours: bool
     ours: false,
   },
 };
+
+const INGEST_STATUS: Record<string, { label: string; tone: string }> = {
+  imported: { label: 'Imported', tone: 'badge--lower' },
+  unchanged: { label: 'No change', tone: 'badge--neutral' },
+  missing: { label: 'Not found', tone: 'badge--warn' },
+  failed: { label: 'Failed', tone: 'badge--higher' },
+};
+
+/**
+ * Collect today's feeds from the FTP location they already land in.
+ *
+ * Worth more than the saved upload: a feed that travels via someone's desktop
+ * tends to arrive having been opened in Excel, which turns a 13-digit GTIN
+ * into "7.32E+11". That is the strongest matching key we have, so the panel
+ * reports how many usable identifiers arrived — the number that says whether
+ * the file reached us intact.
+ */
+function FeedSourceSection({
+  toast,
+}: {
+  toast: (message: string, tone?: 'ok' | 'error' | 'info') => void;
+}) {
+  const [listing, setListing] = useState<FeedSourceListing | null>(null);
+  const [report, setReport] = useState<FeedIngestReport | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setListing(await api.feedSource());
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not reach the feed location', 'error');
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const fetchNow = async (force: boolean) => {
+    setBusy(true);
+    try {
+      const result = await api.fetchFeeds(force);
+      setReport(result);
+      const imported = result.outcomes.filter((row) => row.status === 'imported').length;
+      toast(
+        imported > 0 ? `Imported ${imported} feed(s).` : 'Nothing new to import.',
+        imported > 0 ? 'ok' : 'info',
+      );
+      await load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not collect the feeds', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (listing && !listing.configured) {
+    return (
+      <Card title="Daily feeds" subtitle="Collect the Google feeds from where they are delivered">
+        <Alert tone="info" title="No feed location configured">
+          Feeds are uploaded by hand on the Import feed page. To collect them automatically instead,
+          set <span className="mono">FEED_FTP_HOST</span>,{' '}
+          <span className="mono">FEED_FTP_USER</span>, <span className="mono">FEED_FTP_PASSWORD</span>{' '}
+          and one <span className="mono">FEED_FTP_PATTERN_&lt;site code&gt;</span> per site.
+          <br />
+          <br />
+          Worth doing for more than the saved upload: a feed that travels via someone's desktop
+          usually arrives having been opened in Excel, which destroys long barcodes into{' '}
+          <span className="mono">7.32E+11</span>. That barcode is the strongest way to match our
+          products to a competitor's, so losing it costs far more than it looks.
+        </Alert>
+      </Card>
+    );
+  }
+
+  return (
+    <Card
+      title="Daily feeds"
+      subtitle={
+        listing
+          ? `${listing.protocol}://…${listing.directory} — ${listing.files.length} file(s) visible`
+          : 'Checking the feed location…'
+      }
+      actions={
+        <>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => void fetchNow(false)}
+            disabled={busy}
+          >
+            {busy && <span className="spinner" />}
+            {busy ? 'Collecting…' : 'Collect feeds now'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            onClick={() => void fetchNow(true)}
+            disabled={busy}
+            title="Import again even if this exact file has already been imported"
+          >
+            Force re-import
+          </button>
+        </>
+      }
+    >
+      <p className="small muted">
+        Collects the newest file matching each site's pattern and imports it. Safe to run as often
+        as you like — a file already imported is recognised and skipped, so nothing is rewritten for
+        no reason.
+      </p>
+
+      {listing && listing.patterns.length === 0 && (
+        <Alert tone="warn" title="No patterns set">
+          The location is reachable but no site patterns are configured, so nothing can be matched to
+          a site. Set <span className="mono">FEED_FTP_PATTERN_197</span> and friends.
+        </Alert>
+      )}
+
+      {report && (
+        <div className="table-wrap" style={{ marginTop: 'var(--sp-4)' }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Site</th>
+                <th>Result</th>
+                <th>File</th>
+                <th>What happened</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.outcomes.map((row) => (
+                <tr key={row.fasciaCode + row.pattern}>
+                  <td className="mono">{row.fasciaCode}</td>
+                  <td>
+                    <span className={`badge ${INGEST_STATUS[row.status]?.tone ?? 'badge--neutral'}`}>
+                      {INGEST_STATUS[row.status]?.label ?? row.status}
+                    </span>
+                  </td>
+                  <td className="xs mono truncate" style={{ maxWidth: 220 }}>
+                    {row.filename ?? '—'}
+                  </td>
+                  <td className="xs">{row.message}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {listing && listing.files.length > 0 && (
+        <details style={{ marginTop: 'var(--sp-4)' }}>
+          <summary className="small muted">
+            What is in that folder ({listing.files.length} newest files)
+          </summary>
+          <div className="table-wrap" style={{ marginTop: 'var(--sp-3)' }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th className="num">Size</th>
+                  <th className="num">Modified</th>
+                </tr>
+              </thead>
+              <tbody>
+                {listing.files.map((file) => (
+                  <tr key={file.name}>
+                    <td className="mono xs">{file.name}</td>
+                    <td className="num muted xs">{(file.size / 1024 / 1024).toFixed(1)} MB</td>
+                    <td className="num muted xs nowrap">
+                      {file.modifiedAt ? formatDateTime(new Date(file.modifiedAt).toISOString()) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </Card>
+  );
+}
 
 /** How each verdict reads, and how loudly. */
 const VERDICT_COPY: Record<string, { label: string; tone: string; mark: string }> = {

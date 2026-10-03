@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '2 September 2026';
+const GUIDE_UPDATED = '3 October 2026';
 
 function Section({
   id,
@@ -262,6 +262,21 @@ export function GuidePage() {
           <strong>Crawl permissions</strong> and <strong>Sitemaps</strong>, which say whether a site
           can be read at all and by what route; and <strong>Test a product URL</strong>. Nothing
           here changes a price or starts a run.
+          <br />
+          <br />
+          <strong>Daily feeds</strong> collects the Google feeds straight from the location they are
+          already delivered to, so nobody has to upload them. Press <em>Collect feeds now</em> and it
+          takes the newest file for each site and imports it; running it twice costs nothing, because
+          a file already imported is recognised and skipped.
+          <br />
+          <br />
+          This matters for more than the saved upload. A feed that reaches us via somebody's desktop
+          has usually been opened in Excel on the way, and Excel quietly rewrites a long barcode as{' '}
+          <span className="mono">7.32E+11</span> — in our first Goldsmiths feed that destroyed 263 of
+          266 of them. A barcode is the strongest way to tell that a competitor's listing is the same
+          product as ours, far better than matching on the name, so losing it costs real accuracy.
+          Taken straight off the server the file is untouched, and the panel reports how many
+          products arrived carrying a usable barcode.
           <br />
           <br />
           <strong>Can we read each competitor?</strong> is the one to start with. Every competitor

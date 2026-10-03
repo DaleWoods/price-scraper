@@ -181,6 +181,28 @@ export interface TestUrlResult {
   extracted: Record<string, unknown>;
 }
 
+/** What came back from collecting the daily feeds off the FTP location. */
+export interface FeedIngestReport {
+  configured: boolean;
+  startedAt: string;
+  finishedAt: string;
+  outcomes: {
+    fasciaCode: string;
+    pattern: string;
+    filename: string | null;
+    status: 'imported' | 'unchanged' | 'missing' | 'failed';
+    message: string;
+  }[];
+}
+
+export interface FeedSourceListing {
+  configured: boolean;
+  protocol?: string;
+  directory?: string;
+  patterns: { fasciaCode: string; pattern: string }[];
+  files: { name: string; size: number; modifiedAt: number }[];
+}
+
 /** One competitor's end-to-end verification result. */
 export interface CompetitorVerification {
   slug: string;
@@ -545,6 +567,13 @@ export const api = {
 
   sitemapCheck: () =>
     request<SitemapCheckResult>('/api/admin/sitemap-check', { method: 'POST' }),
+
+  feedSource: () => request<FeedSourceListing>('/api/admin/feed-source'),
+
+  fetchFeeds: (force = false) =>
+    request<FeedIngestReport>(`/api/admin/fetch-feeds${force ? '?force=1' : ''}`, {
+      method: 'POST',
+    }),
 
   verifyCompetitor: (slug: string) =>
     request<CompetitorVerification>(`/api/admin/verify-competitor/${slug}`, { method: 'POST' }),

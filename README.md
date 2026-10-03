@@ -50,7 +50,7 @@ currently monitors **one competitor**.
 
 | Spec | Status | Delivered |
 | --- | --- | --- |
-| **§5.1** Product import | ✅ Done | Google Shopping feed per fascia. Authoritative for its site: prices from an earlier feed are replaced, and products absent from every latest feed are **delisted** rather than deleted. Format detected from magic bytes; damaged identifiers, padding rows and repeated headers are reported rather than hidden. |
+| **§5.1** Product import | ✅ Done | Google Shopping feed per fascia, uploaded by hand **or collected automatically from the FTP location they are delivered to** — which also keeps GTINs intact, since a feed routed via a desktop usually arrives Excel-damaged. Authoritative for its site: prices from an earlier feed are replaced, and products absent from every latest feed are **delisted** rather than deleted. Format detected from magic bytes; damaged identifiers, padding rows and repeated headers are reported rather than hidden. |
 | **§5.2** Competitor config | ⚠️ Built, unverified | Competitors are JSON files in `competitors/`. Adding a retailer is config plus a sync — **never a code change**. Eleven are configured; **one is enabled**, the other ten are unverified guesses. |
 | **§5.3** Matching | ✅ Done | Tiered scoring — EAN/MPN exact → brand + spec attributes → fuzzy name — with gate/high/medium/ignore weights per category (Appendix A). ≥85 auto-confirms; below that goes to a review queue with single and bulk decisions, plus manual URL linking. |
 | **§5.4** Scraping | ✅ Done | Sitemap discovery, robots.txt honoured, per-domain rate limiting with jitter, retry with backoff, typed loud failures. Fetches over plain HTTP and escalates to a browser only where needed. Refusals are diagnosed by cause. |
@@ -72,8 +72,8 @@ Ordered by how much it matters.
    configurations have never met a live site. See
    [`docs/competitor-verification.md`](docs/competitor-verification.md).
 2. **A retention policy for `price_observations`** (§8). The table only grows.
-3. **Scheduling.** Every run is manual. Deliberate for this phase, but the tool
-   is most valuable running nightly.
+3. **Scheduling.** Every run is manual, including feed collection. Deliberate
+   for this phase, but the tool is most valuable running nightly.
 4. **Alert delivery.** Alerts are raised and resolved in-app; nothing is sent
    anywhere.
 5. **History for our own price.** Only competitors' prices are historised — a
@@ -148,7 +148,7 @@ one npm workspace repo, deployed as a single Docker image.
 | `scrape_runs` / `scrape_run_items` | A run and its per-target outcome, so failures are attributable rather than aggregate. Items carry an error kind and, for a refusal, a `block_cause`. |
 | `alerts` | Open/acknowledged/resolved alerts of three types. Two partial unique indexes provide dedupe — see the decisions below. |
 | `alert_settings` | Single-row table holding the thresholds. |
-| `feed_imports` | One row per feed upload, for the audit trail. |
+| `feed_imports` | One row per feed import, for the audit trail. `source_signature` identifies the remote file, so the same one is never imported twice. |
 | `users` | Created for later role separation; currently one shared password. |
 | `schema_migrations` | Applied migration filenames. |
 
@@ -579,6 +579,8 @@ see [`docs/competitor-data-sources-brief.md`](docs/competitor-data-sources-brief
 | `GET` | `/api/admin/fascias` | Our sites, for the fascia selectors |
 | `GET` | `/api/admin/scrape-health` | Success rate and failures per competitor (`?days=7\|30\|90`) |
 | `POST` | `/api/admin/verify-competitor/:slug` | End-to-end verification of one competitor |
+| `GET` | `/api/admin/feed-source` | What is in the feed FTP directory, and the configured patterns |
+| `POST` | `/api/admin/fetch-feeds` | Collect and import today's feeds (`?force=1` re-imports) |
 | `POST` | `/api/admin/robots-check` | What each competitor's robots.txt permits |
 | `POST` | `/api/admin/sitemap-check` | Survey the sitemaps each competitor declares |
 
