@@ -44,6 +44,25 @@ export interface PositionTrendPoint {
   higherPct: number;
 }
 
+/**
+ * The position split by whether the comparison was like for like.
+ *
+ * This is the figure that decides whether the headline can be trusted. A range
+ * that looks healthy because we are mid-sale against competitors at full price
+ * is not in a healthy position — it is in a temporary one, and it reverts the
+ * week the promotion ends. Equally, being beaten largely by rivals who are
+ * themselves on promotion is a different problem from being beaten at their
+ * regular price.
+ */
+export interface BasisSplit {
+  basis: 'like_for_like' | 'ours_promotional' | 'theirs_promotional' | 'both_promotional';
+  compared: number;
+  lower: number;
+  equal: number;
+  higher: number;
+  higherPct: number;
+}
+
 export interface PositionAnalysis {
   fascia: { id: number; code: string; name: string } | null;
   generatedAt: string;
@@ -52,6 +71,8 @@ export interface PositionAnalysis {
   byCategory: PositionBreakdown[];
   byCompetitor: PositionBreakdown[];
   trend: PositionTrendPoint[];
+  /** The same position, split by whether anyone was on promotion. */
+  byBasis: BasisSplit[];
   /** Products we sell at this site but have no competitor price for at all. */
   uncovered: number;
 }
@@ -101,7 +122,7 @@ function toBreakdown(row: BreakdownRow, fallbackKey = 'Unspecified'): PositionBr
 const BEST_PER_PRODUCT = `
   WITH latest AS (
     SELECT DISTINCT ON (po.product_id, po.competitor_id)
-           po.product_id, po.competitor_id, po.price, po.in_stock
+           po.product_id, po.competitor_id, po.price, po.in_stock, po.promo
     FROM price_observations po
     ORDER BY po.product_id, po.competitor_id, po.observed_at DESC
   ),
@@ -111,8 +132,10 @@ const BEST_PER_PRODUCT = `
            nullif(btrim(p.brand), '')    AS brand,
            nullif(btrim(p.category), '') AS category,
            fp.price AS our_price,
+           fp.on_sale IS TRUE AS ours_promotional,
            l.competitor_id,
-           l.price  AS their_price
+           l.price  AS their_price,
+           l.promo IS TRUE AS theirs_promotional
     FROM products p
     JOIN fascia_prices fp ON fp.product_id = p.id AND fp.fascia_id = $1
     JOIN latest l ON l.product_id = p.id
@@ -201,8 +224,53 @@ export async function getPositionAnalysis(fasciaId: number): Promise<PositionAna
     byCategory: categoryRows.map((row) => toBreakdown(row, 'Uncategorised')),
     byCompetitor: competitorRows.map((row) => toBreakdown(row)),
     trend: await getPositionTrend(fasciaId),
+    byBasis: await getBasisSplit(fasciaId),
     uncovered: Number(uncoveredRows[0]?.uncovered ?? 0),
   };
+}
+
+/**
+ * The position split four ways by who was on promotion.
+ *
+ * Uses the same cheapest-in-stock base as everything else, so the four rows
+ * sum to the overall figure rather than describing a different population.
+ */
+async function getBasisSplit(fasciaId: number): Promise<BasisSplit[]> {
+  const { rows } = await query<{
+    basis: BasisSplit['basis'];
+    compared: string;
+    lower: string;
+    equal: string;
+    higher: string;
+  }>(
+    `${BEST_PER_PRODUCT}
+     SELECT CASE
+              WHEN ours_promotional AND theirs_promotional THEN 'both_promotional'
+              WHEN ours_promotional                        THEN 'ours_promotional'
+              WHEN theirs_promotional                      THEN 'theirs_promotional'
+              ELSE 'like_for_like'
+            END AS basis,
+            count(*)::text AS compared,
+            count(*) FILTER (WHERE our_price < their_price - 0.005)::text AS lower,
+            count(*) FILTER (WHERE abs(our_price - their_price) <= 0.005)::text AS equal,
+            count(*) FILTER (WHERE our_price > their_price + 0.005)::text AS higher
+     FROM best
+     GROUP BY 1`,
+    [fasciaId],
+  );
+
+  return rows.map((row) => {
+    const compared = Number(row.compared);
+    const higher = Number(row.higher);
+    return {
+      basis: row.basis,
+      compared,
+      lower: Number(row.lower),
+      equal: Number(row.equal),
+      higher,
+      higherPct: compared === 0 ? 0 : Math.round((higher / compared) * 1000) / 10,
+    };
+  });
 }
 
 /**

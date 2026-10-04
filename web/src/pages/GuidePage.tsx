@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '7 October 2026';
+const GUIDE_UPDATED = '8 October 2026';
 
 function Section({
   id,
@@ -195,6 +195,25 @@ export function GuidePage() {
           products we can actually compare. A product nobody has priced is not a tie, and folding
           those in would flatter every number on the page — so they are counted separately and the
           page warns when they outnumber the compared ones.
+          <br />
+          <br />
+          <strong>Is the position real, or a promotion?</strong> is the panel to read before
+          trusting any of the figures above it. "We are cheaper" means something entirely
+          different depending on who is discounting: cheaper at full price against their full price
+          is a position you hold, while cheaper only because <em>we</em> are running a sale reverses
+          the week it ends. The same comparison is split four ways — neither side on promotion, us
+          only, them only, both — and the four add up to the headline rather than describing a
+          different set of products. A range that looks healthy but sits mostly under "we are on
+          promotion" is in a temporary position, not a good one.
+          <br />
+          <br />
+          <strong>New lines nothing has compared yet</strong> lists products live on the site with
+          no competitor price at all, newest first, and says which of three things is holding each
+          one up: nothing has looked for it, candidates are waiting in Match review, or it is
+          matched and simply not scanned yet. Discovery runs now reach uncovered products before
+          ones already priced, so this list drains on its own — but a line that went live today and
+          matters commercially is visible immediately rather than hiding as a blank row among
+          thousands.
           <br />
           <br />
           The weekly chart is drawn on a 0–100 scale rather than fitted to the data, so a high but

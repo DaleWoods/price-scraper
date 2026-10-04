@@ -1,8 +1,23 @@
 import { query } from '../db/pool.js';
-import type { ComparisonRow, PricePosition, Product } from '../domain/types.js';
+import type { ComparisonBasis, ComparisonRow, PricePosition, Product } from '../domain/types.js';
 
 /** Treat sub-penny differences as level rather than a spurious "higher". */
 const EQUALITY_EPSILON = 0.005;
+
+/**
+ * Is this comparison like for like?
+ *
+ * A promotion on either side makes the gap temporary rather than structural,
+ * and which side is promoting decides which way it is misleading. Reported per
+ * competitor rather than per product, because we can be mid-promotion against
+ * one retailer's sale and another's regular price at the same moment.
+ */
+export function comparisonBasis(ourOnSale: boolean, theirsPromo: boolean): ComparisonBasis {
+  if (ourOnSale && theirsPromo) return 'both_promotional';
+  if (ourOnSale) return 'ours_promotional';
+  if (theirsPromo) return 'theirs_promotional';
+  return 'like_for_like';
+}
 
 export function classifyPosition(ourPrice: number, competitorPrice: number): PricePosition {
   const delta = ourPrice - competitorPrice;
@@ -230,8 +245,14 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
         competitorId: observation.competitor_id,
         competitorName: observation.competitor_name,
         price: observation.price,
+        wasPrice: observation.was_price,
+        promo: observation.promo,
         inStock: observation.in_stock,
         position,
+        basis: comparisonBasis(
+          productFields.our_on_sale === true,
+          observation.promo === true,
+        ),
         deltaAbs,
         deltaPct,
         observedAt: observation.observed_at,

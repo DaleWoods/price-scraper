@@ -1049,9 +1049,19 @@ function CompetitorGrid({
                   {row.product.our_price == null ? (
                     <span className="price--missing">not loaded</span>
                   ) : (
-                    <span className="price">
-                      {formatMoney(row.product.our_price, row.product.currency)}
-                    </span>
+                    <>
+                      <span className="price">
+                        {formatMoney(row.product.our_price, row.product.currency)}
+                      </span>
+                      {row.product.our_on_sale && (
+                        <div
+                          className="cell-secondary xs"
+                          title="Our price is a promotion, so any advantage here is temporary"
+                        >
+                          our sale
+                        </div>
+                      )}
+                    </>
                   )}
                 </td>
                 {competitors.map(([id]) => {
@@ -1089,6 +1099,24 @@ function CompetitorGrid({
                       </span>
                       {entry.inStock === false && (
                         <div className="cell-secondary xs">out of stock</div>
+                      )}
+                      {/* A price on promotion is a temporary position, not a
+                          standing one. Marking it stops a sale week reading
+                          as a market move. */}
+                      {entry.promo && (
+                        <div
+                          className="cell-secondary xs"
+                          title={
+                            entry.wasPrice != null
+                              ? `On promotion, was ${formatMoney(entry.wasPrice, row.product.currency)}`
+                              : 'They are presenting this as a reduction'
+                          }
+                        >
+                          on sale
+                          {entry.wasPrice != null && (
+                            <> from {formatMoney(entry.wasPrice, row.product.currency)}</>
+                          )}
+                        </div>
                       )}
                       {entry.deltaPct != null && (
                         <div className="cell-secondary xs">

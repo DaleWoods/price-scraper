@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db/pool.js';
 import { getPriceMovements, type MovementSide } from '../services/priceMovements.js';
 import { getPositionAnalysis } from '../services/positionAnalysis.js';
+import { getCoverageGaps } from '../services/coverageGaps.js';
 
 export const reportRouter = Router();
 
@@ -68,6 +69,31 @@ reportRouter.get('/position', async (req, res, next) => {
       return;
     }
     res.json(await getPositionAnalysis(fasciaId));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Live products nothing has compared yet.
+ *
+ * New lines are where pricing decisions get made, and they are precisely the
+ * products a scan has never reached.
+ */
+reportRouter.get('/gaps', async (req, res, next) => {
+  try {
+    const fasciaId = await resolveFascia(req.query.fascia);
+    if (fasciaId == null) {
+      res.status(400).json({ error: 'No sites are configured.' });
+      return;
+    }
+    const windowDays = Number(req.query.windowDays);
+    res.json(
+      await getCoverageGaps({
+        fasciaId,
+        windowDays: Number.isFinite(windowDays) && windowDays > 0 ? windowDays : undefined,
+      }),
+    );
   } catch (err) {
     next(err);
   }

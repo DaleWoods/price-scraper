@@ -5,6 +5,8 @@ import {
   formatMoney,
   type Fascia,
   type PositionAnalysis,
+  type BasisSplit,
+  type CoverageGapReport,
   type PositionBreakdown,
   type PositionTrendPoint,
 } from '../api';
@@ -147,10 +149,108 @@ function TrendChart({ trend }: { trend: PositionTrendPoint[] }) {
   );
 }
 
+/** How each comparison basis reads, and what it means for the headline. */
+const BASIS_COPY: Record<string, { label: string; note: string; tone: string }> = {
+  like_for_like: {
+    label: 'Like for like',
+    note: 'Neither side on promotion — the position you actually hold.',
+    tone: 'badge--lower',
+  },
+  ours_promotional: {
+    label: 'We are on promotion',
+    note: 'Any advantage here reverses when the sale ends.',
+    tone: 'badge--warn',
+  },
+  theirs_promotional: {
+    label: 'They are on promotion',
+    note: 'They are discounting; your regular-price position may be fine.',
+    tone: 'badge--warn',
+  },
+  both_promotional: {
+    label: 'Both on promotion',
+    note: 'A promotional skirmish rather than a standing position.',
+    tone: 'badge--neutral',
+  },
+};
+
+/**
+ * The position split by who was on promotion.
+ *
+ * The figure that decides whether the headline can be trusted. A range looking
+ * healthy because we are mid-sale against competitors at full price is in a
+ * temporary position, not a good one, and it reverts the week the promotion
+ * ends.
+ */
+function BasisTable({ rows }: { rows: BasisSplit[] }) {
+  const total = rows.reduce((sum, row) => sum + row.compared, 0);
+  if (total === 0) {
+    return <p className="small muted">No comparisons yet.</p>;
+  }
+
+  const ordered = ['like_for_like', 'ours_promotional', 'theirs_promotional', 'both_promotional']
+    .map((basis) => rows.find((row) => row.basis === basis))
+    .filter((row): row is BasisSplit => row != null && row.compared > 0);
+
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Basis</th>
+            <th className="num">Products</th>
+            <th className="num">Share</th>
+            <th className="num">They beat us</th>
+            <th>What it means</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ordered.map((row) => (
+            <tr key={row.basis}>
+              <td>
+                <span className={`badge ${BASIS_COPY[row.basis]?.tone ?? 'badge--neutral'}`}>
+                  {BASIS_COPY[row.basis]?.label ?? row.basis}
+                </span>
+              </td>
+              <td className="num muted">{row.compared.toLocaleString()}</td>
+              <td className="num">{((row.compared / total) * 100).toFixed(0)}%</td>
+              <td className="num">
+                <span className={`badge ${row.higherPct >= 50 ? 'badge--higher' : 'badge--lower'}`}>
+                  {row.higherPct.toFixed(1)}%
+                </span>
+              </td>
+              <td className="xs muted">{BASIS_COPY[row.basis]?.note}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Live products nothing has compared yet, newest first. */
+const GAP_REASON: Record<string, { label: string; tone: string; fix: string }> = {
+  never_discovered: {
+    label: 'Never looked for',
+    tone: 'badge--higher',
+    fix: 'No discovery run has reached it yet.',
+  },
+  awaiting_review: {
+    label: 'Awaiting review',
+    tone: 'badge--warn',
+    fix: 'Candidates found — confirm or reject them on Match review.',
+  },
+  matched_but_unpriced: {
+    label: 'Matched, no price yet',
+    tone: 'badge--neutral',
+    fix: 'A match is confirmed; the next scan should price it.',
+  },
+};
+
 export function PositionPage() {
   const [fascias, setFascias] = useState<Fascia[]>([]);
   const [fascia, setFascia] = useState('');
   const [analysis, setAnalysis] = useState<PositionAnalysis | null>(null);
+  const [gaps, setGaps] = useState<CoverageGapReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -171,7 +271,12 @@ export function PositionPage() {
     setLoading(true);
     setError(null);
     try {
-      setAnalysis(await api.position(fascia));
+      const [position, coverage] = await Promise.all([
+        api.position(fascia),
+        api.coverageGaps(fascia),
+      ]);
+      setAnalysis(position);
+      setGaps(coverage);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not build the analysis');
     } finally {
@@ -249,6 +354,69 @@ export function PositionPage() {
           products we can actually compare. The other {analysis.uncovered.toLocaleString()} are not
           ties — nobody has priced them. Treat the shape as indicative until coverage improves.
         </Alert>
+      )}
+
+      <Card
+        title="Is the position real, or a promotion?"
+        subtitle="The same comparison, split by who was discounting at the time"
+      >
+        {loading ? <TableSkeleton columns={5} /> : <BasisTable rows={analysis?.byBasis ?? []} />}
+      </Card>
+
+      {gaps && gaps.total > 0 && (
+        <Card
+          title="New lines nothing has compared yet"
+          subtitle={`${gaps.total.toLocaleString()} live product(s) with no competitor price — ${gaps.newlyAdded} added in the last ${gaps.windowDays} days`}
+          bodyless
+        >
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Brand</th>
+                  <th className="num">Our price</th>
+                  <th className="num">Live for</th>
+                  <th>Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gaps.gaps.slice(0, 25).map((gap) => (
+                  <tr key={gap.productId}>
+                    <td>
+                      <div className="cell-primary truncate" style={{ maxWidth: 280 }}>
+                        {gap.productName}
+                      </div>
+                      <div className="cell-secondary mono">
+                        {gap.internalSku}
+                        {gap.eanMpn && ` · ${gap.eanMpn}`}
+                      </div>
+                    </td>
+                    <td className="nowrap">{gap.brand}</td>
+                    <td className="num price">
+                      {gap.ourPrice == null ? '—' : formatMoney(gap.ourPrice)}
+                    </td>
+                    <td className="num muted xs nowrap">
+                      {gap.ageDays === 0 ? 'today' : `${gap.ageDays}d`}
+                    </td>
+                    <td className="xs">
+                      <span className={`badge ${GAP_REASON[gap.reason]?.tone ?? 'badge--neutral'}`}>
+                        {GAP_REASON[gap.reason]?.label ?? gap.reason}
+                      </span>
+                      <div className="cell-secondary">{GAP_REASON[gap.reason]?.fix}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {gaps.gaps.length > 25 && (
+            <p className="small muted" style={{ padding: 'var(--sp-3)' }}>
+              Showing the 25 newest of {gaps.total.toLocaleString()}. Discovery runs reach uncovered
+              products first, so this list drains on its own as the nightly job works through it.
+            </p>
+          )}
+        </Card>
       )}
 
       <Card

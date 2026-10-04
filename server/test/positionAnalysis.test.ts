@@ -86,7 +86,7 @@ describe('position analysis', { skip: !DATABASE_URL && 'DATABASE_URL not set' },
     category: string,
     ourPrice: number | null,
     theirs: (number | null)[] = [],
-    options: { inStock?: boolean } = {},
+    options: { inStock?: boolean; oursOnSale?: boolean; theirsPromo?: boolean } = {},
   ): Promise<void> {
     const { rows } = await query<{ id: number }>(
       `INSERT INTO products (internal_sku, brand, product_name, category, source)
@@ -97,9 +97,9 @@ describe('position analysis', { skip: !DATABASE_URL && 'DATABASE_URL not set' },
 
     if (ourPrice != null) {
       await query(
-        `INSERT INTO fascia_prices (product_id, fascia_id, price, currency, imported_at)
-         VALUES ($1, $2, $3, 'GBP', now())`,
-        [productId, fasciaId, ourPrice],
+        `INSERT INTO fascia_prices (product_id, fascia_id, price, on_sale, currency, imported_at)
+         VALUES ($1, $2, $3, $4, 'GBP', now())`,
+        [productId, fasciaId, ourPrice, options.oursOnSale ?? false],
       );
     }
 
@@ -107,9 +107,9 @@ describe('position analysis', { skip: !DATABASE_URL && 'DATABASE_URL not set' },
       if (theirs[i] == null) continue;
       await query(
         `INSERT INTO price_observations
-           (product_id, competitor_id, price, currency, in_stock, source_url, observed_at)
-         VALUES ($1, $2, $3, 'GBP', $4, 'https://x.test/p', now() - interval '2 hours')`,
-        [productId, competitorIds[i], theirs[i], options.inStock ?? true],
+           (product_id, competitor_id, price, currency, in_stock, promo, source_url, observed_at)
+         VALUES ($1, $2, $3, 'GBP', $4, $5, 'https://x.test/p', now() - interval '2 hours')`,
+        [productId, competitorIds[i], theirs[i], options.inStock ?? true, options.theirsPromo ?? false],
       );
     }
   }
@@ -234,6 +234,35 @@ describe('position analysis', { skip: !DATABASE_URL && 'DATABASE_URL not set' },
 
     const analysis = await getPositionAnalysis(fasciaId);
     assert.equal(analysis.overall.compared, 0);
+  });
+
+  it('separates a position won on promotion from one won at full price', async () => {
+    // The figure that decides whether the headline can be trusted. A range
+    // that looks healthy only because we are mid-sale is in a temporary
+    // position, and it reverts the week the promotion ends.
+    await product('1', 'Alpha', 'Watches', 90, [100], { oursOnSale: true });
+    await product('2', 'Alpha', 'Watches', 90, [100]);
+    await product('3', 'Alpha', 'Watches', 110, [100], { theirsPromo: true });
+    await product('4', 'Alpha', 'Watches', 110, [100], { oursOnSale: true, theirsPromo: true });
+
+    const analysis = await getPositionAnalysis(fasciaId);
+    const by = (basis: string) => analysis.byBasis.find((row) => row.basis === basis);
+
+    assert.equal(by('ours_promotional')?.compared, 1);
+    assert.equal(by('ours_promotional')?.lower, 1, 'cheaper, but only while the sale runs');
+    assert.equal(by('like_for_like')?.compared, 1);
+    assert.equal(by('like_for_like')?.lower, 1, 'cheaper at full price against theirs');
+    assert.equal(by('theirs_promotional')?.compared, 1);
+    assert.equal(by('both_promotional')?.compared, 1);
+  });
+
+  it('splits the same population the headline describes, so the parts add up', async () => {
+    await product('1', 'Alpha', 'Watches', 90, [100], { oursOnSale: true });
+    await product('2', 'Alpha', 'Watches', 110, [100]);
+
+    const analysis = await getPositionAnalysis(fasciaId);
+    const split = analysis.byBasis.reduce((total, row) => total + row.compared, 0);
+    assert.equal(split, analysis.overall.compared, 'a split that does not sum is a different question');
   });
 
   it('builds a weekly trend ending this week', async () => {

@@ -55,7 +55,7 @@ currently monitors **one competitor**.
 | **§5.3** Matching | ✅ Done | Tiered scoring — EAN/MPN exact → brand + spec attributes → fuzzy name — with gate/high/medium/ignore weights per category (Appendix A). ≥85 auto-confirms; below that goes to a review queue with single and bulk decisions, plus manual URL linking. |
 | **§5.4** Scraping | ✅ Done | Sitemap discovery, robots.txt honoured, per-domain rate limiting with jitter, retry with backoff, typed loud failures. Fetches over plain HTTP and escalates to a browser only where needed. Refusals are diagnosed by cause. |
 | **§5.5** Comparison | ✅ Done | **Two layouts** — a summary against the cheapest competitor, and a **column per competitor** so every price sits side by side. Search by SKU, product name, brand or **EAN/MPN**. Our price vs each competitor's latest, classified lower/equal/higher with £ and % delta, cheapest competitor per product, per-competitor coverage, CSV export, and a price trend chart. Every observation is stored, so history accumulates from day one. Competitor prices are shown with their **age**, so a stale figure cannot read as current. |
-| **§5.5b** Market position | ✅ Done | Aggregate standing by brand, category and competitor: share cheaper/level/dearer, median gap, widest gap, and a weekly trend. Measured against the cheapest in-stock competitor. Products nobody prices are counted as uncovered rather than as ties. |
+| **§5.5b** Market position | ✅ Done | Aggregate standing by brand, category and competitor, **split by who was on promotion** so a sale week cannot read as a market shift, plus the live products nothing has compared yet: share cheaper/level/dearer, median gap, widest gap, and a weekly trend. Measured against the cheapest in-stock competitor. Products nobody prices are counted as uncovered rather than as ties. |
 | **§5.5a** Movement report | ✅ Done | A **What moved** page: every price change in the last 1/7/30/90 days — **theirs and ours** — with direction, size, our price, and where we stand now. Summary counts of cuts, rises, new undercuts and resolved ones. CSV export. Our own prices are historised for this (`fascia_price_history`). |
 | **§5.6** Alerts | ✅ Done (in-app) | Three types: **undercut** (a competitor cheaper than us at one of our sites), **price drop** (a competitor cutting their own price sharply) and **listing gone** (a matched product out of stock or 404ing). Undercut and listing-gone resolve themselves. Thresholds are configurable in Admin. **In-app only** — no email or Slack delivery. |
 | **§5.7** Visual design | ✅ Done | Tokenised palette, typography and spacing; colour-coded price position; tables, cards, drawer drill-in, skeleton loading and toasts. |
@@ -580,7 +580,8 @@ see [`docs/competitor-data-sources-brief.md`](docs/competitor-data-sources-brief
 | `GET` | `/api/admin/fascias` | Our sites, for the fascia selectors |
 | `GET` | `/api/admin/scrape-health` | Success rate and failures per competitor (`?days=7\|30\|90`) |
 | `POST` | `/api/admin/verify-competitor/:slug` | End-to-end verification of one competitor |
-| `GET` | `/api/report/position` | Aggregate market position (`?fascia=`) |
+| `GET` | `/api/report/position` | Aggregate market position, including the promotion split (`?fascia=`) |
+| `GET` | `/api/report/gaps` | Live products with no competitor price yet (`?fascia=`, `?windowDays=`) |
 | `GET` | `/api/report` | What moved (`?fascia=`, `?days=1\|7\|30\|90`, `?side=`, `?undercutsOnly=1`) |
 | `GET` | `/api/report/export.csv` | The same list as a CSV download |
 | `GET` | `/api/admin/schedule` | Whether the nightly job is on, and how the last run went |

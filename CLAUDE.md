@@ -587,3 +587,26 @@ for problems that have actually happened, with the real numbers.
   so the counts and medians cannot drift apart between tabs of the same page —
   which is exactly the kind of inconsistency nobody notices until someone
   reconciles two figures by hand.
+- **A price comparison is qualified by who was on promotion.** "We are cheaper"
+  means something entirely different depending on which side is discounting:
+  cheaper at full price against their full price is a position we hold, while
+  cheaper only because we are mid-sale reverses the week it ends. `on_sale` and
+  `regular_price` (ours, from the feed) and `promo` and `was_price` (theirs, per
+  observation) were all captured from the start and never used — `comparisonBasis`
+  turns them into four states, and Market position splits the headline by them.
+  The four always sum to the overall figure, so the split describes the same
+  population rather than a different question; there is a test asserting exactly
+  that.
+- **Discovery orders uncovered products first.** It works through the catalogue,
+  so without that ordering a line that went live this morning sits behind
+  everything added before it — and new lines are where pricing decisions get
+  made. Within each group the order stays by id, so a backlog drains in the
+  order it formed rather than reshuffling every run.
+- **A coverage gap has three distinct causes and they need different fixes.**
+  Nothing has looked for it (needs a discovery run), candidates are waiting
+  (needs Match review), or it is matched and unpriced (needs a scan). Reporting
+  them identically would send someone to the wrong remedy, so `coverageGaps.ts`
+  separates them.
+- **A product we hold no price for is not a coverage gap.** It is a pricing gap,
+  which is a different problem on a different page. The query requires a
+  fascia price before a missing competitor price counts as uncovered.

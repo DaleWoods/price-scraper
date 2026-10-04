@@ -492,7 +492,16 @@ async function discoverUnmatchedProducts(
            AND m.competitor_id = $1
            AND m.status IN ('confirmed', 'pending')
        ))
-     ORDER BY p.id
+     -- Products nobody has ever priced come first. Discovery works through the
+     -- catalogue, so without this a line that went live this morning sits
+     -- behind everything added before it — and new lines are exactly where
+     -- pricing decisions get made. Within each group the order is by id, so a
+     -- backlog still drains in the order it formed rather than reshuffling
+     -- every run.
+     ORDER BY (EXISTS (
+                SELECT 1 FROM price_observations po
+                WHERE po.product_id = p.id AND po.price IS NOT NULL
+              )), p.id
      ${limit ? 'LIMIT ' + Number(limit) : ''}`,
     [competitor.id, productIds],
   );

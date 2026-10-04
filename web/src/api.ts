@@ -6,6 +6,9 @@ export interface Product {
   ean_mpn: string | null;
   /** Null until a price file supplies it — the catalogue export carries no prices. */
   our_price: number | null;
+  /** Our pre-promotion price, and whether the live price is a reduction. */
+  our_was_price?: number | null;
+  our_on_sale?: boolean | null;
   currency: string;
   category: string | null;
   our_product_url: string | null;
@@ -15,12 +18,22 @@ export interface Product {
 export type PricePosition = 'lower' | 'equal' | 'higher';
 
 /** One competitor's latest price for a product, and how we compare to it. */
+/** Whether a comparison is like for like, or distorted by a promotion. */
+export type ComparisonBasis =
+  | 'like_for_like'
+  | 'ours_promotional'
+  | 'theirs_promotional'
+  | 'both_promotional';
+
 export interface RowCompetitorPrice {
   competitorId: number;
   competitorName: string;
   price: number | null;
+  wasPrice: number | null;
+  promo: boolean;
   inStock: boolean | null;
   position: PricePosition | null;
+  basis: ComparisonBasis;
   deltaAbs: number | null;
   deltaPct: number | null;
   observedAt: string;
@@ -218,6 +231,40 @@ export interface PositionTrendPoint {
   higherPct: number;
 }
 
+export interface BasisSplit {
+  basis: ComparisonBasis;
+  compared: number;
+  lower: number;
+  equal: number;
+  higher: number;
+  higherPct: number;
+}
+
+/** A live product nothing has compared yet. */
+export interface CoverageGap {
+  productId: number;
+  internalSku: string;
+  productName: string;
+  brand: string;
+  category: string | null;
+  eanMpn: string | null;
+  ourPrice: number | null;
+  currency: string;
+  firstSeenAt: string;
+  ageDays: number;
+  reason: 'never_discovered' | 'awaiting_review' | 'matched_but_unpriced';
+  pendingMatches: number;
+}
+
+export interface CoverageGapReport {
+  fascia: { id: number; code: string; name: string } | null;
+  generatedAt: string;
+  total: number;
+  newlyAdded: number;
+  windowDays: number;
+  gaps: CoverageGap[];
+}
+
 export interface PositionAnalysis {
   fascia: { id: number; code: string; name: string } | null;
   generatedAt: string;
@@ -226,6 +273,7 @@ export interface PositionAnalysis {
   byCategory: PositionBreakdown[];
   byCompetitor: PositionBreakdown[];
   trend: PositionTrendPoint[];
+  byBasis: BasisSplit[];
   uncovered: number;
 }
 
@@ -685,6 +733,9 @@ export const api = {
     if (params.undercutsOnly) search.set('undercutsOnly', '1');
     return `/api/report/export.csv?${search.toString()}`;
   },
+
+  coverageGaps: (fascia?: string) =>
+    request<CoverageGapReport>(`/api/report/gaps${fascia ? `?fascia=${fascia}` : ''}`),
 
   position: (fascia?: string) =>
     request<PositionAnalysis>(`/api/report/position${fascia ? `?fascia=${fascia}` : ''}`),

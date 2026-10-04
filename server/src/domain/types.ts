@@ -9,6 +9,14 @@ export interface Product {
   ean_mpn: string | null;
   /** Null until a price file supplies it — the catalogue export carries no prices. */
   our_price: number | null;
+  /**
+   * Our pre-promotion price at the fascia in context, and whether the live
+   * price is a reduction. Both come from the feed and decide whether a
+   * comparison is like for like: being cheaper only because we are running a
+   * sale is a position that reverses when the promotion ends.
+   */
+  our_was_price?: number | null;
+  our_on_sale?: boolean | null;
   currency: string;
   category: string | null;
   our_product_url: string | null;
@@ -154,13 +162,36 @@ export interface PriceObservation {
 export type PricePosition = 'lower' | 'equal' | 'higher';
 
 /** One row of the comparison view (Spec §5.5). */
+/**
+ * Whether a price comparison is like for like.
+ *
+ * "We are cheaper" means something entirely different depending on who is on
+ * promotion. Cheaper at full price against their full price is a real
+ * position; cheaper only because we are running a sale against their regular
+ * price is a temporary one that reverses the moment the promotion ends. The
+ * two were indistinguishable until now, which made any reading of the overall
+ * position unreliable in exactly the weeks — Black Friday, mid-season sale —
+ * when people most want to look at it.
+ */
+export type ComparisonBasis =
+  | 'like_for_like'
+  | 'ours_promotional'
+  | 'theirs_promotional'
+  | 'both_promotional';
+
 /** One competitor's latest price for a product, and how we compare to it. */
 export interface RowCompetitorPrice {
   competitorId: number;
   competitorName: string;
   price: number | null;
+  /** Their pre-promotion price, when they publish one. */
+  wasPrice: number | null;
+  /** True when they are presenting this as a reduction. */
+  promo: boolean;
   inStock: boolean | null;
   position: PricePosition | null;
+  /** Whether this particular comparison is like for like. */
+  basis: ComparisonBasis;
   deltaAbs: number | null;
   deltaPct: number | null;
   observedAt: string;
