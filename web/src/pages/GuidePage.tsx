@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '6 October 2026';
+const GUIDE_UPDATED = '7 October 2026';
 
 function Section({
   id,
@@ -99,9 +99,10 @@ export function GuidePage() {
             each carries its own prices.
           </li>
           <li>
-            <strong>Check what competitors allow.</strong> Admin → Crawl permissions, then Admin →
-            Sitemaps. These say whether each competitor can be read at all, and by what route.
-            Nothing is scraped by either check.
+            <strong>Check what competitors allow.</strong> Admin → Can we read each competitor?
+            This visits each site and says whether we are allowed in, whether their products can be
+            found, and whether a price can be read off one. Expand a row for the detail behind the
+            verdict.
           </li>
           <li>
             <strong>Run a scrape.</strong> Scrape runs → Start run. Use a small product limit for
@@ -329,9 +330,9 @@ export function GuidePage() {
         <Term label="Admin">
           Setup and housekeeping, all in one place. It holds what is actually in the database;{' '}
           <strong>Competitors</strong>, the retailers we watch; their logos;{' '}
-          <strong>Crawl permissions</strong> and <strong>Sitemaps</strong>, which say whether a site
-          can be read at all and by what route; and <strong>Test a product URL</strong>. Nothing
-          here changes a price or starts a run.
+          <strong>Can we read each competitor?</strong>, which says whether a site can be read at
+          all and by what route; and <strong>Test a product URL</strong>. Nothing here changes a
+          price or starts a run.
           <br />
           <br />
           <strong>Nightly job</strong> is the one to check first if anything looks out of date. It
@@ -542,16 +543,15 @@ export function GuidePage() {
           neither allows search nor publishes a usable sitemap, we cannot read their prices, and the
           right answer is to drop that source rather than work around the block.
         </Alert>
-        <Alert tone="info" title="Reading the Crawl permissions and Sitemaps checks">
-          These two look alarming the first time and mostly are not. A column of{' '}
-          <strong>search disallowed</strong> on Crawl permissions is the expected result, not a
-          failure — it is the reason we read sitemaps instead, and it is what the Sitemaps card then
-          measures. On Sitemaps, a competitor showing thousands of URLs is working. A blank count
-          carries a <strong>verdict</strong> beside it saying which of three things happened:{' '}
-          <em>Index only</em> means the survey stopped early by design and the source is untested,
-          not unusable; <em>Sitemap unreadable</em> and <em>Blocked at robots.txt</em> are the real
-          problems. A handful of unreadable sources still leaves plenty to compare against — the
-          question is whether enough competitors work, not whether all of them do.
+        <Alert tone="info" title="Access detail looks alarming the first time, and mostly is not">
+          Expanding a row shows what the site's robots.txt actually permits.{' '}
+          <strong>Their search showing as disallowed is the expected result</strong>, not a failure
+          — retailers close their own search because it is expensive to serve and worthless to
+          index, and it is precisely why we read the sitemaps they publish for crawlers instead.
+          What matters is the line above it: whether <strong>product pages</strong> are allowed, and
+          whether their sitemap yields URLs. A handful of unusable sources still leaves plenty to
+          compare against — the question is whether enough competitors work, not whether all of
+          them do.
         </Alert>
         <Alert tone="info" title="Unreachable can mean where the app is running, not the retailer">
           Both checks report what <em>this deployment</em> can reach. Some retailers refuse traffic

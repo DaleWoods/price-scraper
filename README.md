@@ -100,7 +100,8 @@ one npm workspace repo, deployed as a single Docker image.
 ├── migrations/                     # Plain SQL, applied in order on boot (001…016)
 ├── docs/
 │   ├── competitor-verification.md  #   Per-competitor evidence record and procedure
-│   └── competitor-data-sources-brief.md
+│   ├── competitor-data-sources-brief.md
+│   └── plan-1…5-*.md               #   Delivered implementation plans, kept for the reasoning
 ├── sample-data/
 ├── server/src/
 │   ├── config/env.ts               # All configuration from the environment
@@ -605,9 +606,10 @@ pages. Nothing on it changes a price.
   asked actually worked, what is failing, which walls went up, and when each
   last produced a price. The percentage counts **attempts only**.
 - **Alert thresholds** — how big a difference is worth raising an alert.
-- **Can we read each competitor?** — the verification check.
-- **Crawl permissions** and **Sitemaps** — what each site allows, and what it
-  publishes for crawlers.
+- **Can we read each competitor?** — the verification check. Each row expands to
+  the robots and sitemap detail behind its verdict: what is disallowed, any
+  crawl-delay, and what their sitemap URLs actually look like. These were two
+  separate panels until the verification subsumed them.
 - **Test a product URL** — dry-run extraction on one page. Reports which
   transport read it and, on a refusal, what refused us and what would get past.
 - **Competitor logos** — upload, replace, remove, or fetch from the retailers.
@@ -703,5 +705,5 @@ commit as any user-visible change** — see `CLAUDE.md`.
 | `CLAUDE.md` | Working notes for anyone changing this code: verification steps, and a long list of traps that have already cost time once |
 | `docs/competitor-verification.md` | The per-competitor evidence record, the verification procedure, and the ranked routes for a competitor that genuinely blocks us |
 | `docs/competitor-data-sources-brief.md` | A one-pager for the business on where competitor prices come from and the affiliate-feed route |
-| `PLAN-1…5-*.md` | Implementation plans from a previous round of work. All five are delivered; kept for the reasoning |
+| `docs/plan-1…5-*.md` | Implementation plans from an earlier round. All five are delivered; kept for the reasoning behind the choices |
 | `web/src/pages/GuidePage.tsx` | The in-app user guide |

@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import { ScrapeError } from '../scraping/errors.js';
 import { fetchAndExtract } from '../scraping/fetchAndExtract.js';
+import { buildSearchUrl } from '../scraping/competitorRegistry.js';
 import { inspectRobots } from '../scraping/robots.js';
 import { surveySitemaps } from '../scraping/sitemap.js';
 
@@ -47,8 +48,22 @@ export interface CompetitorVerification {
     declaredSitemaps: number;
     crawlDelaySeconds: number | null;
     detail: string | null;
+    /**
+     * Whether their own search is open to us. Almost always false, and that is
+     * expected rather than a problem — retailers close search because it is
+     * expensive to serve and worthless to index, which is exactly why we read
+     * sitemaps. Reported so a column of "disallowed" is recognisable as normal
+     * rather than alarming.
+     */
+    searchAllowed: boolean | null;
+    /** The rules that actually apply to us, for seeing what is restricted. */
+    disallowRules: string[];
   };
-  sitemap: { urlsFound: number };
+  sitemap: {
+    urlsFound: number;
+    /** A few real URLs, which is how a wrong URL shape gets spotted. */
+    samples: string[];
+  };
   samples: SampleAttempt[];
   /** Set when we were refused: which kind of wall, and who put it up. */
   blockCause: string | null;
@@ -153,8 +168,10 @@ export async function verifyCompetitor(competitor: Competitor): Promise<Competit
       declaredSitemaps: 0,
       crawlDelaySeconds: null,
       detail: null,
+      searchAllowed: null,
+      disallowRules: [],
     },
-    sitemap: { urlsFound: 0 },
+    sitemap: { urlsFound: 0, samples: [] },
     samples: [],
     blockCause: null,
     blockVendor: null,
@@ -175,13 +192,27 @@ export async function verifyCompetitor(competitor: Competitor): Promise<Competit
   // Stage 1 — are we allowed in? Probing the site root rather than a guessed
   // product path: a made-up URL can be disallowed by a rule that has nothing
   // to say about the real product pages.
-  const robots = await inspectRobots(origin, userAgent, [origin + '/']);
+  // Both the site root and their search URL are probed. The root decides
+  // whether product pages are readable at all; the search probe is reported
+  // only so its usual "disallowed" is visible as the expected result rather
+  // than looking like a failure nobody explained.
+  let searchUrl: string | null = null;
+  try {
+    searchUrl = buildSearchUrl(competitor, 'test');
+  } catch {
+    searchUrl = null;
+  }
+
+  const probes = searchUrl ? [origin + '/', searchUrl] : [origin + '/'];
+  const robots = await inspectRobots(origin, userAgent, probes);
   base.robots = {
     reachable: robots.status !== 'unreachable',
     allowsProductPages: robots.probe[0]?.allowed ?? false,
     declaredSitemaps: robots.sitemaps.length,
     crawlDelaySeconds: robots.crawlDelaySeconds,
     detail: robots.failureDetail ?? null,
+    searchAllowed: searchUrl ? (robots.probe[1]?.allowed ?? null) : null,
+    disallowRules: robots.disallowRules,
   };
 
   if (robots.status === 'unreachable') {
@@ -203,7 +234,7 @@ export async function verifyCompetitor(competitor: Competitor): Promise<Competit
 
   // Stage 2 — can we find their product pages?
   const survey = await surveySitemaps(origin, userAgent, { maxChildren: 2, sampleSize: 40 });
-  base.sitemap = { urlsFound: survey.totalUrls };
+  base.sitemap = { urlsFound: survey.totalUrls, samples: survey.sampleUrls.slice(0, 5) };
 
   if (survey.totalUrls === 0 || survey.sampleUrls.length === 0) {
     const summary = summarise('no_sitemap', { priced: 0, tried: 0, urls: 0, vendor: null });

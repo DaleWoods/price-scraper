@@ -100,6 +100,18 @@ describe('verifyCompetitor', () => {
     assert.equal(walled.requests.length, 1);
   });
 
+  it('carries the robots and sitemap detail the old separate panels showed', async () => {
+    // These used to be two more Admin panels. Folding them into the row means
+    // the detail sits beside the verdict it explains, but it only works if the
+    // detail actually comes back.
+    const result = await verifyCompetitor(competitorFor(working, 'verify-detail'));
+
+    assert.equal(result.robots.searchAllowed, false, 'the stand-in disallows /search, as real sites do');
+    assert.ok(result.robots.disallowRules.length > 0, 'the rules that apply to us must be reported');
+    assert.ok(result.sitemap.samples.length > 0, 'a few real URLs are how a wrong URL shape is spotted');
+    assert.ok(result.sitemap.samples.every((url) => url.startsWith(working.origin)));
+  });
+
   it('reports an unreachable host without blaming the retailer', async () => {
     const dead = competitorFor(working, 'verify-dead');
     // Port 1 is reserved and nothing listens there.

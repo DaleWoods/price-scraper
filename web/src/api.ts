@@ -314,8 +314,11 @@ export interface CompetitorVerification {
     declaredSitemaps: number;
     crawlDelaySeconds: number | null;
     detail: string | null;
+    /** Almost always false, and expected — it is why discovery reads sitemaps. */
+    searchAllowed: boolean | null;
+    disallowRules: string[];
   };
-  sitemap: { urlsFound: number };
+  sitemap: { urlsFound: number; samples: string[] };
   samples: {
     url: string;
     price: number | null;

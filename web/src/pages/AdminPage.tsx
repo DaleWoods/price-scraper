@@ -9,9 +9,6 @@ import {
   type FeedIngestReport,
   type FeedSourceListing,
   type SchedulerStatus,
-  type RobotsCheckResult,
-  type SitemapCheckResult,
-  type SitemapCheckRow,
   type AlertSettings,
   type ScrapeHealthResponse,
   type SystemStatus,
@@ -85,8 +82,6 @@ export function AdminPage() {
       <ScheduleSection toast={toast} />
       <FeedSourceSection toast={toast} />
       <VerificationSection competitors={competitors} toast={toast} />
-      <RobotsSection toast={toast} />
-      <SitemapSection toast={toast} />
       <UrlTesterSection competitors={competitors} />
 
       <Alert tone="warn" title="Before enabling a new competitor">
@@ -945,6 +940,64 @@ const VERDICT_COPY: Record<string, { label: string; tone: string; mark: string }
 };
 
 /**
+ * The robots and sitemap detail behind a verdict.
+ *
+ * This used to be two more panels on this page, each listing every competitor
+ * separately. Folded in here it sits beside the verdict it explains and is
+ * collapsed until wanted, which is the difference between a page you scan and
+ * a page you scroll past.
+ */
+function AccessDetail({ row }: { row: CompetitorVerification }) {
+  const { robots, sitemap } = row;
+
+  return (
+    <details style={{ marginTop: 6 }}>
+      <summary className="muted xs">Access detail</summary>
+      <div className="xs" style={{ marginTop: 6, display: 'grid', gap: 4 }}>
+        <div>
+          Product pages:{' '}
+          <span className={`badge badge--${robots.allowsProductPages ? 'lower' : 'higher'}`}>
+            {robots.allowsProductPages ? 'allowed' : 'disallowed'}
+          </span>{' '}
+          · Their search:{' '}
+          {robots.searchAllowed == null ? (
+            <span className="muted">not probed</span>
+          ) : (
+            <span className={`badge badge--${robots.searchAllowed ? 'lower' : 'neutral'}`}>
+              {robots.searchAllowed ? 'allowed' : 'disallowed'}
+            </span>
+          )}
+          {robots.searchAllowed === false && (
+            <span className="muted"> — normal, and why we read sitemaps instead</span>
+          )}
+        </div>
+        <div className="muted">
+          {robots.declaredSitemaps} sitemap(s) declared
+          {robots.crawlDelaySeconds != null && ` · crawl-delay ${robots.crawlDelaySeconds}s`}
+          {robots.detail && ` · ${robots.detail}`}
+        </div>
+        {robots.disallowRules.length > 0 && (
+          <div className="mono muted truncate" title={robots.disallowRules.join('  ')}>
+            Disallowed: {robots.disallowRules.slice(0, 6).join('  ')}
+            {robots.disallowRules.length > 6 && ` …and ${robots.disallowRules.length - 6} more`}
+          </div>
+        )}
+        {sitemap.samples.length > 0 && (
+          <div>
+            <span className="muted">Sitemap URLs look like:</span>
+            {sitemap.samples.slice(0, 3).map((url) => (
+              <div key={url} className="mono truncate" style={{ maxWidth: 400 }}>
+                {url}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+/**
  * Check every competitor against the live web and say, per competitor, whether
  * this app can actually read prices from them.
  *
@@ -1111,6 +1164,7 @@ function VerificationSection({
                               ))}
                           </div>
                         )}
+                        <AccessDetail row={row} />
                       </>
                     ) : (
                       <span className="muted">—</span>
@@ -1299,144 +1353,6 @@ function ScrapeHealthSection() {
   );
 }
 
-function RobotsSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | 'info') => void }) {
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<RobotsCheckResult | null>(null);
-
-  const run = async () => {
-    setBusy(true);
-    try {
-      const response = await api.robotsCheck();
-      setResult(response);
-      toast(
-        `${response.summary.searchAllowed} of ${response.results.length} allow the search route.`,
-        response.summary.searchAllowed > 0 ? 'ok' : 'info',
-      );
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'robots.txt check failed', 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Card
-      title="Crawl permissions"
-      subtitle="What each competitor's robots.txt allows — reads the rules only, scrapes nothing"
-      actions={
-        <button type="button" className="btn btn--sm" onClick={() => void run()} disabled={busy}>
-          {busy ? 'Checking…' : 'Check robots.txt'}
-        </button>
-      }
-    >
-      {!result ? (
-        <p className="small muted" style={{ margin: 0 }}>
-          Run this to see which sources are usable and by what route. It needs outbound access to
-          the competitor domains, so it reports what your deployment can reach.
-        </p>
-      ) : (
-        <>
-          <div className="stat-grid" style={{ marginBottom: 'var(--sp-4)' }}>
-            <Stat
-              label="Search allowed"
-              value={result.summary.searchAllowed}
-              tone={result.summary.searchAllowed > 0 ? 'lower' : 'higher'}
-              icon={result.summary.searchAllowed > 0 ? '✓' : '▲'}
-            />
-            <Stat label="Search blocked" value={result.summary.searchBlocked} tone="higher" icon="⛔" />
-            <Stat label="Unreachable" value={result.summary.unreachable} tone="info" icon="?" />
-            <Stat
-              label="Publish sitemaps"
-              value={result.summary.withSitemaps}
-              tone="accent"
-              icon="🗺"
-              meta="Alternative route"
-            />
-          </div>
-
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Competitor</th>
-                  <th>robots.txt</th>
-                  <th>Search route</th>
-                  <th>Sitemaps</th>
-                  <th>Disallowed paths</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.results.map((row) => (
-                  <tr key={row.slug}>
-                    <td>
-                      <div className="cell-primary">{row.name}</div>
-                      <div className="cell-secondary mono xs">{row.origin ?? row.slug}</div>
-                    </td>
-                    <td className="small">
-                      {row.error ? (
-                        <span className="badge badge--higher">error</span>
-                      ) : row.status === 'ok' ? (
-                        <span className="badge badge--lower">read</span>
-                      ) : row.status === 'absent' ? (
-                        <span className="badge badge--neutral">none published</span>
-                      ) : (
-                        <span className="badge badge--higher">unreachable</span>
-                      )}
-                      {row.failureDetail && (
-                        <div className="cell-secondary xs">{row.failureDetail}</div>
-                      )}
-                      {row.crawlDelaySeconds != null && (
-                        <div className="cell-secondary xs">crawl-delay {row.crawlDelaySeconds}s</div>
-                      )}
-                    </td>
-                    <td className="small">
-                      {row.probe?.[0] ? (
-                        <span className={`badge badge--${row.probe[0].allowed ? 'lower' : 'higher'}`}>
-                          {row.probe[0].allowed ? 'allowed' : 'disallowed'}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="xs">
-                      {row.sitemaps && row.sitemaps.length > 0 ? (
-                        <span className="mono">{row.sitemaps.length} declared</span>
-                      ) : (
-                        <span className="muted">none</span>
-                      )}
-                    </td>
-                    <td className="xs mono muted" style={{ maxWidth: 280 }}>
-                      {row.disallowRules && row.disallowRules.length > 0
-                        ? row.disallowRules.slice(0, 6).join('  ')
-                        : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div style={{ marginTop: 'var(--sp-4)' }}>
-            <Alert tone="info" title="Search blocked is the expected answer, not a problem">
-              Almost every retailer disallows their own search pages — it is expensive to serve and
-              worthless to index — so a column of <em>disallowed</em> is normal and was expected.
-              Prices are read from the sitemaps they publish for crawlers instead, which is what the
-              Sitemaps card below measures. The row that actually limits us is{' '}
-              <strong>unreachable</strong>: a site that will not answer at all cannot be read by any
-              route.
-            </Alert>
-          </div>
-          <p className="small muted" style={{ marginTop: 'var(--sp-4)', marginBottom: 0 }}>
-            Checked as <span className="mono">{result.userAgent}</span>, from wherever this app is
-            deployed. A retailer that blocks datacentre traffic may show as unreachable here while
-            being perfectly reachable from an office network.
-          </p>
-        </>
-      )}
-    </Card>
-  );
-}
-
 /**
  * Fetch one competitor page and show exactly what came back.
  *
@@ -1607,189 +1523,6 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
             {JSON.stringify(result, null, 2)}
           </pre>
         </div>
-      )}
-    </Card>
-  );
-}
-
-/**
- * Turn a survey row into a plain verdict.
- *
- * "URLs seen: —" on its own is unreadable: it covers a site that blocks us, a
- * site whose sitemap 404s, and a site whose sitemap is simply an index this
- * bounded survey did not walk. Those need different responses, so say which.
- */
-function sitemapVerdict(row: SitemapCheckRow): {
-  label: string;
-  tone: 'lower' | 'higher' | 'warn' | 'neutral';
-  detail: string;
-} {
-  const fetched = row.fetched ?? [];
-  const failures = fetched.filter((file) => !file.ok);
-  const read = fetched.filter((file) => file.ok);
-  const indexes = read.filter((file) => file.isIndex);
-
-  if ((row.totalUrls ?? 0) > 0) {
-    return {
-      label: 'Usable',
-      tone: 'lower',
-      detail: `${read.length} file(s) read. Discovery walks the whole tree, so the live count is higher.`,
-    };
-  }
-
-  if (row.error) {
-    // The survey never got as far as a sitemap.
-    return {
-      label: /robots\.txt/i.test(row.error) ? 'Blocked at robots.txt' : 'No route',
-      tone: 'higher',
-      detail: row.error,
-    };
-  }
-
-  if (indexes.length > 0) {
-    return {
-      label: 'Index only',
-      tone: 'warn',
-      detail:
-        `An index of further sitemaps was read, and the ${read.length - indexes.length} child file(s) ` +
-        'this survey opened held no page URLs. The survey stops after a few children by design, so ' +
-        'this is untested rather than unusable — a run walks the whole tree.',
-    };
-  }
-
-  if (failures.length > 0) {
-    return {
-      label: 'Sitemap unreadable',
-      tone: 'higher',
-      detail: failures[0]?.error ?? 'the declared sitemap could not be fetched',
-    };
-  }
-
-  if ((row.declared?.length ?? 0) === 0) {
-    return { label: 'None published', tone: 'higher', detail: 'No sitemap declared, and no sitemap.xml at the usual path.' };
-  }
-
-  return { label: 'Empty', tone: 'warn', detail: 'The sitemap was read but listed no page URLs.' };
-}
-
-/**
- * What each competitor's sitemaps actually contain.
- *
- * Where search is disallowed this is the route the site publishes for crawlers,
- * so this answers the practical question: is there a usable path to their
- * product pages, and what do those URLs look like?
- */
-function SitemapSection({ toast }: { toast: (m: string, tone?: 'ok' | 'error' | 'info') => void }) {
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<SitemapCheckResult | null>(null);
-
-  const run = async () => {
-    setBusy(true);
-    try {
-      const response = await api.sitemapCheck();
-      setResult(response);
-      toast(
-        `${response.summary.withUsableSitemap} of ${response.results.length} have a readable sitemap.`,
-        response.summary.withUsableSitemap > 0 ? 'ok' : 'info',
-      );
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'Sitemap check failed', 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Card
-      title="Sitemaps"
-      subtitle="The crawler-sanctioned route to product pages when search is closed"
-      actions={
-        <button type="button" className="btn btn--sm" onClick={() => void run()} disabled={busy}>
-          {busy ? 'Surveying…' : 'Survey sitemaps'}
-        </button>
-      }
-    >
-      {!result ? (
-        <p className="small muted" style={{ margin: 0 }}>
-          Reads each competitor's robots.txt for declared sitemaps, fetches them, and reports what
-          they contain. Bounded to the index and a few children — a large retailer's full tree runs
-          to millions of URLs. Every fetch is still checked against robots.txt.
-        </p>
-      ) : (
-        <>
-          <div className="stat-grid" style={{ marginBottom: 'var(--sp-4)' }}>
-            <Stat
-              label="Usable sitemaps"
-              value={result.summary.withUsableSitemap}
-              tone={result.summary.withUsableSitemap > 0 ? 'lower' : 'higher'}
-              icon={result.summary.withUsableSitemap > 0 ? '✓' : '▲'}
-            />
-            <Stat label="Declare sitemaps" value={result.summary.declaringSitemaps} tone="accent" icon="🗺" />
-            <Stat
-              label="No route found"
-              value={result.summary.failed}
-              tone="info"
-              icon="?"
-              meta="See the verdict per row"
-            />
-          </div>
-
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Competitor</th>
-                  <th className="num">URLs seen</th>
-                  <th>Verdict</th>
-                  <th>Sitemaps</th>
-                  <th>Sample URL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.results.map((row) => {
-                  const verdict = sitemapVerdict(row);
-                  return (
-                  <tr key={row.slug}>
-                    <td>
-                      <div className="cell-primary">{row.name}</div>
-                      {row.error && <div className="cell-secondary xs">{row.error}</div>}
-                    </td>
-                    <td className="num">
-                      {row.totalUrls ? (
-                        <span className="badge badge--lower">{row.totalUrls}</span>
-                      ) : (
-                        <span className="muted">—</span>
-                      )}
-                    </td>
-                    <td className="xs" style={{ maxWidth: 260 }}>
-                      <span className={`badge badge--${verdict.tone}`}>{verdict.label}</span>
-                      <div className="cell-secondary xs">{verdict.detail}</div>
-                    </td>
-                    <td className="xs mono muted" style={{ maxWidth: 300 }}>
-                      {row.declared && row.declared.length > 0
-                        ? row.declared.slice(0, 3).map((s) => <div key={s}>{s}</div>)
-                        : '—'}
-                    </td>
-                    <td className="xs mono muted" style={{ maxWidth: 320 }}>
-                      {row.sampleUrls?.[0] ?? '—'}
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div style={{ marginTop: 'var(--sp-4)' }}>
-            <Alert tone="info" title="A blank count is not the same as a dead source">
-              This survey reads the index and a few children only — a large retailer's full tree
-              runs to millions of URLs and is not worth walking to answer "is there a route". A run
-              harvests the whole tree, so <em>Index only</em> means untested here, not unusable.{' '}
-              <em>Sitemap unreadable</em> and <em>Blocked at robots.txt</em> are the real problems,
-              and a few of those still leaves plenty to compare against.
-            </Alert>
-          </div>
-        </>
       )}
     </Card>
   );
