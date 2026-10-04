@@ -181,6 +181,44 @@ export interface TestUrlResult {
   extracted: Record<string, unknown>;
 }
 
+/** One price change — theirs or ours — and what it did to our position. */
+export interface PriceMovement {
+  side: 'competitor' | 'ours';
+  productId: number;
+  internalSku: string;
+  productName: string;
+  brand: string;
+  competitorId: number | null;
+  competitorName: string | null;
+  competitorSlug: string | null;
+  competitorHasLogo: boolean;
+  previousPrice: number | null;
+  price: number | null;
+  deltaAbs: number | null;
+  deltaPct: number | null;
+  changedAt: string;
+  ourPrice: number | null;
+  position: 'lower' | 'equal' | 'higher' | null;
+  currency: string;
+}
+
+export interface MovementReport {
+  windowDays: number;
+  fascia: { id: number; code: string; name: string } | null;
+  generatedAt: string;
+  summary: {
+    competitorChanges: number;
+    competitorCuts: number;
+    competitorRises: number;
+    ourChanges: number;
+    newlyUndercut: number;
+    undercutResolved: number;
+    productsAffected: number;
+  };
+  movements: PriceMovement[];
+  truncated: boolean;
+}
+
 /** The nightly job: whether it is on, and how the last run went. */
 export interface SchedulerStatus {
   enabled: boolean;
@@ -578,6 +616,24 @@ export const api = {
 
   sitemapCheck: () =>
     request<SitemapCheckResult>('/api/admin/sitemap-check', { method: 'POST' }),
+
+  report: (params: { fascia?: string; days?: number; side?: string; undercutsOnly?: boolean }) => {
+    const search = new URLSearchParams();
+    if (params.fascia) search.set('fascia', params.fascia);
+    if (params.days) search.set('days', String(params.days));
+    if (params.side && params.side !== 'all') search.set('side', params.side);
+    if (params.undercutsOnly) search.set('undercutsOnly', '1');
+    return request<MovementReport>(`/api/report?${search.toString()}`);
+  },
+
+  reportCsvUrl: (params: { fascia?: string; days?: number; side?: string; undercutsOnly?: boolean }) => {
+    const search = new URLSearchParams();
+    if (params.fascia) search.set('fascia', params.fascia);
+    if (params.days) search.set('days', String(params.days));
+    if (params.side && params.side !== 'all') search.set('side', params.side);
+    if (params.undercutsOnly) search.set('undercutsOnly', '1');
+    return `/api/report/export.csv?${search.toString()}`;
+  },
 
   schedule: () => request<SchedulerStatus>('/api/admin/schedule'),
 

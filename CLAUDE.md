@@ -517,3 +517,30 @@ for problems that have actually happened, with the real numbers.
   beginning before the health check can answer makes the platform conclude the
   deploy failed. The interval is `unref`'d so it never holds the process open
   on shutdown.
+- **Our own prices have a history now, written by a trigger rather than by the
+  importer.** `fascia_prices` is overwritten on every feed import, so "did they
+  drop their price or did we raise ours?" used to be unanswerable — and a report
+  that can only describe one side of a comparison is half a report.
+  `fascia_price_history` is filled by a trigger on `fascia_prices` so a price
+  changed by *any* route is recorded; the importer is the only writer today, but
+  "remember to also write history" is exactly the instruction that gets missed
+  when a second one appears. The trigger compares with `IS DISTINCT FROM`, not
+  `<>`, because price is nullable (`price_visible=FALSE`) and `<>` would
+  silently miss both a price disappearing and one appearing.
+- **An INSERT writes a baseline history row with `previous_price` NULL, and
+  that is not a movement.** The report filters it out. Without the baseline, the
+  first price we ever held would appear from nowhere at its first change.
+- **`lag()` in the movements query runs over the whole series, not the
+  window.** Filtering observations to the window *before* taking the previous
+  one makes last night's change look like a first sighting, and it vanishes from
+  the report entirely. The window filter belongs in the outer query. The
+  existing `(product_id, competitor_id, observed_at DESC)` index covers this.
+- **The movement summary is computed before any filter is applied.** The
+  headline counts describe what actually happened overnight, not what survived
+  the filter the reader happens to have on. There is a test for exactly this.
+- **A competitor cutting their price is red, not green.** Everywhere in this app
+  green means we are in the better position, so colouring by direction instead
+  of by impact would put the alarming change in the reassuring colour — and
+  contradict the summary tiles sitting directly above the same table. One of our
+  own changes is neutral: moving our price is a margin decision, not a win or a
+  loss.

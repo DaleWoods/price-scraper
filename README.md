@@ -55,6 +55,7 @@ currently monitors **one competitor**.
 | **§5.3** Matching | ✅ Done | Tiered scoring — EAN/MPN exact → brand + spec attributes → fuzzy name — with gate/high/medium/ignore weights per category (Appendix A). ≥85 auto-confirms; below that goes to a review queue with single and bulk decisions, plus manual URL linking. |
 | **§5.4** Scraping | ✅ Done | Sitemap discovery, robots.txt honoured, per-domain rate limiting with jitter, retry with backoff, typed loud failures. Fetches over plain HTTP and escalates to a browser only where needed. Refusals are diagnosed by cause. |
 | **§5.5** Comparison | ✅ Done | Our price vs each competitor's latest, classified lower/equal/higher with £ and % delta, cheapest competitor per product, per-competitor coverage, CSV export, and a price trend chart. Every observation is stored, so history accumulates from day one. Competitor prices are shown with their **age**, so a stale figure cannot read as current. |
+| **§5.5a** Movement report | ✅ Done | A **What moved** page: every price change in the last 1/7/30/90 days — **theirs and ours** — with direction, size, our price, and where we stand now. Summary counts of cuts, rises, new undercuts and resolved ones. CSV export. Our own prices are historised for this (`fascia_price_history`). |
 | **§5.6** Alerts | ✅ Done (in-app) | Three types: **undercut** (a competitor cheaper than us at one of our sites), **price drop** (a competitor cutting their own price sharply) and **listing gone** (a matched product out of stock or 404ing). Undercut and listing-gone resolve themselves. Thresholds are configurable in Admin. **In-app only** — no email or Slack delivery. |
 | **§5.7** Visual design | ✅ Done | Tokenised palette, typography and spacing; colour-coded price position; tables, cards, drawer drill-in, skeleton loading and toasts. |
 | **§8** Retention | ❌ Pending | Nothing prunes `price_observations`. A retention window still needs agreeing. |
@@ -72,17 +73,13 @@ Ordered by how much it matters.
    configurations have never met a live site. See
    [`docs/competitor-verification.md`](docs/competitor-verification.md).
 2. **A retention policy for `price_observations`** (§8). The table only grows.
-3. **A daily report.** The data is all there — every observation is stored —
-   but nothing assembles it into "here is what moved overnight".
-4. **Alert delivery.** Alerts are raised and resolved in-app; nothing is sent
+3. **Alert delivery.** Alerts are raised and resolved in-app; nothing is sent
    anywhere.
-5. **History for our own price.** Only competitors' prices are historised — a
-   feed import overwrites ours rather than versioning it.
-6. **Competitor feed import.** Proposed, not built: several of these retailers
+4. **Competitor feed import.** Proposed, not built: several of these retailers
    publish licensed product feeds through affiliate networks, which would
    replace scraping them entirely. See
    [`docs/competitor-data-sources-brief.md`](docs/competitor-data-sources-brief.md).
-7. **SAP Commerce integration, SSO and role-based access.** The app uses one
+5. **SAP Commerce integration, SSO and role-based access.** The app uses one
    shared password.
 
 ---
@@ -131,7 +128,7 @@ one npm workspace repo, deployed as a single Docker image.
     ├── styles.css                  # The design system (tokens + components)
     ├── errorKinds.ts               # One shared vocabulary for failure kinds
     ├── components/                 # Shared primitives, logos, price history chart
-    └── pages/                      # Comparison, Alerts, Review, Runs, Import, Admin, Guide
+    └── pages/                      # Comparison, Report, Alerts, Review, Runs, Import, Admin, Guide
 ```
 
 ### Data model (Spec §6)
@@ -148,6 +145,7 @@ one npm workspace repo, deployed as a single Docker image.
 | `scrape_runs` / `scrape_run_items` | A run and its per-target outcome, so failures are attributable rather than aggregate. Items carry an error kind and, for a refusal, a `block_cause`. |
 | `alerts` | Open/acknowledged/resolved alerts of three types. Two partial unique indexes provide dedupe — see the decisions below. |
 | `alert_settings` | Single-row table holding the thresholds. |
+| `fascia_price_history` | Our own price changes per site, written by a trigger on `fascia_prices`. Without it the report could say "they moved" but never "we did". |
 | `scheduled_jobs` | When each scheduled job last ran, and how it went. Outlives the process, so a restart neither repeats nor skips a night. |
 | `feed_imports` | One row per feed import, for the audit trail. `source_signature` identifies the remote file, so the same one is never imported twice. |
 | `users` | Created for later role separation; currently one shared password. |
@@ -580,6 +578,8 @@ see [`docs/competitor-data-sources-brief.md`](docs/competitor-data-sources-brief
 | `GET` | `/api/admin/fascias` | Our sites, for the fascia selectors |
 | `GET` | `/api/admin/scrape-health` | Success rate and failures per competitor (`?days=7\|30\|90`) |
 | `POST` | `/api/admin/verify-competitor/:slug` | End-to-end verification of one competitor |
+| `GET` | `/api/report` | What moved (`?fascia=`, `?days=1\|7\|30\|90`, `?side=`, `?undercutsOnly=1`) |
+| `GET` | `/api/report/export.csv` | The same list as a CSV download |
 | `GET` | `/api/admin/schedule` | Whether the nightly job is on, and how the last run went |
 | `POST` | `/api/admin/run-nightly` | Run the nightly job now, without affecting the schedule |
 | `GET` | `/api/admin/feed-source` | What is in the feed FTP directory, and the configured patterns |

@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '3 October 2026';
+const GUIDE_UPDATED = '4 October 2026';
 
 function Section({
   id,
@@ -151,6 +151,27 @@ export function GuidePage() {
           straight back. What is never thrown away: your products and your own prices, which come
           from the feed rather than from scraping, and anything you have <em>rejected</em> in Match
           review, so clearing a comparison never re-opens a candidate you have already turned down.
+        </Term>
+        <Term label="What moved">
+          The morning page. <strong>Price comparison</strong> tells you where you stand;{' '}
+          <strong>What moved</strong> tells you what changed to put you there, which is usually the
+          more useful question. A competitor cutting their price and us raising ours leave exactly
+          the same gap and call for opposite responses, so both sides are listed and labelled —{' '}
+          <em>Us</em> or the competitor's name.
+          <br />
+          <br />
+          The colour follows <strong>what it means for us</strong>, not which way the price went. A
+          rival getting cheaper is red however pleased they are about it; a rival getting dearer is
+          green. Our own changes are grey, because moving our own price is a margin decision rather
+          than a win or a loss. The tiles along the top count everything in the period even when you
+          have filtered the list below, so the headline figures always describe the whole picture.
+          <br />
+          <br />
+          <strong>Export CSV</strong> gives you the same list as a file to send on. One caveat worth
+          knowing: our own price changes are only recorded from the point that history started being
+          kept, so the first few days will look light on our side. Competitor prices go back as far
+          as we have been scanning them. For one product's full history as a chart, open it on{' '}
+          <strong>Price comparison</strong>.
         </Term>
         <Term label="Alerts">
           Three things raise one, all of them automatically as runs find them — nothing here is
