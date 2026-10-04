@@ -80,6 +80,9 @@ export interface MatchEvidence {
 
 export interface MatchRow {
   id: number;
+  /** Set when the page stopped being the product we matched. */
+  flagged_at?: string | null;
+  flag_reason?: string | null;
   product_id: number;
   competitor_id: number;
   competitor_url: string;
@@ -783,6 +786,9 @@ export const api = {
       `/api/matches${qs({ status, fascia: fascia ?? null })}`,
     ),
   confirmMatch: (id: number) => request<{ match: MatchRow }>(`/api/matches/${id}/confirm`, { method: 'POST' }),
+  unflagMatch: (id: number) =>
+    request<{ match: MatchRow }>(`/api/matches/${id}/unflag`, { method: 'POST' }),
+
   rejectMatch: (id: number) => request<{ match: MatchRow }>(`/api/matches/${id}/reject`, { method: 'POST' }),
   bulkDecideMatches: (ids: number[], decision: 'confirm' | 'reject') =>
     request<{ decision: 'confirm' | 'reject'; confirmed: number; rejected: number; failed: number }>(

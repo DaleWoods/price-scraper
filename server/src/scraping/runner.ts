@@ -2,6 +2,7 @@ import { query } from '../db/pool.js';
 import type { Competitor, Product, ScrapeRun } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { discoverMatchesForProduct } from '../matching/discovery.js';
+import { normaliseIdentifier } from '../matching/attributes.js';
 import { countCachedUrls, refreshCompetitorUrls } from '../matching/sitemapDiscovery.js';
 import {
   raiseListingGoneAlert,
@@ -77,6 +78,27 @@ interface MatchRow {
   competitor_id: number;
   competitor_url: string;
   internal_sku: string;
+  /** Ours, for re-checking the page is still the product we matched. */
+  ean_mpn: string | null;
+}
+
+/**
+ * Has this page stopped being the product we matched?
+ *
+ * Only an *explicit disagreement* counts. A page that publishes no identifier
+ * tells us nothing, and treating silence as a mismatch would flag most of the
+ * web; a product of ours with no EAN cannot be checked either way. Both are
+ * left alone deliberately — the check is for catching a URL that now serves a
+ * different product, not for demanding identifiers nobody publishes.
+ */
+export function identityMismatch(
+  ourEan: string | null,
+  theirEan: string | null | undefined,
+): { mismatched: boolean; ours: string; theirs: string } {
+  const ours = ourEan ? normaliseIdentifier(ourEan) : '';
+  const theirs = theirEan ? normaliseIdentifier(theirEan) : '';
+  if (!ours || !theirs) return { mismatched: false, ours, theirs };
+  return { mismatched: ours !== theirs, ours, theirs };
 }
 
 /**
@@ -342,12 +364,17 @@ async function scrapeConfirmedMatches(
   unblockerBudget: UnblockerBudget,
 ): Promise<{ ok: number; errored: number }> {
   const { rows: matches } = await query<MatchRow>(
-    `SELECT m.id AS match_id, m.product_id, m.competitor_id, m.competitor_url, p.internal_sku
+    `SELECT m.id AS match_id, m.product_id, m.competitor_id, m.competitor_url,
+            p.internal_sku, p.ean_mpn
      FROM product_matches m
      JOIN products p ON p.id = m.product_id
      -- A delisted product is no longer sold by us, so re-checking a
      -- competitor's price for it would only add noise.
      WHERE m.competitor_id = $1 AND m.status = 'confirmed' AND p.delisted_at IS NULL
+       -- A match already flagged as pointing at the wrong product is skipped
+       -- until someone resolves it, rather than failing identically every
+       -- night and burying the real errors.
+       AND m.flagged_at IS NULL
        AND ($2::bigint[] IS NULL OR m.product_id = ANY($2::bigint[]))
      ORDER BY m.id
      ${limit ? 'LIMIT ' + Number(limit) : ''}`,
@@ -363,6 +390,42 @@ async function scrapeConfirmedMatches(
       const { page, listing } = await fetchAndExtract(competitor, match.competitor_url, {
         unblockerBudget,
       });
+
+      // Is this still the product we matched? Checked here rather than only at
+      // discovery, because a stored URL outlives the page it pointed at: a
+      // redirect to a replacement model, or a slug reused next season, would
+      // otherwise have us recording a plausible price for the wrong watch
+      // indefinitely.
+      const identity = identityMismatch(match.ean_mpn, listing.ean);
+      if (identity.mismatched) {
+        await query(
+          `UPDATE product_matches SET flagged_at = now(), flag_reason = $2 WHERE id = $1`,
+          [
+            match.match_id,
+            `Page now publishes ${identity.theirs}, but this product is ${identity.ours}. ` +
+              'The URL may have been reused or redirected.',
+          ],
+        );
+
+        await recordRunItem(runId, {
+          matchId: match.match_id,
+          productId: match.product_id,
+          competitorId: competitor.id,
+          url: match.competitor_url,
+          status: 'error',
+          errorKind: 'identity_mismatch',
+          error:
+            `${match.internal_sku}: the page now identifies as ${identity.theirs}, not ` +
+            `${identity.ours}. No price recorded; the match is flagged for review.`,
+          durationMs: Date.now() - startedAt,
+        });
+        errored += 1;
+        logger.warn(
+          'runner',
+          `[${competitor.slug}] ${match.internal_sku} identity mismatch: ours ${identity.ours}, page ${identity.theirs}`,
+        );
+        continue;
+      }
 
       await query(
         `INSERT INTO price_observations

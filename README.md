@@ -482,6 +482,7 @@ Every failure is typed and recorded against the run:
 | `layout_changed` | Expected product-page markers are gone — selectors need review |
 | `no_price_found` | Neither JSON-LD nor selectors produced a price |
 | `implausible_price` | A price outside the sane range — refused rather than stored |
+| `identity_mismatch` | The page now publishes a different barcode — no price stored, match flagged |
 | `invalid_url` | Not a usable http(s) URL |
 | `timeout` / `http_error` / `navigation_failed` | Transient; retried with backoff |
 | `unknown` | Unclassified — investigate rather than assume |
@@ -562,6 +563,7 @@ see [`docs/competitor-data-sources-brief.md`](docs/competitor-data-sources-brief
 | `DELETE` | `/api/comparison/observations` \| `/product/:id` \| `/product/:id/competitor/:id` | Clear observations at three scopes |
 | `GET` | `/api/matches` | Review queue (`?status=`, `?fascia=`) |
 | `POST` | `/api/matches/:id/confirm` \| `/reject` \| `/bulk` | Resolve candidates singly or together |
+| `POST` | `/api/matches/:id/unflag` | Clear an identity flag — the page is still our product |
 | `POST` | `/api/matches` | Manually link a product to a competitor URL (verified on save) |
 | `GET` | `/api/alerts` | Alerts (`?state=`, `?type=`) |
 | `POST` | `/api/alerts/:id/acknowledge` \| `/acknowledge-all` | Acknowledge |

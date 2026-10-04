@@ -13,6 +13,7 @@ export const ERROR_KIND_COPY: Record<string, string> = {
   not_found: 'Listing 404s',
   layout_changed: 'Page layout changed',
   no_price_found: 'No price on the page',
+  identity_mismatch: 'Page is a different product now',
   implausible_price: 'Price failed sanity check',
   timeout: 'Timed out',
   http_error: 'HTTP error',

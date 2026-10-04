@@ -67,6 +67,19 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
     });
   };
 
+  const unflag = async (match: MatchRow) => {
+    setBusyId(match.id);
+    try {
+      await api.unflagMatch(match.id);
+      setMatches((current) => current.filter((row) => row.id !== match.id));
+      toast(`${match.internal_sku} will be priced again from the next scan.`, 'ok');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not clear the flag', 'error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const pendingIds = matches.filter((m) => m.status === 'pending').map((m) => m.id);
   const allSelected = pendingIds.length > 0 && pendingIds.every((id) => selected.has(id));
 
@@ -154,6 +167,7 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
               <option value="pending">Pending review</option>
               <option value="confirmed">Confirmed</option>
               <option value="rejected">Rejected</option>
+              <option value="flagged">Flagged — page changed</option>
               <option value="all">All</option>
             </select>
           </>
@@ -245,6 +259,13 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
                           {match.internal_sku} ·{' '}
                           {match.our_price == null ? 'no price yet' : formatMoney(match.our_price, match.currency)}
                         </div>
+                        {/* Why it was flagged, in the row — a flag nobody can
+                            interpret is just an obstacle. */}
+                        {match.flag_reason && (
+                          <div className="cell-secondary xs" style={{ color: 'var(--pos-higher-fg)' }}>
+                            ⚠ {match.flag_reason}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <div className="cell-primary truncate" style={{ maxWidth: 280 }}>
@@ -294,7 +315,33 @@ export function ReviewQueuePage({ onQueueChange }: { onQueueChange: () => void }
                               </button>
                             </>
                           )}
-                          {match.status !== 'pending' && (
+                          {/* A flagged match needs a way out, or it just sits
+                              there: either the page really is still ours and
+                              the flag clears, or it is not and the match goes.
+                              Rejecting frees discovery to find the right one. */}
+                          {match.flagged_at && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn--sm btn--danger"
+                                disabled={busyId === match.id}
+                                onClick={() => void decide(match, 'reject')}
+                                title="The page is a different product — drop this match so discovery can find the right one"
+                              >
+                                Reject
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn--sm"
+                                disabled={busyId === match.id}
+                                onClick={() => void unflag(match)}
+                                title="Still the right product — resume pricing it"
+                              >
+                                Still correct
+                              </button>
+                            </>
+                          )}
+                          {match.status !== 'pending' && !match.flagged_at && (
                             <span className={`badge badge--${match.status === 'confirmed' ? 'lower' : 'neutral'}`}>
                               {match.status}
                             </span>

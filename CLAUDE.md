@@ -610,3 +610,23 @@ for problems that have actually happened, with the real numbers.
 - **A product we hold no price for is not a coverage gap.** It is a pricing gap,
   which is a different problem on a different page. The query requires a
   fascia price before a missing competitor price counts as uncovered.
+- **A confirmed match is re-checked against the EAN on every scrape, not just at
+  discovery.** A stored URL outlives the page it pointed at: a redirect to a
+  replacement model, a slug reused next season, or a category page served after
+  a discontinuation would otherwise have us recording a plausible price for the
+  wrong product indefinitely — and invisibly, because a plausible price looks
+  exactly like a correct one. `identityMismatch` compares normalised
+  identifiers; on disagreement no price is stored, the match is flagged, and the
+  run item reads `identity_mismatch`.
+- **Only an explicit disagreement flags a match.** A page publishing no
+  identifier tells us nothing, and a product of ours without an EAN cannot be
+  checked either way — treating either as a mismatch would flag most of the web.
+  Both return "not mismatched" deliberately, and there is a test for the silent
+  case as well as the disagreeing one.
+- **A flagged match is skipped by future scrapes until someone resolves it.**
+  Otherwise it fails identically every night and buries the real errors. It
+  keeps `status = 'confirmed'` rather than being demoted to pending, because
+  somebody did confirm it and that decision is worth keeping; Match review has
+  its own `flagged` view with two ways out — "Still correct" clears the flag,
+  Reject drops the match so discovery can find the right one. A flag with no
+  resolution path is just an obstacle.

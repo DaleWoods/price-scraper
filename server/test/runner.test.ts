@@ -52,6 +52,10 @@ describe('scrape runner', { skip: !DATABASE_URL && 'DATABASE_URL not set' }, () 
     { slug: 'f', name: 'Runner Watch F', brand: 'TestBrand' }, // served, but no price
     { slug: 'g', name: 'Runner Watch G', brand: 'TestBrand', price: '400.00', inStock: false },
     { slug: 'h', name: 'Runner Watch H', brand: 'TestBrand', status: 403, challenge: true },
+    // Publishes a barcode that is not ours — a URL reused for another product.
+    { slug: 'i', name: 'Runner Watch I', brand: 'TestBrand', price: '500.00', gtin: '7019999999999' },
+    // Publishes no barcode at all, which is silence, not disagreement.
+    { slug: 'j', name: 'Runner Watch J', brand: 'TestBrand', price: '600.00' },
   ];
 
   before(async () => {
@@ -493,6 +497,69 @@ describe('scrape runner', { skip: !DATABASE_URL && 'DATABASE_URL not set' }, () 
       mode: 'prices',
     });
     assert.equal(standIn.hits('h'), 1);
+  });
+
+  it('refuses to record a price when the page is no longer our product', async () => {
+    // The silent failure this prevents: a stored URL outlives the page it
+    // pointed at, and a plausible price for the wrong watch is indistinguishable
+    // from a correct one.
+    await query('UPDATE products SET ean_mpn = $2 WHERE internal_sku = $1', [
+      `${SKU_PREFIX}i`,
+      '7010000000009',
+    ]);
+    await confirmMatch('i');
+
+    const runId = await runToCompletion({
+      competitorId,
+      productIds: [productIds.get('i')!],
+      mode: 'prices',
+    });
+
+    const items = await itemsFor(runId);
+    assert.equal(items[0]!.status, 'error');
+    assert.equal(items[0]!.error_kind, 'identity_mismatch');
+
+    const { rows: observations } = await query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM price_observations WHERE product_id = $1',
+      [productIds.get('i')],
+    );
+    assert.equal(observations[0]!.count, '0', 'a price for the wrong product must not be stored');
+
+    const { rows: match } = await query<{ flagged_at: Date | null; flag_reason: string | null }>(
+      'SELECT flagged_at, flag_reason FROM product_matches WHERE product_id = $1',
+      [productIds.get('i')],
+    );
+    assert.ok(match[0]!.flagged_at, 'the match must be flagged for review');
+    assert.match(match[0]!.flag_reason ?? '', /reused or redirected/);
+  });
+
+  it('skips a flagged match rather than failing on it every night', async () => {
+    const runId = await runToCompletion({
+      competitorId,
+      productIds: [productIds.get('i')!],
+      mode: 'prices',
+    });
+    assert.equal((await itemsFor(runId)).length, 0, 'a flagged match is left alone until resolved');
+  });
+
+  it('does not flag a page that simply publishes no barcode', async () => {
+    // Silence is not disagreement. Treating a missing identifier as a mismatch
+    // would flag most of the web.
+    await query('UPDATE products SET ean_mpn = $2 WHERE internal_sku = $1', [
+      `${SKU_PREFIX}j`,
+      '7010000000010',
+    ]);
+    await confirmMatch('j');
+
+    const runId = await runToCompletion({
+      competitorId,
+      productIds: [productIds.get('j')!],
+      mode: 'prices',
+    });
+
+    const items = await itemsFor(runId);
+    assert.equal(items[0]!.status, 'ok');
+    assert.equal(items[0]!.error_kind, null);
   });
 
   it('refuses to start a second run while one is in flight', async () => {

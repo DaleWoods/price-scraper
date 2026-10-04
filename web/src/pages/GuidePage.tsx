@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '8 October 2026';
+const GUIDE_UPDATED = '9 October 2026';
 
 function Section({
   id,
@@ -269,6 +269,25 @@ export function GuidePage() {
           <strong>both</strong> must be met — leave either at zero to ignore it. Both start at zero,
           so out of the box every undercut alerts, which is noisy against a full catalogue: a penny
           off a five-figure watch is not news.
+        </Term>
+        <Term label="Flagged — the page changed">
+          A confirmed match stores the competitor's web address, and we go back to it every night.
+          Addresses get reused: a retailer can redirect an old one to a replacement model, or reuse
+          the same link for next season's version. If that happens we would carry on recording that
+          price against your product, and nothing would look wrong — a plausible price is
+          indistinguishable from a correct one.
+          <br />
+          <br />
+          So every time we read a page we check the <strong>barcode on it still matches the barcode
+          on our product</strong>. If it does not, no price is recorded and the match is flagged.
+          Pick <em>Flagged — page changed</em> on Match review to see them, with the reason on each
+          row. Two ways out: <strong>Still correct</strong> if the retailer has simply corrected
+          their barcode, which resumes pricing it, or <strong>Reject</strong> if the page really is
+          a different product now, which frees the scanner to go and find the right one.
+          <br />
+          <br />
+          A page that publishes no barcode at all is left alone — silence is not disagreement, and
+          plenty of pages carry no identifier.
         </Term>
         <Term label="Match review">
           Candidate matches the scraper found, strongest first. Confirm the ones that are genuinely

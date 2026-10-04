@@ -12,15 +12,23 @@ export const matchesRouter: Router = Router();
 matchesRouter.get('/', async (req, res, next) => {
   try {
     const status = typeof req.query.status === 'string' ? req.query.status : 'pending';
-    if (!['pending', 'confirmed', 'rejected', 'all'].includes(status)) {
-      res.status(400).json({ error: 'status must be one of pending, confirmed, rejected, all' });
+    if (!['pending', 'confirmed', 'rejected', 'all', 'flagged'].includes(status)) {
+      res.status(400).json({
+        error: 'status must be one of pending, confirmed, rejected, flagged, all',
+      });
       return;
     }
 
     const limit = Math.min(Number.parseInt(String(req.query.limit ?? '100'), 10) || 100, 500);
     const params: unknown[] = [];
     let where = '';
-    if (status !== 'all') {
+    if (status === 'flagged') {
+      // Confirmed matches whose page has stopped being our product. They are
+      // not 'pending' — somebody did confirm them, and that decision is worth
+      // keeping — so they get their own view rather than being quietly
+      // demoted back into the queue.
+      where = 'WHERE m.flagged_at IS NOT NULL';
+    } else if (status !== 'all') {
       params.push(status);
       where = 'WHERE m.status = $1';
     }
@@ -178,6 +186,40 @@ matchesRouter.post('/:id/reject', async (req, res, next) => {
       return;
     }
     res.json({ match });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Clear an identity flag: "this is still the right product".
+ *
+ * The other way out of a flag is to reject the match outright, which already
+ * exists. Both are needed — a retailer can legitimately republish a product
+ * under a corrected barcode, and that is a different situation from a URL now
+ * serving something else entirely.
+ */
+matchesRouter.post('/:id/unflag', async (req, res, next) => {
+  try {
+    const id = Number.parseInt(req.params.id ?? '', 10);
+    if (!Number.isFinite(id)) {
+      res.status(400).json({ error: 'A numeric match id is required' });
+      return;
+    }
+
+    const { rows } = await query(
+      `UPDATE product_matches
+          SET flagged_at = NULL, flag_reason = NULL
+        WHERE id = $1 AND flagged_at IS NOT NULL
+        RETURNING *`,
+      [id],
+    );
+
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'No flagged match with that id' });
+      return;
+    }
+    res.json({ match: rows[0] });
   } catch (err) {
     next(err);
   }
