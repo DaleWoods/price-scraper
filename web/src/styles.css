@@ -534,6 +534,13 @@ code {
 }
 
 .btn--primary:hover:not(:disabled) {
+  /* The gradient has to be restated here. `.btn:hover:not(:disabled)` is more
+     specific than `.btn--primary`, so without this it repaints the button
+     near-white while the white text from `.btn--primary` stays — and the
+     label disappears under the cursor. Easy to miss, because it only happens
+     while hovering; it shows up for good in a segmented control, where the
+     selected button sits under the pointer after you click it. */
+  background: linear-gradient(135deg, var(--brand-600), var(--brand-700));
   filter: brightness(1.1);
   color: #fff;
   border-color: var(--brand-700);
@@ -545,11 +552,25 @@ code {
   color: #fff;
 }
 
-.btn--accent:hover:not(:disabled) { filter: brightness(1.08); color: #fff; }
+/* Same trap as .btn--primary:hover — restate the background, or `.btn:hover`
+   wins on specificity and the white label vanishes into a near-white button. */
+.btn--accent:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--brass-500), var(--brass-700));
+  filter: brightness(1.08);
+  color: #fff;
+}
 
 .btn--ok {
   background: var(--pos-lower-fg);
   border-color: var(--pos-lower-fg);
+  color: #fff;
+}
+
+/* And again for .btn--ok. */
+.btn--ok:hover:not(:disabled) {
+  background: var(--pos-lower-fg);
+  border-color: var(--pos-lower-fg);
+  filter: brightness(1.1);
   color: #fff;
 }
 
@@ -1312,4 +1333,35 @@ code {
     grid-template-columns: 1fr;
     gap: var(--sp-1);
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Competitor grid: a column per competitor, prices coloured by position.
+
+   Same vocabulary as everywhere else — green means we are cheaper, red means
+   they are. The cells carry only the foreground colour, not the tinted
+   background the badges use: a grid of eleven filled cells per row reads as
+   noise, and the figure is what matters here.
+--------------------------------------------------------------------------- */
+.price--lower  { color: var(--pos-lower-fg); }
+.price--higher { color: var(--pos-higher-fg); font-weight: 600; }
+
+/* A segmented control: adjacent buttons that read as one switch. */
+.seg {
+  display: inline-flex;
+  gap: 0;
+}
+.seg .btn {
+  border-radius: 0;
+}
+.seg .btn:first-child {
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
+}
+.seg .btn:last-child {
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+}
+.seg .btn + .btn {
+  margin-left: -1px;
 }

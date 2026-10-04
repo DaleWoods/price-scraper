@@ -14,6 +14,18 @@ export interface Product {
 
 export type PricePosition = 'lower' | 'equal' | 'higher';
 
+/** One competitor's latest price for a product, and how we compare to it. */
+export interface RowCompetitorPrice {
+  competitorId: number;
+  competitorName: string;
+  price: number | null;
+  inStock: boolean | null;
+  position: PricePosition | null;
+  deltaAbs: number | null;
+  deltaPct: number | null;
+  observedAt: string;
+}
+
 export interface ComparisonRow {
   product: Product;
   bestCompetitorPrice: number | null;
@@ -23,6 +35,8 @@ export interface ComparisonRow {
   deltaPct: number | null;
   observedAt: string | null;
   ourPriceMissing: boolean;
+  /** Every competitor carrying a price for this product, not just the cheapest. */
+  competitors: RowCompetitorPrice[];
   matchStatus: { confirmed: number; pending: number };
 }
 

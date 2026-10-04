@@ -260,6 +260,11 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
       deltaPct: cheapest?.deltaPct ?? null,
       observedAt: cheapest?.observedAt ?? null,
       ourPriceMissing: ourPrice == null,
+      // Every competitor's latest price, not only the cheapest. The headline
+      // figures above answer "are we being beaten"; this answers "by whom, and
+      // where does everyone else sit", which is the side-by-side view the
+      // comparison is actually for. It was being computed and thrown away.
+      competitors: competitorPrices,
       matchStatus: {
         confirmed: counts?.confirmed ?? 0,
         pending: counts?.pending ?? 0,

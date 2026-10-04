@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '4 October 2026';
+const GUIDE_UPDATED = '5 October 2026';
 
 function Section({
   id,
@@ -151,6 +151,29 @@ export function GuidePage() {
           straight back. What is never thrown away: your products and your own prices, which come
           from the feed rather than from scraping, and anything you have <em>rejected</em> in Match
           review, so clearing a comparison never re-opens a candidate you have already turned down.
+        </Term>
+        <Term label="Every competitor, side by side">
+          The comparison table has two layouts. <strong>Summary</strong> gives one row per product
+          measured against the <em>cheapest</em> competitor — the right headline, but it hides the
+          shape of things: one rival undercutting you by a pound reads exactly like five
+          undercutting you by two hundred. <strong>Every competitor</strong> puts a column per
+          retailer, so every price sits side by side.
+          <br />
+          <br />
+          Prices are coloured the same way throughout: <strong>red where they are cheaper than
+          us</strong>, green where they are dearer, plain where it is level. A dash means that
+          retailer has no price recorded for that product — which is not the same as a price of
+          nothing, so the cell is left empty rather than showing a zero. The percentage underneath
+          each price is how far our price sits from theirs.
+          <br />
+          <br />
+          <strong>Export CSV</strong> follows whichever layout you are in and carries a column per
+          competitor, so the file is the full side-by-side picture rather than just the cheapest.
+          <br />
+          <br />
+          The <strong>search box takes a SKU, a product name, a brand, or an EAN/MPN</strong>. The
+          barcode is usually the quickest way to a single product, since it is the one identifier
+          that does not change between us and a competitor.
         </Term>
         <Term label="What moved">
           The morning page. <strong>Price comparison</strong> tells you where you stand;{' '}

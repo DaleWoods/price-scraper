@@ -68,6 +68,12 @@ export function ComparisonPage() {
     categories: [],
   });
   const [selected, setSelected] = useState<ComparisonRow | null>(null);
+  /**
+   * 'summary' answers "are we being beaten", against the cheapest competitor.
+   * 'grid' answers "by whom, and where does everyone else sit", with a column
+   * per competitor. Both read the same rows — the grid needs no extra request.
+   */
+  const [view, setView] = useState<'summary' | 'grid'>('summary');
 
   const [search, setSearch] = useState('');
   const [brand, setBrand] = useState('');
@@ -357,6 +363,24 @@ export function ComparisonPage() {
         subtitle={data ? `${rows.length} of ${data.total} products` : undefined}
         actions={
           <>
+            <div className="seg" role="group" aria-label="Table layout">
+              <button
+                type="button"
+                className={`btn btn--sm ${view === 'summary' ? 'btn--primary' : ''}`}
+                onClick={() => setView('summary')}
+                title="One row per product, against the cheapest competitor"
+              >
+                Summary
+              </button>
+              <button
+                type="button"
+                className={`btn btn--sm ${view === 'grid' ? 'btn--primary' : ''}`}
+                onClick={() => setView('grid')}
+                title="A column per competitor, so every price sits side by side"
+              >
+                Every competitor
+              </button>
+            </div>
             <a className="btn btn--sm" href={exportUrl} download>
               Export CSV
             </a>
@@ -499,6 +523,8 @@ export function ComparisonPage() {
               </>
             }
           />
+        ) : view === 'grid' ? (
+          <CompetitorGrid rows={rows} onSelect={setSelected} />
         ) : (
           <div className="table-wrap">
             <table className="table">
@@ -947,5 +973,137 @@ function ProductDrawer({
         </div>
       </aside>
     </>
+  );
+}
+
+
+/**
+ * Every competitor's price side by side, a column each.
+ *
+ * The summary table answers "are we being beaten" against the cheapest
+ * competitor, which is the right headline but hides the shape of the market:
+ * one rival undercutting us by a pound reads the same as five undercutting us
+ * by two hundred. This is the view for a buyer deciding what to do about it.
+ *
+ * Columns come from the competitors actually present in these rows rather than
+ * from the configured list, so a retailer that priced nothing does not occupy
+ * a column of dashes.
+ */
+function CompetitorGrid({
+  rows,
+  onSelect,
+}: {
+  rows: ComparisonRow[];
+  onSelect: (row: ComparisonRow) => void;
+}) {
+  const competitors = [
+    ...new Map(
+      rows.flatMap((row) =>
+        row.competitors.map(
+          (entry) => [entry.competitorId, entry.competitorName] as const,
+        ),
+      ),
+    ).entries(),
+  ].sort((a, b) => a[1].localeCompare(b[1]));
+
+  if (competitors.length === 0) {
+    return (
+      <EmptyState
+        mark="—"
+        title="No competitor prices yet"
+        body="Confirm some matches in the review queue, then run a scan. Prices appear here as they are recorded."
+      />
+    );
+  }
+
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th className="num">Our price</th>
+            {competitors.map(([id, name]) => (
+              <th key={id} className="num nowrap">
+                {name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const byId = new Map(row.competitors.map((entry) => [entry.competitorId, entry]));
+            return (
+              <tr
+                key={row.product.id}
+                className="table__row--clickable"
+                onClick={() => onSelect(row)}
+              >
+                <td>
+                  <div className="cell-primary truncate" style={{ maxWidth: 280 }}>
+                    {row.product.product_name}
+                  </div>
+                  <div className="cell-secondary mono">{row.product.internal_sku}</div>
+                </td>
+                <td className="num">
+                  {row.product.our_price == null ? (
+                    <span className="price--missing">not loaded</span>
+                  ) : (
+                    <span className="price">
+                      {formatMoney(row.product.our_price, row.product.currency)}
+                    </span>
+                  )}
+                </td>
+                {competitors.map(([id]) => {
+                  const entry = byId.get(id);
+                  if (!entry || entry.price == null) {
+                    // Blank, not zero: "they do not list this" and "they sell
+                    // it for nothing" are different facts.
+                    return (
+                      <td key={id} className="num muted" title="No price recorded here">
+                        —
+                      </td>
+                    );
+                  }
+                  return (
+                    <td key={id} className="num nowrap">
+                      <span
+                        className={`price ${
+                          entry.position === 'higher'
+                            ? 'price--higher'
+                            : entry.position === 'lower'
+                              ? 'price--lower'
+                              : ''
+                        }`}
+                        title={
+                          entry.position === 'higher'
+                            ? 'Cheaper than us'
+                            : entry.position === 'lower'
+                              ? 'Dearer than us'
+                              : entry.position === 'equal'
+                                ? 'The same as us'
+                                : 'No comparison possible'
+                        }
+                      >
+                        {formatMoney(entry.price, row.product.currency)}
+                      </span>
+                      {entry.inStock === false && (
+                        <div className="cell-secondary xs">out of stock</div>
+                      )}
+                      {entry.deltaPct != null && (
+                        <div className="cell-secondary xs">
+                          {entry.deltaPct > 0 ? '+' : ''}
+                          {entry.deltaPct.toFixed(1)}%
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

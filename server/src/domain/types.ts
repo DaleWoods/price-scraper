@@ -154,6 +154,18 @@ export interface PriceObservation {
 export type PricePosition = 'lower' | 'equal' | 'higher';
 
 /** One row of the comparison view (Spec §5.5). */
+/** One competitor's latest price for a product, and how we compare to it. */
+export interface RowCompetitorPrice {
+  competitorId: number;
+  competitorName: string;
+  price: number | null;
+  inStock: boolean | null;
+  position: PricePosition | null;
+  deltaAbs: number | null;
+  deltaPct: number | null;
+  observedAt: string;
+}
+
 export interface ComparisonRow {
   product: Product;
   bestCompetitorPrice: number | null;
@@ -166,6 +178,12 @@ export interface ComparisonRow {
   observedAt: string | null;
   /** True when we hold no price of our own yet, so no comparison is possible. */
   ourPriceMissing: boolean;
+  /**
+   * Every competitor holding a price for this product, not only the cheapest.
+   * The fields above answer "are we being beaten"; this answers "by whom, and
+   * where does everyone else sit".
+   */
+  competitors: RowCompetitorPrice[];
   matchStatus: {
     confirmed: number;
     pending: number;

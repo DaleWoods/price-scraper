@@ -544,3 +544,22 @@ for problems that have actually happened, with the real numbers.
   contradict the summary tiles sitting directly above the same table. One of our
   own changes is neutral: moving our price is a margin decision, not a win or a
   loss.
+- **`.btn--primary:hover`, `.btn--accent:hover` and `.btn--ok:hover` must each
+  restate their own `background`.** `.btn:hover:not(:disabled)` is more specific
+  than `.btn--primary`, so without it the button repaints near-white on hover
+  while its white label stays — and the text disappears under the cursor. It
+  hid for a long time because it only happens while hovering; it became obvious
+  in a segmented control, where the selected button sits under the pointer right
+  after you click it. Any new solid button variant needs the same treatment.
+- **The comparison row carries every competitor's price, not just the cheapest.**
+  `ComparisonRow.competitors` was being computed and then thrown away. The
+  headline fields answer "are we being beaten"; the array answers "by whom, and
+  where does everyone else sit", which is what the "Every competitor" layout and
+  the CSV export both need. No extra query — it was already in hand.
+- **A competitor with no price for a product gets a blank cell, never a zero.**
+  "They do not list this" and "they sell it for nothing" are different facts, and
+  a zero would sort and average as though it were real. Same rule in the grid and
+  in the CSV.
+- **Grid and CSV columns come from the competitors present in the result**, not
+  from the configured list, so a retailer that priced nothing does not occupy a
+  column of dashes.

@@ -143,6 +143,18 @@ comparisonRouter.get('/export.csv', async (req, res, next) => {
     const filters = parseFilters(req.query as Record<string, unknown>);
     const { rows } = await getComparison({ ...filters, limit: undefined, offset: undefined });
 
+    // A column per competitor, so the export is the side-by-side view rather
+    // than only the cheapest. Built from the competitors actually present in
+    // the result rather than from the configured list, so the file has no
+    // empty columns for retailers that priced nothing.
+    const competitorNames = [
+      ...new Map(
+        rows.flatMap((row) =>
+          row.competitors.map((entry) => [entry.competitorId, entry.competitorName] as const),
+        ),
+      ).values(),
+    ].sort((a, b) => a.localeCompare(b));
+
     const header = [
       'internal_sku',
       'brand',
@@ -157,6 +169,7 @@ comparisonRouter.get('/export.csv', async (req, res, next) => {
       'delta_gbp',
       'delta_pct',
       'observed_at',
+      ...competitorNames,
     ];
 
     const escape = (value: unknown): string => {
@@ -169,6 +182,7 @@ comparisonRouter.get('/export.csv', async (req, res, next) => {
 
     const lines = [header.join(',')];
     for (const row of rows) {
+      const byName = new Map(row.competitors.map((entry) => [entry.competitorName, entry.price]));
       lines.push(
         [
           row.product.internal_sku,
@@ -184,6 +198,10 @@ comparisonRouter.get('/export.csv', async (req, res, next) => {
           row.deltaAbs,
           row.deltaPct,
           row.observedAt,
+          // Blank, not zero, where a competitor has no price for this product:
+          // a missing price and a price of nothing are different facts, and a
+          // zero would average and sort as though real.
+          ...competitorNames.map((name) => byName.get(name) ?? null),
         ]
           .map(escape)
           .join(','),
