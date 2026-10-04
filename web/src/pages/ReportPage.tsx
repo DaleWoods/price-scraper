@@ -9,6 +9,7 @@ import {
   type PriceMovement,
 } from '../api';
 import { Alert, Card, EmptyState, Stat, TableSkeleton, useToast } from '../components/ui';
+import { EvidenceStrip } from '../components/EvidenceStrip';
 import { CompetitorLabel } from '../components/CompetitorLogo';
 
 /**
@@ -114,6 +115,8 @@ export function ReportPage() {
         compared against the site you pick, because the same product is a different price at each of
         ours.
       </p>
+
+      <EvidenceStrip fascia={fascia} />
 
       {error && (
         <Alert tone="danger" title="Could not build the report">

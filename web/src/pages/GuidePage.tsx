@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '9 October 2026';
+const GUIDE_UPDATED = '10 October 2026';
 
 function Section({
   id,
@@ -175,6 +175,29 @@ export function GuidePage() {
           The <strong>search box takes a SKU, a product name, a brand, or an EAN/MPN</strong>. The
           barcode is usually the quickest way to a single product, since it is the one identifier
           that does not change between us and a competitor.
+        </Term>
+        <Term label="Based on — the line above every page">
+          The first thing anyone asks of a percentage is how much it is drawn from, so every
+          analytical page says so before the question comes. It gives the number of products
+          actually compared against the number we price, how many competitors are producing prices,
+          how old those prices typically are, and when the last scan finished.
+          <br />
+          <br />
+          This matters more than it looks. "63% of the range is beaten" means something very
+          different depending on whether it is 63% of everything we sell read last night, or 63% of
+          a tenth of it read a fortnight ago. The strip <strong>turns amber</strong> when coverage
+          is thin or the prices are getting old — which is exactly when you want to know before
+          quoting anything from the page.
+        </Term>
+        <Term label="Cheaper elsewhere, but nobody can buy it">
+          Products where the only competitor beating us on price is <strong>out of stock</strong>.
+          For as long as that lasts there is no cheaper <em>buyable</em> alternative, which is an
+          argument for holding a price rather than following one down.
+          <br />
+          <br />
+          Deliberately narrow: if any competitor who <em>does</em> have stock already beats us, the
+          product is left out however many others are unavailable. A customer could still buy it
+          cheaper elsewhere, so nothing has moved in our favour and the window is imaginary.
         </Term>
         <Term label="Market position">
           The strategic view. <strong>Price comparison</strong> and <strong>What moved</strong> are

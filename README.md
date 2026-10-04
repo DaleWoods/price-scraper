@@ -583,6 +583,8 @@ see [`docs/competitor-data-sources-brief.md`](docs/competitor-data-sources-brief
 | `GET` | `/api/admin/scrape-health` | Success rate and failures per competitor (`?days=7\|30\|90`) |
 | `POST` | `/api/admin/verify-competitor/:slug` | End-to-end verification of one competitor |
 | `GET` | `/api/report/position` | Aggregate market position, including the promotion split (`?fascia=`) |
+| `GET` | `/api/report/evidence` | Coverage, freshness and contributing competitors behind every figure (`?fascia=`) |
+| `GET` | `/api/report/stock-opportunities` | Products where only an out-of-stock rival beats us (`?fascia=`) |
 | `GET` | `/api/report/gaps` | Live products with no competitor price yet (`?fascia=`, `?windowDays=`) |
 | `GET` | `/api/report` | What moved (`?fascia=`, `?days=1\|7\|30\|90`, `?side=`, `?undercutsOnly=1`) |
 | `GET` | `/api/report/export.csv` | The same list as a CSV download |

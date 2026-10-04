@@ -9,8 +9,10 @@ import {
   type CoverageGapReport,
   type PositionBreakdown,
   type PositionTrendPoint,
+  type StockOpportunity,
 } from '../api';
 import { Alert, Card, EmptyState, Stat, TableSkeleton } from '../components/ui';
+import { EvidenceStrip } from '../components/EvidenceStrip';
 
 /**
  * Where we sit in the market, in aggregate.
@@ -251,6 +253,7 @@ export function PositionPage() {
   const [fascia, setFascia] = useState('');
   const [analysis, setAnalysis] = useState<PositionAnalysis | null>(null);
   const [gaps, setGaps] = useState<CoverageGapReport | null>(null);
+  const [opportunities, setOpportunities] = useState<StockOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -271,12 +274,14 @@ export function PositionPage() {
     setLoading(true);
     setError(null);
     try {
-      const [position, coverage] = await Promise.all([
+      const [position, coverage, stock] = await Promise.all([
         api.position(fascia),
         api.coverageGaps(fascia),
+        api.stockOpportunities(fascia),
       ]);
       setAnalysis(position);
       setGaps(coverage);
+      setOpportunities(stock.opportunities);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not build the analysis');
     } finally {
@@ -304,6 +309,8 @@ export function PositionPage() {
         pick. <strong>Dearer</strong> is the share where someone beats us on price — the number to
         argue with.
       </p>
+
+      <EvidenceStrip fascia={fascia} />
 
       {error && (
         <Alert tone="danger" title="Could not build the analysis">
@@ -354,6 +361,53 @@ export function PositionPage() {
           products we can actually compare. The other {analysis.uncovered.toLocaleString()} are not
           ties — nobody has priced them. Treat the shape as indicative until coverage improves.
         </Alert>
+      )}
+
+      {opportunities.length > 0 && (
+        <Card
+          title="Cheaper elsewhere, but nobody can buy it"
+          subtitle={`${opportunities.length} product(s) where the only rival beating us is out of stock`}
+          bodyless
+        >
+          <p className="small muted" style={{ padding: 'var(--sp-3) var(--sp-4) 0' }}>
+            For as long as this lasts there is no cheaper <em>buyable</em> alternative — an argument
+            for holding a price rather than following one down. Products where someone in stock
+            already beats us are left out: the window only exists while nobody can fulfil.
+          </p>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Unavailable at</th>
+                  <th className="num">Their price</th>
+                  <th className="num">Ours</th>
+                  <th className="num">Gap</th>
+                </tr>
+              </thead>
+              <tbody>
+                {opportunities.slice(0, 25).map((entry) => (
+                  <tr key={entry.productId}>
+                    <td>
+                      <div className="cell-primary truncate" style={{ maxWidth: 280 }}>
+                        {entry.productName}
+                      </div>
+                      <div className="cell-secondary mono">{entry.internalSku}</div>
+                    </td>
+                    <td className="nowrap">{entry.competitorName}</td>
+                    <td className="num price muted">{formatMoney(entry.theirPrice)}</td>
+                    <td className="num price">{formatMoney(entry.ourPrice)}</td>
+                    <td className="num">
+                      <span className="badge badge--lower">
+                        +{formatMoney(entry.gapAbs)} ({entry.gapPct.toFixed(1)}%)
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
       <Card

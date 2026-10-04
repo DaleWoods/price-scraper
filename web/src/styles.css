@@ -1423,3 +1423,39 @@ code {
   color: var(--text-muted);
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------------------
+   Evidence strip: what the figures on a page are drawn from.
+
+   Quiet by default — it is context, not content — and tinted amber when the
+   coverage is thin or the prices are old, which is exactly when a reader
+   should know before they quote anything.
+--------------------------------------------------------------------------- */
+.evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.evidence--thin {
+  border-color: var(--pos-higher-border);
+  background: var(--pos-higher-bg);
+  color: var(--pos-higher-fg);
+}
+.evidence__label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: inherit;
+}
+.evidence__warning {
+  margin-left: auto;
+  font-weight: 600;
+}

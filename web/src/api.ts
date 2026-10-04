@@ -234,6 +234,37 @@ export interface PositionTrendPoint {
   higherPct: number;
 }
 
+/** What every figure in the app is drawn from. */
+export interface EvidenceBasis {
+  fascia: { id: number; code: string; name: string } | null;
+  productsPriced: number;
+  productsCompared: number;
+  coveragePct: number;
+  competitorsContributing: number;
+  competitorsEnabled: number;
+  medianPriceAgeDays: number | null;
+  oldestPriceAgeDays: number | null;
+  newestObservationAt: string | null;
+  lastRunFinishedAt: string | null;
+  lastRunStatus: string | null;
+  windowDays: number;
+}
+
+/** A product whose only cheaper rival is out of stock. */
+export interface StockOpportunity {
+  productId: number;
+  internalSku: string;
+  productName: string;
+  brand: string;
+  ourPrice: number;
+  theirPrice: number;
+  competitorName: string;
+  gapAbs: number;
+  gapPct: number;
+  observedAt: string;
+  currency: string;
+}
+
 export interface BasisSplit {
   basis: ComparisonBasis;
   compared: number;
@@ -736,6 +767,14 @@ export const api = {
     if (params.undercutsOnly) search.set('undercutsOnly', '1');
     return `/api/report/export.csv?${search.toString()}`;
   },
+
+  evidence: (fascia?: string) =>
+    request<EvidenceBasis>(`/api/report/evidence${fascia ? `?fascia=${fascia}` : ''}`),
+
+  stockOpportunities: (fascia?: string) =>
+    request<{ opportunities: StockOpportunity[] }>(
+      `/api/report/stock-opportunities${fascia ? `?fascia=${fascia}` : ''}`,
+    ),
 
   coverageGaps: (fascia?: string) =>
     request<CoverageGapReport>(`/api/report/gaps${fascia ? `?fascia=${fascia}` : ''}`),

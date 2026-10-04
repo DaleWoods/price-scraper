@@ -3,6 +3,7 @@ import { query } from '../db/pool.js';
 import { getPriceMovements, type MovementSide } from '../services/priceMovements.js';
 import { getPositionAnalysis } from '../services/positionAnalysis.js';
 import { getCoverageGaps } from '../services/coverageGaps.js';
+import { getEvidenceBasis, getStockOpportunities } from '../services/evidenceBasis.js';
 
 export const reportRouter = Router();
 
@@ -94,6 +95,39 @@ reportRouter.get('/gaps', async (req, res, next) => {
         windowDays: Number.isFinite(windowDays) && windowDays > 0 ? windowDays : undefined,
       }),
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * What every figure in this app is based on.
+ *
+ * Separate from the analyses it qualifies, so any page can show the same
+ * answer to "how much is this drawn from" without each recomputing it.
+ */
+reportRouter.get('/evidence', async (req, res, next) => {
+  try {
+    const fasciaId = await resolveFascia(req.query.fascia);
+    if (fasciaId == null) {
+      res.status(400).json({ error: 'No sites are configured.' });
+      return;
+    }
+    res.json(await getEvidenceBasis(fasciaId));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Products where the only thing beating us cannot currently be bought. */
+reportRouter.get('/stock-opportunities', async (req, res, next) => {
+  try {
+    const fasciaId = await resolveFascia(req.query.fascia);
+    if (fasciaId == null) {
+      res.status(400).json({ error: 'No sites are configured.' });
+      return;
+    }
+    res.json({ opportunities: await getStockOpportunities(fasciaId) });
   } catch (err) {
     next(err);
   }

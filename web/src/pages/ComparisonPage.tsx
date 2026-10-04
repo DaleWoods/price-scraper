@@ -25,6 +25,7 @@ import {
   TableSkeleton,
   useToast,
 } from '../components/ui';
+import { EvidenceStrip } from '../components/EvidenceStrip';
 import { CompetitorLabel } from '../components/CompetitorLogo';
 import { PriceHistoryChart } from '../components/PriceHistoryChart';
 
@@ -298,6 +299,8 @@ export function ComparisonPage() {
         Our price against each competitor's latest observed price. Position is measured against the
         cheapest in-stock competitor — <strong>they are cheaper</strong> is the column that needs action.
       </p>
+
+      <EvidenceStrip fascia={fascia} />
 
       <div className="stat-grid">
         <Stat

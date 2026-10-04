@@ -630,3 +630,21 @@ for problems that have actually happened, with the real numbers.
   its own `flagged` view with two ways out — "Still correct" clears the flag,
   Reject drops the match so discovery can find the right one. A flag with no
   resolution path is just an obstacle.
+- **The evidence strip ages the latest price per pair, not the whole table.**
+  Averaging every observation ever recorded drags the figure back through every
+  superseded price and makes the data look far staler than the numbers people
+  are actually reading. `DISTINCT ON (product_id, competitor_id) … ORDER BY
+  observed_at DESC` first, then age that. There is a test with a month-old price
+  superseded by a day-old one asserting the answer is a day.
+- **Coverage is of what we price, not of everything in the catalogue.** A
+  product we hold no price for cannot be compared and is not part of the
+  denominator — including it would understate coverage for a reason that has
+  nothing to do with the scraper.
+- **The stock-opportunity query requires that no *in-stock* competitor beats
+  us.** Otherwise the "window" is imaginary: a customer can still buy it cheaper
+  from someone who has stock, so nothing has moved in our favour. It reports one
+  row per product at the cheapest unavailable price, not one row per rival.
+- **Any new analytical page gets the `EvidenceStrip`.** The same figures
+  described differently in two places is how a meeting stops trusting all of
+  them, so the answer to "how much is this based on" has to be identical
+  wherever it is read.
