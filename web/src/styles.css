@@ -1365,3 +1365,61 @@ code {
 .seg .btn + .btn {
   margin-left: -1px;
 }
+
+/* ---------------------------------------------------------------------------
+   Market position: proportional bars and a weekly trend.
+
+   Same colour vocabulary as everywhere else — green where we are cheaper, red
+   where they are. The bar carries a title attribute with the raw counts, so
+   the proportions are readable without relying on colour alone.
+--------------------------------------------------------------------------- */
+.position-bar {
+  display: flex;
+  height: 10px;
+  width: 100%;
+  min-width: 120px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+.position-bar__seg { display: block; height: 100%; }
+.position-bar__seg--lower  { background: var(--pos-lower-solid); }
+.position-bar__seg--equal  { background: var(--border-strong); }
+.position-bar__seg--higher { background: var(--pos-higher-solid); }
+
+.trend {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  min-height: 150px;
+}
+.trend__col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.trend__bar-wrap {
+  width: 100%;
+  height: 110px;
+  display: flex;
+  align-items: flex-end;
+}
+.trend__bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: linear-gradient(180deg, var(--pos-higher-solid), var(--pos-higher-fg));
+}
+.trend__value {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.trend__label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}

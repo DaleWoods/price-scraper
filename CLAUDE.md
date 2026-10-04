@@ -563,3 +563,27 @@ for problems that have actually happened, with the real numbers.
 - **Grid and CSV columns come from the competitors present in the result**, not
   from the configured list, so a retailer that priced nothing does not occupy a
   column of dashes.
+- **Market position measures against the cheapest *in-stock* competitor, per
+  product.** Cheapest rather than average, because that is the price a customer
+  compares us to — averaging two rivals at 120 and 80 against our 100 reports
+  "level" and hides the undercut outright. Out of stock is excluded for the same
+  reason: an unbuyable price is a listing, not a competitive position. Both have
+  tests.
+- **The per-competitor breakdown uses every pair, not the cheapest-wins set.**
+  The question there is "how does this retailer price against us across
+  everything we both sell", which a cheapest-only filter would answer solely for
+  the products they happen to win.
+- **Products nobody has priced are reported as `uncovered`, never folded into
+  the percentages.** A product with no competitor price is not a tie, and
+  counting it as one flatters every figure on the page. The UI warns when the
+  uncovered count exceeds the compared count, because the shape is then barely
+  indicative.
+- **The position trend uses a fixed 0–100 axis.** Scaling a percentage chart to
+  its own maximum makes a series sitting between 63% and 69% fill the frame and
+  look dramatic; the honest picture is a high, fairly steady figure. On a
+  percentage chart the bar height should mean the percentage.
+- **Aggregate SQL shares one `AGGREGATES` constant across every breakdown.**
+  Brand, category, competitor and overall all select the identical expressions,
+  so the counts and medians cannot drift apart between tabs of the same page —
+  which is exactly the kind of inconsistency nobody notices until someone
+  reconciles two figures by hand.

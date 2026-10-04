@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { query } from '../db/pool.js';
 import { getPriceMovements, type MovementSide } from '../services/priceMovements.js';
+import { getPositionAnalysis } from '../services/positionAnalysis.js';
 
 export const reportRouter = Router();
 
@@ -48,6 +49,25 @@ reportRouter.get('/', async (req, res, next) => {
         undercutsOnly: req.query.undercutsOnly === '1',
       }),
     );
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Where we sit in the market, in aggregate.
+ *
+ * Separate from the movement report because it answers a different question:
+ * not "what changed overnight" but "what is our position, and by what".
+ */
+reportRouter.get('/position', async (req, res, next) => {
+  try {
+    const fasciaId = await resolveFascia(req.query.fascia);
+    if (fasciaId == null) {
+      res.status(400).json({ error: 'No sites are configured, so there is nothing to compare against.' });
+      return;
+    }
+    res.json(await getPositionAnalysis(fasciaId));
   } catch (err) {
     next(err);
   }

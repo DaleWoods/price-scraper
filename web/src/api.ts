@@ -195,6 +195,40 @@ export interface TestUrlResult {
   extracted: Record<string, unknown>;
 }
 
+/** Our standing in one slice of the market — a brand, a category, a rival. */
+export interface PositionBreakdown {
+  key: string;
+  compared: number;
+  lower: number;
+  equal: number;
+  higher: number;
+  higherPct: number;
+  medianGapAbs: number | null;
+  medianGapPct: number | null;
+  worstGapAbs: number | null;
+  worstGapSku: string | null;
+}
+
+export interface PositionTrendPoint {
+  weekStart: string;
+  compared: number;
+  lower: number;
+  equal: number;
+  higher: number;
+  higherPct: number;
+}
+
+export interface PositionAnalysis {
+  fascia: { id: number; code: string; name: string } | null;
+  generatedAt: string;
+  overall: PositionBreakdown;
+  byBrand: PositionBreakdown[];
+  byCategory: PositionBreakdown[];
+  byCompetitor: PositionBreakdown[];
+  trend: PositionTrendPoint[];
+  uncovered: number;
+}
+
 /** One price change — theirs or ours — and what it did to our position. */
 export interface PriceMovement {
   side: 'competitor' | 'ours';
@@ -648,6 +682,9 @@ export const api = {
     if (params.undercutsOnly) search.set('undercutsOnly', '1');
     return `/api/report/export.csv?${search.toString()}`;
   },
+
+  position: (fascia?: string) =>
+    request<PositionAnalysis>(`/api/report/position${fascia ? `?fascia=${fascia}` : ''}`),
 
   schedule: () => request<SchedulerStatus>('/api/admin/schedule'),
 

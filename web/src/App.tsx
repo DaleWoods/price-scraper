@@ -5,6 +5,7 @@ import { Alert } from './components/ui';
 import { AlertsPage } from './pages/AlertsPage';
 import { ComparisonPage } from './pages/ComparisonPage';
 import { ReportPage } from './pages/ReportPage';
+import { PositionPage } from './pages/PositionPage';
 import { AdminPage } from './pages/AdminPage';
 import { GuidePage } from './pages/GuidePage';
 import { ImportPage } from './pages/ImportPage';
@@ -22,6 +23,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/comparison', label: 'Price comparison', icon: '📊', section: 'Monitor' },
   { to: '/report', label: 'What moved', icon: '📈', section: 'Monitor' },
+  { to: '/position', label: 'Market position', icon: '🎯', section: 'Monitor' },
   { to: '/alerts', label: 'Alerts', icon: '🔔', section: 'Monitor' },
   { to: '/review', label: 'Match review', icon: '🔍', section: 'Monitor' },
   { to: '/runs', label: 'Scrape runs', icon: '🔄', section: 'Monitor' },
@@ -33,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
 const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
   '/comparison': { eyebrow: 'Monitor', title: 'Price comparison' },
   '/report': { eyebrow: 'Monitor', title: 'What moved' },
+  '/position': { eyebrow: 'Monitor', title: 'Market position' },
   '/alerts': { eyebrow: 'Monitor', title: 'Alerts' },
   '/review': { eyebrow: 'Monitor', title: 'Match review queue' },
   '/runs': { eyebrow: 'Monitor', title: 'Scrape runs' },
@@ -187,6 +190,7 @@ export function App() {
           <Route path="/" element={<Navigate to="/comparison" replace />} />
           <Route path="/comparison" element={<ComparisonPage />} />
           <Route path="/report" element={<ReportPage />} />
+          <Route path="/position" element={<PositionPage />} />
           <Route path="/alerts" element={<AlertsPage onQueueChange={refreshOpenAlertCount} />} />
           <Route path="/review" element={<ReviewQueuePage onQueueChange={refreshPendingCount} />} />
           <Route path="/runs" element={<RunsPage />} />

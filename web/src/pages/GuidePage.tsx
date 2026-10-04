@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '5 October 2026';
+const GUIDE_UPDATED = '6 October 2026';
 
 function Section({
   id,
@@ -174,6 +174,32 @@ export function GuidePage() {
           The <strong>search box takes a SKU, a product name, a brand, or an EAN/MPN</strong>. The
           barcode is usually the quickest way to a single product, since it is the one identifier
           that does not change between us and a competitor.
+        </Term>
+        <Term label="Market position">
+          The strategic view. <strong>Price comparison</strong> and <strong>What moved</strong> are
+          per product — the right unit when someone is about to change a price. This one is for
+          deciding a range or going into a supplier conversation: not "this watch is £40 dearer" but
+          "we are above the market on three quarters of this brand, and it has been getting worse".
+          <br />
+          <br />
+          Everything is measured against the <strong>cheapest in-stock competitor</strong> for each
+          product, because that is the price a customer compares us to. An out-of-stock listing is
+          left out — an unbuyable price is not a competitive position. The breakdown comes by brand,
+          by category, and by competitor; the per-competitor view uses every product you both sell
+          rather than only the ones they win, so it answers "how does this retailer price against
+          us" rather than "where do they beat us".
+          <br />
+          <br />
+          <strong>Read the coverage figure before the percentages.</strong> They describe only the
+          products we can actually compare. A product nobody has priced is not a tie, and folding
+          those in would flatter every number on the page — so they are counted separately and the
+          page warns when they outnumber the compared ones.
+          <br />
+          <br />
+          The weekly chart is drawn on a 0–100 scale rather than fitted to the data, so a high but
+          steady figure looks high and steady instead of dramatic. It is reconstructed from what we
+          observed each week, and our own price history only begins from when we started keeping it
+          — so the earliest weeks assume our current price applied then.
         </Term>
         <Term label="What moved">
           The morning page. <strong>Price comparison</strong> tells you where you stand;{' '}
