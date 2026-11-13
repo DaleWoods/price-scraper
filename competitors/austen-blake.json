@@ -9,8 +9,8 @@
   "config": {
     "rendering": "auto",
     "rateLimit": {
-      "minDelayMs": 5000,
-      "jitterMs": 3000,
+      "minDelayMs": 1000,
+      "jitterMs": 500,
       "maxConcurrent": 1
     },
     "retry": {
@@ -100,6 +100,7 @@
     "discovery": "sitemap"
   },
   "_notes": [
+    "Checked 2026-11-13: robots.txt answered HTTP 503 to our crawler — the site turns automated visitors away before anything can be read. Not readable directly.",
     "Made-to-order jewellery — listings are often configurable, so prices may vary by options.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",

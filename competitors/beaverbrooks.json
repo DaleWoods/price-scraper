@@ -16,8 +16,8 @@
   "config": {
     "rendering": "auto",
     "rateLimit": {
-      "minDelayMs": 5000,
-      "jitterMs": 3000,
+      "minDelayMs": 1000,
+      "jitterMs": 500,
       "maxConcurrent": 1
     },
     "retry": {
@@ -56,6 +56,11 @@
         "ean": [
           "[itemprop='gtin13']"
         ]
+      },
+      "patterns": {
+        "wasPrice": [
+          "\"price\":\\{\"value\":{price},\"wasPrice\":([0-9]+(?:\\.[0-9]+)?)"
+        ]
       }
     },
     "search": {
@@ -77,9 +82,11 @@
       ],
       "maxCandidates": 10
     },
-    "discovery": "sitemap"
+    "discovery": "sitemap",
+    "productUrlPattern": "^/\\d+/[^/]+/p$"
   },
   "_notes": [
+    "Verified against the live site 2026-11-13: sitemap lists 8,218 product pages; JSON-LD carries gtin13 and the manufacturer reference (mpn). Their response headers exceed Node's default limit — see scraping/httpClient.ts.",
     "Shipped DISABLED. This file exists to demonstrate that adding a competitor is configuration,",
     "not code (Spec s5.2) — drop a JSON file in this directory, run `npm run seed`, flip enabled.",
     "Selectors are unverified placeholders. Beaverbrooks is Phase 2 scope; do not enable without",

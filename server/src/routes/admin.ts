@@ -5,6 +5,7 @@ import { inspectRobots } from '../scraping/robots.js';
 import { surveySitemaps } from '../scraping/sitemap.js';
 import { buildSearchUrl, listCompetitors } from '../scraping/competitorRegistry.js';
 import { getScrapeHealth } from '../services/scrapeHealth.js';
+import { catalogueCoverage } from '../scraping/catalogue.js';
 import { verifyCompetitor } from '../services/competitorVerification.js';
 import { ingestFeedsFromSource } from '../import/feedIngest.js';
 import { isFeedSourceConfigured, listFeedDirectory } from '../import/feedSource.js';
@@ -24,6 +25,49 @@ adminRouter.get('/scrape-health', async (req, res, next) => {
     const requested = Number(req.query.days);
     const days = HEALTH_WINDOWS.includes(requested) ? requested : 7;
     res.json(await getScrapeHealth(days));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * How much of each competitor's catalogue has been read, and how much of it
+ * turned out to be ours. The first number a person needs when asking "why is
+ * there no price for X at Y" — either their catalogue has not been read that
+ * far yet, or it has and they do not list it.
+ */
+adminRouter.get('/catalogues', async (_req, res, next) => {
+  try {
+    const competitors = await listCompetitors(false);
+    const coverage = await catalogueCoverage(competitors);
+    const { rows: matched } = await query<{ competitor_id: number; matched: number }>(
+      `SELECT m.competitor_id, count(DISTINCT m.product_id)::int AS matched
+       FROM product_matches m JOIN products p ON p.id = m.product_id
+       WHERE m.status = 'confirmed' AND p.delisted_at IS NULL
+       GROUP BY m.competitor_id`,
+    );
+    const matchedBy = new Map(matched.map((row) => [Number(row.competitor_id), row.matched]));
+
+    res.json({
+      refreshDays: env.catalogueRefreshDays,
+      competitors: competitors.map((competitor) => {
+        const row = coverage.find((entry) => entry.competitorId === competitor.id);
+        return {
+          competitorId: competitor.id,
+          competitorSlug: competitor.slug,
+          competitorName: competitor.display_name,
+          enabled: competitor.enabled,
+          hasPattern: Boolean(competitor.config.productUrlPattern),
+          productUrls: row?.productUrls ?? 0,
+          read: row?.read ?? 0,
+          products: row?.products ?? 0,
+          withGtin: row?.withGtin ?? 0,
+          withMpn: row?.withMpn ?? 0,
+          matched: matchedBy.get(Number(competitor.id)) ?? 0,
+          lastReadAt: row?.lastReadAt ?? null,
+        };
+      }),
+    });
   } catch (err) {
     next(err);
   }

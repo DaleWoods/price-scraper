@@ -147,6 +147,11 @@ describe('scrape runner', { skip: !DATABASE_URL && 'DATABASE_URL not set' }, () 
       [competitorId, brandLimitedId],
     ]);
     await query('DELETE FROM alerts WHERE competitor_id = ANY($1)', [[competitorId, brandLimitedId]]);
+    // A price read stores the page in the catalogue; left behind, one test's
+    // stored page would let the next test's product match without a request.
+    await query('DELETE FROM competitor_products WHERE competitor_id = ANY($1)', [
+      [competitorId, brandLimitedId],
+    ]);
     standIn.requests.length = 0;
   });
 

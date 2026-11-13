@@ -49,6 +49,13 @@ export interface FetchAndExtractOptions extends FetchPageOptions {
   unblockerBudget?: UnblockerBudget;
   /** Per-competitor override: 'never' opts a competitor out of paid retries. */
   unblockerMode?: 'auto' | 'never';
+  /**
+   * Set false to stop an unreadable plain-HTTP page being re-tried in a
+   * browser. The catalogue harvest uses it once a site has proved its prices
+   * read fine over HTTP: from then on a page with no price on it is a page
+   * with no price on it, not one that needs Chromium to say so.
+   */
+  escalate?: boolean;
 }
 
 /** A copy of the competitor with one rendering mode forced, leaving the original untouched. */
@@ -95,6 +102,7 @@ export async function fetchAndExtract(
     if (!ESCALATABLE.has(kind as ScrapeErrorKind)) {
       return await unblockOrThrow(competitor, url, err, options);
     }
+    if (options.escalate === false) throw err;
 
     logger.info(
       'fetch',

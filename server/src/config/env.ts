@@ -38,9 +38,31 @@ export const env = {
     'WOSG-PriceMonitor/0.1 (+price monitoring; contact: trading@example.com)',
 
   /** Global floor on per-domain politeness, regardless of competitor config. */
-  minRequestDelayMs: optionalInt('SCRAPER_MIN_DELAY_MS', 3000),
+  /**
+   * One second, not three. This is the pause between the end of one request
+   * and the start of the next to the same site, on top of however long the
+   * page took to arrive — in practice a page every two seconds or so, one at a
+   * time. Three seconds was chosen before any competitor had been read for
+   * real; none of them declares a Crawl-delay, their product pages answer in
+   * under a second, and at three a competitor's catalogue took three times as
+   * long to read for no gain in manners. A site that does declare a
+   * Crawl-delay still gets it, whatever this says.
+   */
+  minRequestDelayMs: optionalInt('SCRAPER_MIN_DELAY_MS', 1000),
   requestTimeoutMs: optionalInt('SCRAPER_TIMEOUT_MS', 30000),
   maxConcurrentScrapes: optionalInt('SCRAPER_MAX_CONCURRENCY', 2),
+
+  /**
+   * Reading competitors' catalogues (see scraping/catalogue.ts).
+   *
+   * `catalogueHarvestMinutes` is the longest one run will spend reading a
+   * single competitor's catalogue before moving on to prices; whatever is left
+   * is picked up by the next run. `catalogueRefreshDays` is how long before a
+   * page already read is read again — spread evenly, so a seventh of each
+   * catalogue is re-checked per night rather than all of it on one.
+   */
+  catalogueHarvestMinutes: optionalInt('CATALOGUE_HARVEST_MINUTES', 300),
+  catalogueRefreshDays: optionalInt('CATALOGUE_REFRESH_DAYS', 7),
 
   /**
    * Where the daily Google feeds are delivered.

@@ -25,6 +25,8 @@ export interface StandInProduct {
   /** Omit to serve a page with no readable price at all. */
   price?: string;
   gtin?: string;
+  /** The manufacturer's reference, published as JSON-LD `mpn`. */
+  mpn?: string;
   /** Force an HTTP status instead of serving the page — 404 or 403, typically. */
   status?: number;
   /**
@@ -74,6 +76,7 @@ function productHtml(product: StandInProduct): string {
     name: product.name,
     brand: { name: product.brand },
     ...(product.gtin ? { gtin13: product.gtin } : {}),
+    ...(product.mpn ? { mpn: product.mpn } : {}),
   };
 
   if (product.price) {
@@ -104,7 +107,10 @@ function productHtml(product: StandInProduct): string {
  * Binds to port 0 and reports the assigned port, so parallel test files never
  * collide on a fixed one.
  */
-export async function startStandIn(products: StandInProduct[]): Promise<StandIn> {
+export async function startStandIn(
+  products: StandInProduct[],
+  options: { extraSitemapPaths?: string[] } = {},
+): Promise<StandIn> {
   const requests: string[] = [];
   const bySlug = new Map(products.map((product) => [slugFor(product), product]));
   const pathByHandle = new Map(products.map((product) => [product.slug, `/p/${slugFor(product)}`]));
@@ -127,6 +133,7 @@ export async function startStandIn(products: StandInProduct[]): Promise<StandIn>
     if (url === '/sitemap.xml') {
       const entries = products
         .map((product) => `<url><loc>${origin()}${pathFor(product.slug)}</loc></url>`)
+        .concat((options.extraSitemapPaths ?? []).map((path) => `<url><loc>${origin()}${path}</loc></url>`))
         .join('');
       res.writeHead(200, { 'content-type': 'application/xml' });
       res.end(`<?xml version="1.0" encoding="UTF-8"?><urlset>${entries}</urlset>`);
@@ -164,6 +171,9 @@ export async function startStandIn(products: StandInProduct[]): Promise<StandIn>
       return;
     }
 
+    // Anything else the sitemap lists (a category page, say) is recorded too,
+    // so a test can prove it was never requested.
+    if ((options.extraSitemapPaths ?? []).includes(url)) requests.push(url);
     res.writeHead(404);
     res.end();
   });

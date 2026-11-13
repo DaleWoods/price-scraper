@@ -194,6 +194,8 @@ export async function importFeed(
     brand: string;
     title: string;
     identifier: string | null;
+    gtin: string | null;
+    mpn: string | null;
     category: string | null;
     link: string | null;
     specs: string;
@@ -294,6 +296,11 @@ export async function importFeed(
       brand: get('brand') || 'Unknown',
       title,
       identifier,
+      // Both halves are kept, not just the preferred one: several competitors
+      // publish only the manufacturer reference, and a product held by barcode
+      // alone could never be matched to them exactly.
+      gtin: rawGtin && !isDamagedIdentifier(rawGtin) ? rawGtin : null,
+      mpn: rawMpn && !isDamagedIdentifier(rawMpn) ? rawMpn : null,
       category: get('product_type') || null,
       link: get('link') || null,
       specs: JSON.stringify(specs),
@@ -319,7 +326,7 @@ export async function importFeed(
     for (const chunk of chunked(parsed, WRITE_CHUNK)) {
       const values: unknown[] = [];
       const tuples = chunk.map((product, index) => {
-        const base = index * 7;
+        const base = index * 9;
         values.push(
           product.sku,
           product.brand,
@@ -328,8 +335,10 @@ export async function importFeed(
           product.category,
           product.link,
           product.specs,
+          product.gtin,
+          product.mpn,
         );
-        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}::jsonb)`;
+        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}::jsonb, $${base + 8}, $${base + 9})`;
       });
 
       const { rows: upserted } = await client.query<{
@@ -338,12 +347,14 @@ export async function importFeed(
         existed: boolean;
       }>(
         `INSERT INTO products
-           (internal_sku, brand, product_name, ean_mpn, category, our_product_url, specs)
+           (internal_sku, brand, product_name, ean_mpn, category, our_product_url, specs, gtin, mpn)
          VALUES ${tuples.join(', ')}
          ON CONFLICT (internal_sku) DO UPDATE SET
            brand           = EXCLUDED.brand,
            product_name    = EXCLUDED.product_name,
            ean_mpn         = COALESCE(EXCLUDED.ean_mpn, products.ean_mpn),
+           gtin            = COALESCE(EXCLUDED.gtin, products.gtin),
+           mpn             = COALESCE(EXCLUDED.mpn, products.mpn),
            category        = EXCLUDED.category,
            our_product_url = EXCLUDED.our_product_url,
            specs           = products.specs || EXCLUDED.specs,

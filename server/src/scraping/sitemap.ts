@@ -1,6 +1,7 @@
 import { gunzipSync } from 'node:zlib';
 import { checkRobots, inspectRobots } from './robots.js';
 import { logger } from '../lib/logger.js';
+import { siteFetch } from './httpClient.js';
 
 /**
  * Sitemap discovery.
@@ -51,7 +52,11 @@ export function parseSitemapXml(xml: string): {
     const decoded = decodeXmlEntities(loc.trim());
     if (!decoded) continue;
 
-    if (/^<sitemap[\s>]/i.test(entry)) {
+    if (/^<sitemap[\s>]/i.test(entry) || looksLikeSitemapFile(decoded)) {
+      // The second test is for sites that publish their index as an ordinary
+      // list of pages whose entries are themselves sitemap files (77 Diamonds
+      // does). Read literally, each of those files was cached as though it
+      // were a page, and the pages inside them were never reached.
       children.push(decoded);
     } else {
       const lastmod = entry.match(/<lastmod>\s*([\s\S]*?)\s*<\/lastmod>/i)?.[1] ?? null;
@@ -60,6 +65,15 @@ export function parseSitemapXml(xml: string): {
   }
 
   return { isIndex, urls, children };
+}
+
+/** Is this address another sitemap file rather than a page? */
+function looksLikeSitemapFile(url: string): boolean {
+  try {
+    return /\.xml(\.gz)?$/i.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
 }
 
 function decodeXmlEntities(value: string): string {
@@ -72,7 +86,7 @@ function decodeXmlEntities(value: string): string {
 }
 
 async function fetchSitemapBody(url: string, userAgent: string): Promise<string> {
-  const response = await fetch(url, {
+  const response = await siteFetch(url, {
     headers: { 'user-agent': userAgent, accept: 'application/xml,text/xml,*/*' },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     redirect: 'follow',

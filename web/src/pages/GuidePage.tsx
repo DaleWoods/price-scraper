@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '10 October 2026';
+const GUIDE_UPDATED = '13 November 2026';
 
 function Section({
   id,
@@ -396,6 +396,14 @@ export function GuidePage() {
           price or starts a run.
           <br />
           <br />
+          <strong>Competitor catalogues</strong> shows, for each competitor, how many product pages
+          they list, how many have been read so far, how many of those carry a barcode, and how many
+          of our products are matched there. Look here first when a price you expected is missing:
+          if <em>Read so far</em> is not yet complete, their catalogue simply has not been read that
+          far; if it is complete and the product is still unmatched, they do not list it — or list
+          it without a barcode, in which case it will be in the review queue if the title is close.
+          <br />
+          <br />
           <strong>Nightly job</strong> is the one to check first if anything looks out of date. It
           collects the day's feeds and then scans competitors, in that order, so the catalogue is
           current before any price is compared. The panel says plainly when it last ran — and warns
@@ -516,12 +524,27 @@ export function GuidePage() {
 
       <Section id="matching" title="How matching works" subtitle="And why some things need a human">
         <p>
-          The scraper finds candidate pages, then scores how confident it is that a candidate is the
-          same product. Confidence comes mostly from how it was matched:
+          Each competitor's product pages are read once and remembered — their{' '}
+          <strong>catalogue</strong>. Every product page states its own barcode and, usually, the
+          manufacturer's reference, so finding which of their pages is our product is a lookup
+          against what has already been read, not a search of their site. A product of ours is
+          matched the moment its barcode appears in a competitor's catalogue, and priced from that
+          same page.
+        </p>
+        <p>
+          This replaced an older method that took our products one at a time and guessed which of a
+          competitor's addresses might be the same thing from the words in it. That was slow —
+          several page loads per product, per competitor — and it missed any product whose address
+          shared no words with our title. The older method is still used when you scan a single
+          named product, so a test gets an answer straight away even where a catalogue has not been
+          read yet.
         </p>
         <Term label="EAN / MPN exact — the strongest">
-          The competitor publishes the same barcode or manufacturer reference. This is as certain as
-          it gets and is confirmed automatically.
+          The competitor publishes the same barcode, or the same manufacturer reference on a listing
+          that also names the brand. This is as certain as it gets and is confirmed automatically.
+          The two are never compared with each other: our barcode against a page that shows only a
+          reference is not a disagreement, just no evidence. Only two <em>different barcodes</em>{' '}
+          prove a page is a different product.
         </Term>
         <Term label="Brand and specifications">
           Same brand, and the attributes that define the product agree — case size, metal, dial
@@ -529,7 +552,9 @@ export function GuidePage() {
         </Term>
         <Term label="Fuzzy name and specs — always review">
           The names look alike and nothing contradicts. This is a suggestion, not a conclusion. Two
-          watches in a family often differ only by a detail the page does not state.
+          watches in a family often differ only by a detail the page does not state. From a
+          competitor's catalogue only the single closest title is ever suggested, and only when it
+          is a strong likeness; a second-hand listing is never offered against a new product.
         </Term>
         <p className="small muted" style={{ marginBottom: 0 }}>
           Brand is a gate: a candidate is rejected outright unless the brand can be confirmed, whatever
@@ -553,7 +578,22 @@ export function GuidePage() {
         <Term label="Skipped">
           Nothing was even tried. Either the competitor does not stock the brand, or no candidate
           URL in their sitemap resembled the product closely enough to be worth opening. Most of
-          our range is not carried by most competitors, so this is the normal majority.
+          our range is not carried by most competitors, so this is the normal majority. During a
+          full run it also counts catalogue pages that turned out not to be a product, or that have
+          gone.
+        </Term>
+        <Term label="Catalogue: read … page(s)">
+          One line per competitor on a full run, saying how many of their product pages were read
+          this time, how many were products, and how many are still to read on a later run. The
+          first full run against a new competitor is the long one — every page they list, a page
+          every couple of seconds — and it stops after five hours and carries on the next night.
+          If a competitor refuses five pages in a row the reading stops for that run and the line
+          says so, rather than pressing on.
+        </Term>
+        <Term label="Matched from the stored catalogue">
+          How many of our products were matched against what has been read — by barcode or
+          reference, and by title — and how many of those were priced there and then without
+          another request to the competitor.
         </Term>
         <Term label="Blocked by robots.txt">
           The competitor's rules do not permit that page. We honour that rather than working around
@@ -597,6 +637,20 @@ export function GuidePage() {
           little in common with our record) still reports "ok", with the reason spelled out in the
           run's Detail column. If a product you know is stocked shows nothing on Price comparison,
           check that Detail column before assuming the scan failed.
+        </Alert>
+        <Alert tone="info" title="The first full run against a competitor takes hours — that is the catalogue being read">
+          A competitor lists somewhere between four and nine thousand product pages. They are read
+          one at a time, about one every two seconds, so the first complete read of the five largest
+          takes around four and a half hours with all of them running side by side. It only happens
+          once: after that a night's work is the matched products (for today's price), any pages new
+          to their sitemap, and a seventh of the rest. Watch progress under Admin → Competitor
+          catalogues rather than waiting on the run.
+        </Alert>
+        <Alert tone="info" title="A retailer's own stock number is not a mismatch">
+          Ernest Jones and H.Samuel publish their own stock number where the manufacturer's
+          reference would normally go. It will never equal ours, and that means nothing — those
+          products match on the barcode instead. Only a page showing a <em>different barcode</em>{' '}
+          from ours is flagged as the wrong product.
         </Alert>
         <Alert tone="warn" title="Competitors block their own search pages">
           Every competitor we have checked disallows their site search in robots.txt. Finding their

@@ -1,16 +1,16 @@
 {
   "slug": "chisholm-hunter",
   "displayName": "Chisholm Hunter",
-  "baseUrl": "https://www.chisholmhunter.com",
-  "searchUrlPattern": "https://www.chisholmhunter.com/search?q={query}",
+  "baseUrl": "https://www.chisholmhunter.co.uk",
+  "searchUrlPattern": "https://www.chisholmhunter.co.uk/catalogsearch/result/?q={query}",
   "enabled": false,
   "scrapeFrequency": "daily",
   "brands": [],
   "config": {
     "rendering": "auto",
     "rateLimit": {
-      "minDelayMs": 5000,
-      "jitterMs": 3000,
+      "minDelayMs": 1000,
+      "jitterMs": 500,
       "maxConcurrent": 1
     },
     "retry": {
@@ -100,6 +100,7 @@
     "discovery": "sitemap"
   },
   "_notes": [
+    "Checked 2026-11-13: the .com address redirects to .co.uk (corrected here). robots.txt is readable but their declared sitemap answered HTTP 403 to our crawler, so there is no list of product pages to read yet.",
     "Spelled 'Chisholm Hunter'. Confirm whether the live site is .com or .co.uk before enabling.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",

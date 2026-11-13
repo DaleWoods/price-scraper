@@ -1,6 +1,7 @@
 import robotsParserImport from 'robots-parser';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
+import { siteFetch } from './httpClient.js';
 
 interface RobotsTxt {
   isAllowed(url: string, userAgent?: string): boolean | undefined;
@@ -33,7 +34,7 @@ async function loadRobots(origin: string, userAgent: string): Promise<CachedRobo
 
   const robotsUrl = `${origin}/robots.txt`;
   try {
-    const response = await fetch(robotsUrl, {
+    const response = await siteFetch(robotsUrl, {
       headers: { 'user-agent': userAgent, accept: 'text/plain' },
       signal: AbortSignal.timeout(15_000),
     });
@@ -52,7 +53,12 @@ async function loadRobots(origin: string, userAgent: string): Promise<CachedRobo
       cache.set(origin, entry);
       return entry;
     }
-    if (!response.ok) {
+    // Anything but a plain 200 is not a robots file. This matters most for a
+    // 202 with an empty body, which is how an AWS WAF answers a visitor it
+    // wants to challenge: `response.ok` is true for it, an empty file parses as
+    // "nothing is disallowed", and a site that was in fact turning us away
+    // read as one that had granted permission to everything.
+    if (response.status !== 200) {
       const entry: CachedRobots = {
         robots: null,
         fetchedAt: Date.now(),

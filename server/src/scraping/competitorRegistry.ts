@@ -26,6 +26,13 @@ export const competitorConfigSchema = z.object({
    */
   rendering: z.enum(['http', 'browser', 'auto']).default('auto'),
   identity: z.enum(['bot', 'browser']).default('bot'),
+  /**
+   * Which of the site's URLs are product pages, as a regular expression tested
+   * against the path. A sitemap lists categories, articles and store pages
+   * too; this is how the catalogue harvest knows which ones to read. Leave it
+   * out and every URL is tried once.
+   */
+  productUrlPattern: z.string().optional(),
   unblocker: z.enum(['auto', 'never']).default('auto'),
   userAgent: z.string().optional(),
   rateLimit: z
@@ -53,6 +60,19 @@ export const competitorConfigSchema = z.object({
           availability: selectorListSchema,
           promoBadge: selectorListSchema,
           ean: selectorListSchema,
+        })
+        .optional(),
+      /**
+       * Regular expressions run against the page's raw HTML, for values a site
+       * publishes only inside embedded data rather than in an element a
+       * selector can reach. The first capture group is the value. `{price}`
+       * in a pattern stands for the price already read from the page, which is
+       * how a pattern is tied to this product's own price block rather than
+       * to a recommended product's further down the same page.
+       */
+      patterns: z
+        .object({
+          wasPrice: z.array(z.string()).optional(),
         })
         .optional(),
     })

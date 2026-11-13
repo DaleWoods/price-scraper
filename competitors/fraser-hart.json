@@ -9,8 +9,8 @@
   "config": {
     "rendering": "auto",
     "rateLimit": {
-      "minDelayMs": 5000,
-      "jitterMs": 3000,
+      "minDelayMs": 1000,
+      "jitterMs": 500,
       "maxConcurrent": 1
     },
     "retry": {
@@ -42,6 +42,7 @@
           ".price"
         ],
         "wasPrice": [
+          ".price-content .strike-through .value",
           ".price--was",
           ".was-price",
           ".price-standard",
@@ -97,9 +98,11 @@
       ],
       "maxCandidates": 10
     },
-    "discovery": "sitemap"
+    "discovery": "sitemap",
+    "productUrlPattern": "/[0-9-]+\\.html$"
   },
   "_notes": [
+    "Verified against the live site 2026-11-13: sitemap lists 4,227 product pages; JSON-LD carries the manufacturer reference (mpn) and, on branded lines, the barcode.",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",
     "selector below are informed guesses — they were written without network access to this",
     "retailer, so none of them has been checked against the live site.",

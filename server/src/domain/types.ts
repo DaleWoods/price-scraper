@@ -7,6 +7,14 @@ export interface Product {
   brand: string;
   product_name: string;
   ean_mpn: string | null;
+  /**
+   * The barcode and the manufacturer reference, held separately. `ean_mpn`
+   * above is whichever of the two the feed preferred and predates these; both
+   * are optional because some queries written before migration 021 do not
+   * select them.
+   */
+  gtin?: string | null;
+  mpn?: string | null;
   /** Null until a price file supplies it — the catalogue export carries no prices. */
   our_price: number | null;
   /**
@@ -30,6 +38,8 @@ export interface Product {
  * configuration, not code (Spec §5.2). See competitors/*.json for the shape.
  */
 export interface CompetitorConfig {
+  /** Regular expression, tested against a URL's path, that picks out product pages. */
+  productUrlPattern?: string;
   /**
    * Where candidate listings come from. 'sitemap' walks the URLs the site
    * publishes for crawlers; 'search' uses their on-site search, which every
@@ -70,6 +80,8 @@ export interface CompetitorConfig {
     backoffMs?: number;
   };
   product?: {
+    /** Regular expressions run against raw HTML; see competitorRegistry.ts. */
+    patterns?: { wasPrice?: string[] };
     /** Prefer schema.org JSON-LD when the site publishes it — far more stable than CSS. */
     useJsonLd?: boolean;
     selectors?: {

@@ -26,23 +26,40 @@ already produces.
 
 ## Status at a glance
 
-**The application is feature-complete for its purpose and is limited by data,
-not by code.** Everything below works: import, matching, scanning, comparison,
-history and alerting. The gap between "it works" and "it is useful" is that it
-currently monitors **one competitor**.
+**Five competitors are verified against their live sites and read cleanly.**
+On 13 November 2026 the app was run against the real retailers for the first
+time from a host with ordinary internet access. The results below are measured,
+not estimated.
 
 | | |
 | --- | --- |
-| **Working end to end** | Feed import, per-fascia pricing, sitemap discovery, matching and review, scanning, comparison, price history, three alert types, scrape health, per-competitor verification |
-| **The live constraint** | Ten of eleven competitor configurations are **unverified and disabled**. They were written without internet access and have never been checked against a real site |
-| **The next action** | Run **Admin → Can we read each competitor?** from the deployed app. It reports, per competitor, whether we can actually read their prices. Nothing else should be decided before that |
-| **Deliberately absent** | Scheduling. Every run is triggered by hand |
+| **Working end to end** | Feed import, per-fascia pricing, catalogue harvest, barcode matching and review, scanning, comparison, price history, three alert types, scrape health, per-competitor verification, nightly schedule |
+| **Verified readable** | Ernest Jones, H.Samuel, Beaverbrooks, Fraser Hart, Berry's — **about 34,400 product pages** between them, every one publishing a price in JSON-LD and most a barcode |
+| **Not readable directly** | Watch Shop and Austen & Blake (HTTP 503 to any automated visitor), Watchfinder (bot challenge), Chisholm Hunter (sitemap refused), Purely Diamonds (no product data over HTTP). See [What is not built yet](#what-is-not-built-yet) |
+| **The next action** | Enable the five verified competitors (Admin → Competitors, once terms-of-use sign-off is given), point the feed collector at the FTP location, and turn the nightly job on |
 
-> **A warning that has cost real time.** If a verification run reports *every*
-> competitor as unreachable, that is the host's own network, not the retailers.
-> The development sandbox this was built in refuses all outbound HTTPS,
-> including to `google.com`. Do not conclude a retailer blocks us without
-> checking from somewhere with ordinary internet access.
+### Measured against the live sites
+
+| | Before | Now |
+| --- | --- | --- |
+| How a product is found at a competitor | Guess up to three of their URLs from the words in the address, open each | Read their whole catalogue once; match by barcode in the database |
+| Requests to match 5,000 products at five competitors | up to 75,000, repeated for anything unmatched | about 34,400, **once** |
+| Pages read per competitor per minute | about 9 | **30–43** (1,166 pages across five sites in six minutes; no failures, no refusals) |
+| First complete read of all five | — | about **4½ hours**, all five side by side |
+| Matching, once a catalogue is held | minutes to hours of page loads | **2.3 seconds** for 269 products against five catalogues; no requests |
+| A normal night afterwards | every matched page, at 9 a minute | matched pages + new pages + a seventh of the rest, at 30–43 a minute |
+
+Of the 1,166 real pages read, 70% published a barcode — and on branded watches
+nearly all do. Forty-seven products were already found at two or more
+retailers by barcode alone from that six-minute sample, thirteen of them at
+different prices (a Longines Conquest at £1,920 at one retailer and £2,400 at
+another).
+
+> **Reading a refusal correctly.** If a verification run reports *every*
+> competitor as unreachable, suspect the host's own network before the
+> retailers: the sandbox this was first built in refused all outbound HTTPS,
+> and for months every "block" in this project was that proxy. Conclusions
+> about a retailer should come from a host with ordinary internet access.
 
 ---
 
@@ -51,9 +68,9 @@ currently monitors **one competitor**.
 | Spec | Status | Delivered |
 | --- | --- | --- |
 | **§5.1** Product import | ✅ Done | Google Shopping feed per fascia, uploaded by hand **or collected automatically from the FTP location they are delivered to** — which also keeps GTINs intact, since a feed routed via a desktop usually arrives Excel-damaged. Authoritative for its site: prices from an earlier feed are replaced, and products absent from every latest feed are **delisted** rather than deleted. Format detected from magic bytes; damaged identifiers, padding rows and repeated headers are reported rather than hidden. |
-| **§5.2** Competitor config | ⚠️ Built, unverified | Competitors are JSON files in `competitors/`. Adding a retailer is config plus a sync — **never a code change**. Eleven are configured; **one is enabled**, the other ten are unverified guesses. |
-| **§5.3** Matching | ✅ Done | Tiered scoring — EAN/MPN exact → brand + spec attributes → fuzzy name — with gate/high/medium/ignore weights per category (Appendix A). ≥85 auto-confirms; below that goes to a review queue with single and bulk decisions, plus manual URL linking. |
-| **§5.4** Scraping | ✅ Done | Sitemap discovery, robots.txt honoured, per-domain rate limiting with jitter, retry with backoff, typed loud failures. Fetches over plain HTTP and escalates to a browser only where needed. Refusals are diagnosed by cause. |
+| **§5.2** Competitor config | ✅ Five verified | Competitors are JSON files in `competitors/`. Adding a retailer is config plus a sync — **never a code change**. Eleven are configured; **five are verified against the live sites** (each file's `_notes` records what was found and when), five cannot be read directly, and one sells only its own label. Enabling a competitor remains a deliberate act in Admin. |
+| **§5.3** Matching | ✅ Done | **Barcode first.** Each competitor's catalogue is read once into `competitor_products`; our products are matched to it by GTIN, then by manufacturer reference, in one indexed join — no requests. Whatever is left is scored on title and attributes (Appendix A weights). An exact identifier auto-confirms; a title-only likeness of 60+ goes to the review queue, weaker ones are dropped. Barcodes and references are compared like with like, never with each other. |
+| **§5.4** Scraping | ✅ Done | Sitemap-led catalogue harvest, robots.txt honoured, per-domain rate limiting with jitter, retry with backoff, typed loud failures. Fetches over plain HTTP — which read every page on all five verified sites — and escalates to a browser only where needed. Refusals are diagnosed by cause, and five in a row stop a harvest. Sale prices are flagged from each site's own previous-price markup. |
 | **§5.5** Comparison | ✅ Done | **Two layouts** — a summary against the cheapest competitor, and a **column per competitor** so every price sits side by side. Search by SKU, product name, brand or **EAN/MPN**. Our price vs each competitor's latest, classified lower/equal/higher with £ and % delta, cheapest competitor per product, per-competitor coverage, CSV export, and a price trend chart. Every observation is stored, so history accumulates from day one. Competitor prices are shown with their **age**, so a stale figure cannot read as current. |
 | **§5.5b** Market position | ✅ Done | Aggregate standing by brand, category and competitor, **split by who was on promotion** so a sale week cannot read as a market shift, plus the live products nothing has compared yet: share cheaper/level/dearer, median gap, widest gap, and a weekly trend. Measured against the cheapest in-stock competitor. Products nobody prices are counted as uncovered rather than as ties. |
 | **§5.5a** Movement report | ✅ Done | A **What moved** page: every price change in the last 1/7/30/90 days — **theirs and ours** — with direction, size, our price, and where we stand now. Summary counts of cuts, rises, new undercuts and resolved ones. CSV export. Our own prices are historised for this (`fascia_price_history`). |
@@ -70,9 +87,15 @@ currently monitors **one competitor**.
 
 Ordered by how much it matters.
 
-1. **Verified competitors.** The largest gap between working and useful. Ten
-   configurations have never met a live site. See
-   [`docs/competitor-verification.md`](docs/competitor-verification.md).
+1. **A source for the competitors that will not be read directly.** Watch Shop,
+   Austen & Blake and Watchfinder turn away any automated visitor; Chisholm
+   Hunter refuses its sitemap. This app does not disguise itself to get past
+   that. The two routes that do not involve the retailer's site at all are a
+   **Google Shopping price API queried by barcode** (one lookup returns every
+   retailer advertising that product, including ones never configured here) and
+   the retailers' own **affiliate product feeds**. Both are paid or need an
+   account, and neither is built. See
+   [`docs/competitor-data-sources-brief.md`](docs/competitor-data-sources-brief.md).
 2. **A retention policy for `price_observations`** (§8). The table only grows.
 3. **Alert delivery.** Alerts are raised and resolved in-app; nothing is sent
    anywhere.
@@ -95,9 +118,9 @@ one npm workspace repo, deployed as a single Docker image.
 ```
 .
 ├── competitors/                    # One JSON file per competitor — config, not code
-│   ├── ernest-jones.json           #   the only one currently enabled
-│   └── … 10 more                   #   configured but unverified and disabled
-├── migrations/                     # Plain SQL, applied in order on boot (001…016)
+│   ├── ernest-jones.json           #   five are verified against the live sites;
+│   └── … 10 more                   #   each file's _notes says what was found
+├── migrations/                     # Plain SQL, applied in order on boot (001…021)
 ├── docs/
 │   ├── competitor-verification.md  #   Per-competitor evidence record and procedure
 │   ├── competitor-data-sources-brief.md
@@ -188,6 +211,49 @@ is the difference between one request and thousands.
 
 Every product page fetch is still checked against robots.txt. Being in a
 sitemap grants no exemption.
+
+### A competitor's catalogue is read once, and matching is a join
+
+The original design took our products one at a time: rank the competitor's
+cached URLs by the words in them, open the likeliest three, score each. Run
+against real sites that has three faults. It is slow — up to three page loads
+per product per competitor, so 75,000 for 5,000 products at five retailers. It
+repeats — a product with no match is searched for again every night. And it
+misses — a page whose address shares no words with our title is never opened.
+
+A competitor's catalogue is a few thousand pages, and every one states its own
+barcode. So `scraping/catalogue.ts` reads each product page **once** into
+`competitor_products`, and `matching/catalogueMatch.ts` joins our products to
+it on `gtin_key()` and `ident_key()` — two SQL functions mirrored exactly by
+`matching/identifiers.ts`. A new match is priced from the page already held, so
+"never seen" becomes "matched, with a price" without another request. Our own
+new lines are matched the night they arrive, against catalogues already read.
+
+The harvest reads pages mentioning a brand we sell first, so the first night
+already yields most of the comparisons that will ever exist. It stops after
+`CATALOGUE_HARVEST_MINUTES` (default 300) and resumes the next run; once
+complete it re-reads a seventh of the catalogue per night
+(`CATALOGUE_REFRESH_DAYS`). Five refusals in a row end it for that run.
+
+The older per-product search survives for runs scoped to named products, where
+an answer is wanted immediately and the catalogue may not have been read yet.
+
+### Barcodes and references are compared like with like
+
+A GTIN and a manufacturer reference are different numbers for the same watch.
+The first version held one "EAN/MPN" value per side and compared them as
+strings, which read our barcode against a page publishing only its reference as
+*a different product* — an outright rejection of a genuine match. Real pages
+made it worse: Ernest Jones and H.Samuel publish their own stock number in the
+`mpn` field, and Berry's puts the maker's reference in `sku`.
+
+`compareIdentifiers` now returns one of three verdicts. **Match**: the barcodes
+agree, or our reference equals their `mpn` or `sku` (and the caller can see the
+brand on the listing). **Conflict**: both publish a barcode and they differ —
+the only thing that can prove a page is a different product. **Unknown**:
+everything else. Which of a competitor's fields holds real manufacturer
+references is learned from the catalogue itself — a field that has matched
+several of ours is trusted; one that never has is a stock code.
 
 ### The fetch is a three-rung ladder, cheapest first
 
@@ -462,7 +528,11 @@ Built in, not bolted on:
   `Crawl-delay` overrides ours when longer. It is always evaluated against our
   own crawler identity, never a browser string.
 - **Rate limited per domain** with randomised jitter and a concurrency cap, with
-  a global floor beneath whatever a competitor config says.
+  a global floor beneath whatever a competitor config says: one request at a
+  time per site, a second's pause after each — about a page every two seconds.
+  None of the verified sites declares a `Crawl-delay`; one that did would get it.
+- **Stops when refused.** Five refusals in a row end a catalogue harvest for
+  that run rather than pressing on through thousands more requests.
 - **Identifies itself honestly** via `SCRAPER_USER_AGENT`.
 - **Public data only.** Nothing login-gated, no personal data.
 - **No defeat-of-protection logic.** A refusal is recorded, diagnosed and never

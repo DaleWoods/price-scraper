@@ -192,6 +192,32 @@ export interface CompetitorHealth {
   blockCauses: { cause: string; count: number }[];
 }
 
+/** One competitor's catalogue: how much we have read and what it contained. */
+export interface CatalogueRow {
+  competitorId: number;
+  competitorSlug: string;
+  competitorName: string;
+  enabled: boolean;
+  /** Whether the config says which of their URLs are product pages. */
+  hasPattern: boolean;
+  /** Product pages their sitemap lists. */
+  productUrls: number;
+  /** Of those, read at least once. */
+  read: number;
+  /** Pages read that turned out to be a product with a price. */
+  products: number;
+  withGtin: number;
+  withMpn: number;
+  /** Our live products with a confirmed match here. */
+  matched: number;
+  lastReadAt: string | null;
+}
+
+export interface CataloguesResponse {
+  refreshDays: number;
+  competitors: CatalogueRow[];
+}
+
 export interface ScrapeHealthResponse {
   windowDays: number;
   competitors: CompetitorHealth[];
@@ -743,6 +769,8 @@ export const api = {
   systemStatus: () => request<SystemStatus>('/api/admin/status'),
 
   robotsCheck: () => request<RobotsCheckResult>('/api/admin/robots-check', { method: 'POST' }),
+
+  catalogues: () => request<CataloguesResponse>('/api/admin/catalogues'),
 
   scrapeHealth: (days = 7) =>
     request<ScrapeHealthResponse>(`/api/admin/scrape-health?days=${days}`),

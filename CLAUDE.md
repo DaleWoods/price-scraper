@@ -133,12 +133,78 @@ for problems that have actually happened, with the real numbers.
   needing one of its own. An unrecognised `availability` string fails open
   (still priced) rather than breaking the import — see the "fails open" test
   in `feedImportDb.test.ts` before tightening that set.
-- **A competitor scan runs up to three competitors concurrently, not one at a
+- **A full run reads each competitor's catalogue; it does not search for our
+  products one at a time.** `scraping/catalogue.ts` reads every product page in
+  a competitor's sitemap once into `competitor_products`, and
+  `matching/catalogueMatch.ts` joins our products to it by barcode, then
+  manufacturer reference, then closest title — no requests. A new match is
+  priced from the page just read (`priceIfReadSince`), and the price pass skips
+  any match already priced in the same run, so a page is never fetched twice in
+  one run. The old per-product search (`discoverUnmatchedProducts`) now runs
+  **only for runs scoped to named products**, and only for the ones the
+  catalogue did not settle. Do not put it back on the full-run path: it opens
+  up to three guessed pages per product per competitor, every night, for
+  products that will never match.
+- **Measured on 13 November 2026 against the live sites**, not estimated: five
+  retailers read side by side at 30–43 pages a minute each (1,166 pages in six
+  minutes, no failures, no refusals), all over plain HTTP. About 34,400 product
+  pages between them, so a first complete read is about four and a half hours.
+  Matching 269 products against all five stored catalogues took 2.3 seconds.
+  Seventy per cent of pages publish a barcode; on branded watches nearly all.
+- **GTIN and MPN are different things and are never compared with each other.**
+  `matching/identifiers.ts` is the only place that decides whether two
+  identifiers agree; `gtin_key()` / `ident_key()` in migration 021 are its SQL
+  mirror and must change with it. Things real pages taught us: Ernest Jones and
+  H.Samuel publish **their own stock number** in JSON-LD `mpn` (and their own
+  name as `brand`); Berry's puts the maker's reference in `sku`; Beaverbrooks
+  and Fraser Hart publish both properly. So a differing *reference* proves
+  nothing, and only two differing *barcodes* reject a candidate or flag a
+  match. Which of a competitor's fields is a real manufacturer reference is
+  learned from the catalogue (`trustedReferenceFields`): a field that has
+  matched three of ours is trusted, and only then does a difference in it rule
+  a title candidate out.
+- **A title-only match from the catalogue needs 60+, not 25.** Tried on live
+  data, the old floor filled the review queue with different models from the
+  same collection (102 suggestions from 269 products, none right). With the
+  whole catalogue read, the best title is known, so only the single strongest
+  is offered and only at 60 or above; a pre-owned listing is never offered
+  against a new product. `MIN_CANDIDATE_THRESHOLD` (25) still applies to the
+  scoped per-product search.
+- **Beaverbrooks' response headers exceed Node's 16 KB limit.** Built-in
+  `fetch` rejects the response as a bare "fetch failed" — which reads exactly
+  like the site being down. Every request to a competitor therefore goes
+  through `scraping/httpClient.ts` (`siteFetch`), an undici Agent with a larger
+  `maxHeaderSize`. Do not call global `fetch` for a competitor page, sitemap or
+  robots.txt.
+- **A robots.txt answered with anything but 200 is not permission.** Watchfinder
+  answers 202 with an empty body (an AWS WAF challenge); `response.ok` is true
+  for that and an empty file parses as "nothing disallowed". `robots.ts` treats
+  every non-200 except 404/410 as unreachable.
+- **`productUrlPattern` in a competitor config says which sitemap URLs are
+  products.** Without it the harvest tries every URL once (categories and
+  articles included) and remembers the non-products for a month. The five
+  verified competitors have one; each file's `_notes` records what the live
+  site showed and when.
+- **Where each site keeps its previous price** (verified on real sale pages):
+  Fraser Hart `.price-content .strike-through .value`; Berry's
+  `compare-at-price:not([hidden])`; Beaverbrooks only in embedded JSON
+  (`"price":{"value":67,"wasPrice":75,…}`), read by `product.patterns.wasPrice`
+  with `{price}` standing for the page's own price so a recommended product's
+  block further up the page is not read instead. Signet's `priceData.msrp`
+  pattern is configured from the field's meaning but has **not** been seen on a
+  reduced line — none turned up in thirty pages each. Check it on a real sale
+  page before relying on Ernest Jones or H.Samuel promotion flags.
+- **The global politeness floor is 1 second, not 3.** It is the pause after one
+  request to a site ends before the next begins, one request at a time — about
+  a page every two seconds in practice. Tests that go through the runner are
+  correspondingly quicker than the comments in `runner.test.ts` suggest;
+  `catalogue.test.ts` sets `SCRAPER_MIN_DELAY_MS=0` before importing anything.
+- **A competitor scan runs up to six competitors concurrently, not one at a
   time.** `runner.ts`'s `executeRun` used to loop over enabled competitors
   sequentially; with every competitor config on `rendering: "browser"` and a
   5-8s per-request rate limit, a run against several competitors took the
   *sum* of all of them. `mapWithConcurrency` now runs `runCompetitor` for up
-  to `COMPETITOR_CONCURRENCY` (3) competitors at once — each competitor's own
+  to `COMPETITOR_CONCURRENCY` (6 — raised from 3 once pages were read over plain HTTP; the browser has its own limit of two pages in `fetcher.ts`) competitors at once — each competitor's own
   requests are still fully sequential and rate-limited exactly as before,
   this only overlaps *different* competitors' waits. Bounded rather than
   unbounded deliberately: this is the same Chromium-contention failure mode

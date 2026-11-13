@@ -10,6 +10,7 @@ import {
   type FeedSourceListing,
   type SchedulerStatus,
   type AlertSettings,
+  type CataloguesResponse,
   type ScrapeHealthResponse,
   type SystemStatus,
   type TestUrlResult,
@@ -72,6 +73,7 @@ export function AdminPage() {
 
       <SystemStatusSection status={status} loading={loading} />
       <ScrapeHealthSection />
+      <CataloguesSection />
       <AlertSettingsSection toast={toast} />
       <CompetitorsSection
         competitors={competitors}
@@ -1187,6 +1189,144 @@ function VerificationSection({
           </tbody>
         </table>
       </div>
+    </Card>
+  );
+}
+
+/**
+ * How much of each competitor's catalogue has been read.
+ *
+ * Matching no longer goes looking for one product at a time: each competitor's
+ * product pages are read once and remembered, and our products are matched to
+ * them by barcode. So "why is there no price for this at that retailer" has
+ * two possible answers, and this table tells them apart — their catalogue has
+ * not been read that far yet, or it has and they do not list it.
+ */
+function CataloguesSection() {
+  const [report, setReport] = useState<CataloguesResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .catalogues()
+      .then((response) => {
+        if (!cancelled) setReport(response);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : 'Could not load catalogues');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const rows = report?.competitors ?? [];
+  const count = (value: number) => value.toLocaleString('en-GB');
+  const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
+
+  return (
+    <Card
+      title="Competitor catalogues"
+      subtitle="How much of each competitor's range has been read, and how much of it is also ours"
+      bodyless
+    >
+      {error && (
+        <div style={{ padding: 'var(--sp-4) var(--sp-6)' }}>
+          <Alert tone="danger" title="Could not load catalogues">
+            {error}
+          </Alert>
+        </div>
+      )}
+
+      {!report && !error ? (
+        <TableSkeleton columns={6} />
+      ) : rows.length === 0 ? (
+        <EmptyState title="No competitors configured" body="Add one to start reading its catalogue." />
+      ) : (
+        <>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Competitor</th>
+                  <th className="num">Product pages</th>
+                  <th>Read so far</th>
+                  <th className="num">With a barcode</th>
+                  <th className="num">Matched to ours</th>
+                  <th className="num">Last read</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const readPct = pct(row.read, row.productUrls);
+                  return (
+                    <tr key={row.competitorId} style={{ opacity: row.enabled ? 1 : 0.55 }}>
+                      <td>
+                        <CompetitorLabel
+                          slug={row.competitorSlug}
+                          displayName={row.competitorName}
+                          hasLogo={false}
+                          className="cell-primary"
+                        />
+                        {!row.enabled && <div className="cell-secondary xs">disabled</div>}
+                      </td>
+                      <td
+                        className="num"
+                        title={
+                          row.hasPattern
+                            ? 'Product pages listed in their sitemap'
+                            : 'Every URL in their sitemap — this competitor has no rule saying which are product pages'
+                        }
+                      >
+                        {row.productUrls === 0 ? <span className="muted">none found</span> : count(row.productUrls)}
+                      </td>
+                      <td>
+                        {row.productUrls === 0 || row.read === 0 ? (
+                          <span className="badge badge--neutral">not started</span>
+                        ) : (
+                          <>
+                            <span className={`badge ${readPct >= 95 ? 'badge--lower' : 'badge--warn'}`}>
+                              {readPct >= 95 ? 'complete' : `${readPct}%`}
+                            </span>{' '}
+                            <span className="muted xs">
+                              {count(row.read)} of {count(row.productUrls)}
+                            </span>
+                          </>
+                        )}
+                      </td>
+                      <td
+                        className="num"
+                        title="Pages that publish a barcode, out of the pages that turned out to be a product"
+                      >
+                        {row.products === 0 ? (
+                          <span className="muted">—</span>
+                        ) : (
+                          <>
+                            {count(row.withGtin)}{' '}
+                            <span className="muted xs">({pct(row.withGtin, row.products)}%)</span>
+                          </>
+                        )}
+                      </td>
+                      <td className="num">{row.matched === 0 ? <span className="muted">—</span> : count(row.matched)}</td>
+                      <td className="num muted">{row.lastReadAt ? formatWhen(row.lastReadAt) : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ padding: 'var(--sp-4) var(--sp-6)' }}>
+            <Alert tone="info" title="A competitor is only fully compared once its catalogue is complete">
+              Each competitor's product pages are read once and remembered; our products are then
+              matched to them by barcode, with no further requests. Until “Read so far” says
+              complete, a missing price may only mean their catalogue has not been read that far —
+              the nightly job carries on from where it stopped. Once complete, each page is re-read
+              every {report?.refreshDays ?? 7} days, and matched products every night for their price.
+            </Alert>
+          </div>
+        </>
+      )}
     </Card>
   );
 }

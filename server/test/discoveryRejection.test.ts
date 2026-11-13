@@ -56,7 +56,8 @@ describe('rejectionReason', () => {
   });
 
   it('reports a differing EAN when the competitor publishes a different one', () => {
-    const product = watch();
+    // Barcode against barcode: the only comparison that can prove a difference.
+    const product = watch({ ean_mpn: '7611608293416' });
     const scored = scoreCandidate(product, {
       url: 'https://example.test/p/pr100',
       title: 'Tissot PR100 Chronograph',
@@ -65,6 +66,21 @@ describe('rejectionReason', () => {
     });
     assert.equal(scored.viable, false);
     assert.match(rejectionReason(scored), /differs from ours/);
+  });
+
+  it('does not reject a listing for publishing a barcode where we hold only a reference', () => {
+    // Our reference and their barcode are two different numbers for what may
+    // well be the same watch. Treating that as a disagreement rejected genuine
+    // matches outright; it is no evidence either way.
+    const product = watch();
+    const scored = scoreCandidate(product, {
+      url: 'https://example.test/p/pr100',
+      title: 'Tissot PR100 Chronograph 40mm Mens Watch Blue',
+      brand: 'Tissot',
+      ean: '9999999999999',
+    });
+    assert.deepEqual(scored.evidence.gatesFailed, []);
+    assert.equal(scored.viable, true);
   });
 
   it('falls back to the confidence score when nothing failed a gate outright', () => {

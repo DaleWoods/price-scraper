@@ -9,8 +9,8 @@
   "config": {
     "rendering": "auto",
     "rateLimit": {
-      "minDelayMs": 5000,
-      "jitterMs": 3000,
+      "minDelayMs": 1000,
+      "jitterMs": 500,
       "maxConcurrent": 1
     },
     "retry": {
@@ -97,9 +97,11 @@
       ],
       "maxCandidates": 10
     },
-    "discovery": "sitemap"
+    "discovery": "sitemap",
+    "productUrlPattern": "^/[a-z0-9-]+-\\d+$"
   },
   "_notes": [
+    "Checked 2026-11-13: sitemap readable (about 6,700 product pages) but product pages answered plain HTTP with a 5 KB page and no product data — not yet readable. Own-label jewellery, so no barcodes in common with ours either.",
     "Diamond specialist — matching leans on the ring/jewellery attribute tiers, not watch specs.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",

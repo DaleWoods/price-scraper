@@ -5,18 +5,25 @@ import {
   WEIGHT_POINTS,
   canonicalAttributeName,
   normaliseAttribute,
-  normaliseIdentifier,
   normaliseText,
   rulesForCategory,
   weightOf,
 } from './attributes.js';
+import { compareIdentifiers } from './identifiers.js';
 
 /** What we managed to read off a competitor listing (title, specs, JSON-LD). */
 export interface CandidateListing {
   url: string;
   title: string;
-  /** EAN/GTIN/MPN if the competitor exposes one. */
+  /**
+   * The first of gtin, mpn or sku the page published, as one value. Kept for
+   * listings read before the three were separated; prefer the fields below.
+   */
   ean?: string | null;
+  /** The barcode, the manufacturer reference and the retailer's own code. */
+  gtin?: string | null;
+  mpn?: string | null;
+  sku?: string | null;
   brand?: string | null;
   /** Spec attributes parsed from a listing's spec table or JSON-LD. */
   attributes?: SpecAttributes;
@@ -91,6 +98,27 @@ function textSupports(attribute: string, normalisedOurs: string, haystack: strin
 }
 
 /**
+ * Does the listing show our brand anywhere a person would see it — the title,
+ * the brand it declares, or the words of its address? Several retailers
+ * declare their own shop name as the "brand" in their structured data, so the
+ * declared brand alone is not enough to go on.
+ */
+function brandVisible(product: Product, listing: CandidateListing): boolean {
+  const brand = normaliseText(product.brand);
+  if (!brand || brand === 'unknown') return false;
+  let path = listing.url;
+  try {
+    path = decodeURIComponent(new URL(listing.url).pathname);
+  } catch {
+    // Not a parseable URL: search it as it stands.
+  }
+  const haystack = normaliseText(
+    [listing.title, listing.brand ?? '', path.replace(/[^A-Za-z0-9]+/g, ' ')].join(' '),
+  );
+  return haystack.includes(brand);
+}
+
+/**
  * Tiered confidence score (Spec §5.3 + Appendix A).
  *
  *   Tier 1 — exact EAN/MPN match: 100, overrides everything below.
@@ -110,12 +138,26 @@ export function scoreCandidate(product: Product, listing: CandidateListing): Sco
   };
 
   // ---- Tier 1: EAN / MPN exact --------------------------------------------
-  if (product.ean_mpn && listing.ean) {
-    const ours = normaliseIdentifier(product.ean_mpn);
-    const theirs = normaliseIdentifier(listing.ean);
-    if (ours && ours === theirs) {
+  // Barcode against barcode, reference against reference — see identifiers.ts
+  // for why the two are never compared with each other.
+  const identity = compareIdentifiers(
+    { gtin: product.gtin, mpn: product.mpn, eanMpn: product.ean_mpn },
+    { gtin: listing.gtin, mpn: listing.mpn, sku: listing.sku, ean: listing.ean },
+  );
+
+  if (identity.verdict === 'match') {
+    // A barcode is globally unique, so it stands alone. A manufacturer
+    // reference is only unique within a brand, so it counts as exact only when
+    // the listing also shows the brand — otherwise it falls through to be
+    // scored on its attributes like any other candidate.
+    if (identity.via === 'gtin' || brandVisible(product, listing)) {
       evidence.tier = 'ean_mpn_exact';
-      evidence.notes = [`EAN/MPN exact match on ${product.ean_mpn} — overrides attribute scoring.`];
+      evidence.notes = [
+        identity.via === 'gtin'
+          ? `EAN/MPN exact match on ${identity.ours} — overrides attribute scoring.`
+          : `Manufacturer reference ${identity.ours} matches theirs (${identity.theirs}) and the ` +
+            `listing names ${product.brand} — overrides attribute scoring.`,
+      ];
       return {
         listing,
         confidence: 100,
@@ -126,7 +168,8 @@ export function scoreCandidate(product: Product, listing: CandidateListing): Sco
       };
     }
     evidence.notes?.push(
-      `Competitor publishes EAN/MPN ${listing.ean}, which differs from ours (${product.ean_mpn}).`,
+      `Manufacturer reference ${identity.ours} matches theirs, but the listing does not name ` +
+        `${product.brand}, so it was scored on its attributes instead.`,
     );
   }
 
@@ -136,22 +179,22 @@ export function scoreCandidate(product: Product, listing: CandidateListing): Sco
     [listing.title, ...Object.values(attributes)].filter(Boolean).join(' '),
   );
 
-  // A competitor publishing a *different* EAN is a hard rejection: same-brand
-  // products with different GTINs are different products.
-  if (product.ean_mpn && listing.ean) {
-    const ours = normaliseIdentifier(product.ean_mpn);
-    const theirs = normaliseIdentifier(listing.ean);
-    if (ours && theirs && ours !== theirs) {
-      evidence.gatesFailed?.push('ean_mpn');
-      return {
-        listing,
-        confidence: 0,
-        tier: 'brand_spec_attributes',
-        evidence,
-        viable: false,
-        autoAccept: false,
-      };
-    }
+  // A competitor publishing a *different* barcode is a hard rejection:
+  // same-brand products with different GTINs are different products. Only a
+  // barcode can prove that; a differing reference may be their own stock code.
+  if (identity.verdict === 'conflict') {
+    evidence.notes?.push(
+      `Competitor publishes EAN/MPN ${identity.theirs}, which differs from ours (${identity.ours}).`,
+    );
+    evidence.gatesFailed?.push('ean_mpn');
+    return {
+      listing,
+      confidence: 0,
+      tier: 'brand_spec_attributes',
+      evidence,
+      viable: false,
+      autoAccept: false,
+    };
   }
 
   // ---- Gates ---------------------------------------------------------------

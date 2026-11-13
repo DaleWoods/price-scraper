@@ -1,19 +1,22 @@
 import { query } from '../db/pool.js';
 import type { Competitor, Product, ScrapeRun } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
+import { env } from '../config/env.js';
+import { matchFromCatalogue } from '../matching/catalogueMatch.js';
 import { discoverMatchesForProduct } from '../matching/discovery.js';
-import { normaliseIdentifier } from '../matching/attributes.js';
-import { countCachedUrls, refreshCompetitorUrls } from '../matching/sitemapDiscovery.js';
 import {
-  raiseListingGoneAlert,
-  resolveListingGone,
-  syncPriceDropAlert,
-  syncUndercutAlerts,
-} from '../services/alerts.js';
+  compareIdentifiers,
+  type OurIdentifiers,
+  type TheirIdentifiers,
+} from '../matching/identifiers.js';
+import { countCachedUrls, refreshCompetitorUrls } from '../matching/sitemapDiscovery.js';
+import { raiseListingGoneAlert } from '../services/alerts.js';
 import { closeBrowser } from './browser.js';
+import { harvestCatalogue, recordCatalogueListing } from './catalogue.js';
 import { listCompetitors } from './competitorRegistry.js';
 import { ScrapeError } from './errors.js';
 import { fetchAndExtract } from './fetchAndExtract.js';
+import { recordPriceObservation } from './observations.js';
 import { UnblockerBudget, isUnblockerConfigured } from './unblocker.js';
 
 export type RunMode = 'prices' | 'discover' | 'both';
@@ -80,25 +83,37 @@ interface MatchRow {
   internal_sku: string;
   /** Ours, for re-checking the page is still the product we matched. */
   ean_mpn: string | null;
+  gtin: string | null;
+  mpn: string | null;
 }
 
 /**
  * Has this page stopped being the product we matched?
  *
- * Only an *explicit disagreement* counts. A page that publishes no identifier
- * tells us nothing, and treating silence as a mismatch would flag most of the
- * web; a product of ours with no EAN cannot be checked either way. Both are
- * left alone deliberately — the check is for catching a URL that now serves a
- * different product, not for demanding identifiers nobody publishes.
+ * Only an *explicit disagreement between two barcodes* counts. A page that
+ * publishes no identifier tells us nothing, and treating silence as a mismatch
+ * would flag most of the web; a product of ours with no barcode cannot be
+ * checked either way. A differing reference does not count either: several
+ * retailers publish their own stock code where the manufacturer's reference
+ * belongs, and flagging those would flag every match they have. The check is
+ * for catching a URL that now serves a different product, not for demanding
+ * identifiers nobody publishes.
+ *
+ * Each side may be given as the older single value or as its separate parts.
  */
 export function identityMismatch(
-  ourEan: string | null,
-  theirEan: string | null | undefined,
+  ours: string | null | OurIdentifiers,
+  theirs: string | null | undefined | TheirIdentifiers,
 ): { mismatched: boolean; ours: string; theirs: string } {
-  const ours = ourEan ? normaliseIdentifier(ourEan) : '';
-  const theirs = theirEan ? normaliseIdentifier(theirEan) : '';
-  if (!ours || !theirs) return { mismatched: false, ours, theirs };
-  return { mismatched: ours !== theirs, ours, theirs };
+  const ourSide: OurIdentifiers = typeof ours === 'string' || ours == null ? { eanMpn: ours } : ours;
+  const theirSide: TheirIdentifiers =
+    typeof theirs === 'string' || theirs == null ? { ean: theirs } : theirs;
+
+  const verdict = compareIdentifiers(ourSide, theirSide);
+  if (verdict.verdict === 'conflict') {
+    return { mismatched: true, ours: verdict.ours, theirs: verdict.theirs };
+  }
+  return { mismatched: false, ours: '', theirs: '' };
 }
 
 /**
@@ -245,8 +260,17 @@ async function executeRun(
   }
 }
 
-/** How many competitors run concurrently within one scrape run. */
-const COMPETITOR_CONCURRENCY = 3;
+/**
+ * How many competitors run concurrently within one scrape run.
+ *
+ * Six, where it was three. The limit existed because every page used to be
+ * rendered in Chromium, and three browsers at once was what a small server
+ * could take. Pages are now read over plain HTTP wherever that works — which,
+ * measured against the live sites, is nearly everywhere — and the browser has
+ * its own much tighter limit in fetcher.ts. What this number bounds now is
+ * mostly waiting, and waiting on six sites costs the same as waiting on one.
+ */
+const COMPETITOR_CONCURRENCY = 6;
 
 /** Run every array item through fn, never more than `limit` in flight at once. */
 async function mapWithConcurrency<T, R>(
@@ -282,6 +306,7 @@ async function runCompetitor(
   let ok = 0;
   let errored = 0;
   let skipped = 0;
+  const runStartedAt = new Date();
 
   // Discovery first, then prices. A match auto-confirmed by this run is then
   // priced by this run, so one scan answers "is it listed there, and for how
@@ -323,10 +348,78 @@ async function runCompetitor(
       }
     }
 
-    const result = await discoverUnmatchedProducts(runId, competitor, limit, productIds);
-    ok += result.ok;
-    errored += result.errored;
-    skipped += result.skipped;
+    // A full run reads the competitor's catalogue: every product page not yet
+    // read, plus the slice due a re-read. A run scoped to named products does
+    // not — it is meant to answer quickly, from what is already held.
+    if (productIds == null) {
+      const harvest = await harvestCatalogue(competitor, {
+        runId,
+        maxPages: limit,
+        deadline: Date.now() + env.catalogueHarvestMinutes * 60_000,
+        // Counters move as pages are read, so a harvest of several thousand
+        // pages shows progress rather than a run that looks stuck for hours.
+        onPage: async (status) => {
+          const column =
+            status === 'ok' ? 'ok_count' : status === 'error' ? 'error_count' : 'skipped_count';
+          if (status === 'ok') ok += 1;
+          else if (status === 'error') errored += 1;
+          else skipped += 1;
+          await query(`UPDATE scrape_runs SET ${column} = ${column} + 1 WHERE id = $1`, [runId]);
+        },
+      });
+
+      if (harvest.attempted > 0 || harvest.stopped) {
+        const blocked = harvest.stopped === 'blocked';
+        await recordRunItem(runId, {
+          competitorId: competitor.id,
+          status: blocked ? 'error' : 'ok',
+          errorKind: blocked ? 'blocked' : null,
+          error:
+            `Catalogue: read ${harvest.attempted} page(s) — ${harvest.products} product(s), ` +
+            `${harvest.notProducts} not a product, ${harvest.gone} gone, ${harvest.errors} failed.` +
+            (harvest.remaining > 0 ? ` ${harvest.remaining} page(s) still to read on a later run.` : '') +
+            (harvest.detail ? ` ${harvest.detail}` : ''),
+        });
+        if (blocked) errored += 1;
+        else ok += 1;
+      }
+    }
+
+    // Match against the catalogue we hold — a database lookup, no requests.
+    // On a full run a new match is priced from the page just read, so the
+    // price pass below does not fetch the same page a second time.
+    const matched = await matchFromCatalogue(competitor, {
+      runId,
+      productIds,
+      priceIfReadSince: productIds == null ? runStartedAt : null,
+    });
+    if (matched.byIdentifier + matched.byTitle > 0) {
+      await recordRunItem(runId, {
+        competitorId: competitor.id,
+        status: 'ok',
+        error:
+          `Matched from the stored catalogue: ${matched.byIdentifier} by barcode or reference, ` +
+          `${matched.byTitle} by title — ${matched.autoConfirmed} confirmed, ` +
+          `${matched.pending} for review, ${matched.priced} priced without a further request.`,
+      });
+      ok += 1;
+    }
+
+    // The older route — guess which of their URLs might be the product, open
+    // the likeliest few — is kept for runs scoped to named products, where the
+    // catalogue may not have been read yet and an answer is wanted now. A full
+    // run does not need it: the harvest above reads those same pages, all of
+    // them, and matches on what they say rather than on their address.
+    if (productIds != null) {
+      const settled = new Set(matched.matchedProductIds);
+      const remaining = productIds.filter((id) => !settled.has(id));
+      if (remaining.length > 0) {
+        const result = await discoverUnmatchedProducts(runId, competitor, limit, remaining);
+        ok += result.ok;
+        errored += result.errored;
+        skipped += result.skipped;
+      }
+    }
   }
 
   if (mode === 'prices' || mode === 'both') {
@@ -365,7 +458,7 @@ async function scrapeConfirmedMatches(
 ): Promise<{ ok: number; errored: number }> {
   const { rows: matches } = await query<MatchRow>(
     `SELECT m.id AS match_id, m.product_id, m.competitor_id, m.competitor_url,
-            p.internal_sku, p.ean_mpn
+            p.internal_sku, p.ean_mpn, p.gtin, p.mpn
      FROM product_matches m
      JOIN products p ON p.id = m.product_id
      -- A delisted product is no longer sold by us, so re-checking a
@@ -376,9 +469,15 @@ async function scrapeConfirmedMatches(
        -- night and burying the real errors.
        AND m.flagged_at IS NULL
        AND ($2::bigint[] IS NULL OR m.product_id = ANY($2::bigint[]))
+       -- Already priced by this run, from the catalogue page read moments ago.
+       -- Fetching it again would be a second request for the same answer.
+       AND NOT EXISTS (
+         SELECT 1 FROM price_observations po
+         WHERE po.match_id = m.id AND po.scrape_run_id = $3
+       )
      ORDER BY m.id
      ${limit ? 'LIMIT ' + Number(limit) : ''}`,
-    [competitor.id, productIds],
+    [competitor.id, productIds, runId],
   );
 
   let ok = 0;
@@ -396,7 +495,10 @@ async function scrapeConfirmedMatches(
       // redirect to a replacement model, or a slug reused next season, would
       // otherwise have us recording a plausible price for the wrong watch
       // indefinitely.
-      const identity = identityMismatch(match.ean_mpn, listing.ean);
+      const identity = identityMismatch(
+        { gtin: match.gtin, mpn: match.mpn, eanMpn: match.ean_mpn },
+        { gtin: listing.gtin, mpn: listing.mpn, sku: listing.sku, ean: listing.ean },
+      );
       if (identity.mismatched) {
         await query(
           `UPDATE product_matches SET flagged_at = now(), flag_reason = $2 WHERE id = $1`,
@@ -427,64 +529,22 @@ async function scrapeConfirmedMatches(
         continue;
       }
 
-      await query(
-        `INSERT INTO price_observations
-           (product_id, competitor_id, match_id, scrape_run_id, price, was_price, currency,
-            promo, in_stock, availability_text, source_url, rendered_with)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [
-          match.product_id,
-          match.competitor_id,
-          match.match_id,
-          runId,
-          listing.price,
-          listing.wasPrice,
-          listing.currency,
-          listing.promo,
-          listing.inStock,
-          listing.availabilityText,
-          page.finalUrl,
-          // What actually produced this price, after any escalation — not what
-          // the competitor is configured to prefer.
-          page.renderedWith,
-        ],
+      await recordPriceObservation(
+        {
+          matchId: match.match_id,
+          productId: match.product_id,
+          competitorId: match.competitor_id,
+          internalSku: match.internal_sku,
+        },
+        listing,
+        { runId, sourceUrl: page.finalUrl, renderedWith: page.renderedWith },
       );
 
-      // A price outlives its own scrape: alert state is checked against every
-      // fascia this product prices, not just recorded and left for someone to
-      // notice on the comparison page.
-      //
-      // Every alert call is caught and logged rather than awaited bare: a
-      // failed alert write must never lose a price that was scraped
-      // successfully. The scrape is the valuable part.
-      await syncUndercutAlerts(match.product_id, match.competitor_id, listing.price).catch((err) => {
-        logger.warn('runner', `alert sync failed for ${match.internal_sku}: ${(err as Error).message}`);
+      // Keep the stored catalogue page in step with what was just read, so the
+      // catalogue never lags the prices taken from the same pages.
+      await recordCatalogueListing(competitor.id, match.competitor_url, page, listing).catch((err) => {
+        logger.warn('runner', `catalogue update failed for ${match.internal_sku}: ${(err as Error).message}`);
       });
-
-      // The competitor's own price falling sharply is its own signal (Spec
-      // §5.5), separate from whether it undercuts us.
-      await syncPriceDropAlert(match.product_id, match.competitor_id, listing.price).catch((err) => {
-        logger.warn('runner', `price-drop alert failed for ${match.internal_sku}: ${(err as Error).message}`);
-      });
-
-      // inStock is boolean | null, and null means the page did not say —
-      // alerting on unknown would fire constantly on sites that never publish
-      // availability, so only an explicit false counts.
-      if (listing.inStock === false) {
-        await raiseListingGoneAlert(
-          match.product_id,
-          match.competitor_id,
-          'it is showing as out of stock',
-        ).catch((err) => {
-          logger.warn('runner', `listing-gone alert failed for ${match.internal_sku}: ${(err as Error).message}`);
-        });
-      } else {
-        // Back in stock and readable again — clear any standing alert rather
-        // than leaving it open with nothing behind it.
-        await resolveListingGone(match.product_id, match.competitor_id).catch((err) => {
-          logger.warn('runner', `listing-gone resolve failed for ${match.internal_sku}: ${(err as Error).message}`);
-        });
-      }
 
       await recordRunItem(runId, {
         matchId: match.match_id,

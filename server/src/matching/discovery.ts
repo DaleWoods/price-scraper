@@ -211,6 +211,9 @@ export async function discoverMatchesForProduct(
         url: page.finalUrl,
         title: extracted.title ?? result.title,
         ean: extracted.ean,
+        gtin: extracted.gtin,
+        mpn: extracted.mpn,
+        sku: extracted.sku,
         brand: extracted.brand,
         attributes: extracted.attributes,
         price: extracted.price,
@@ -263,7 +266,7 @@ export async function discoverMatchesForProduct(
   return outcome;
 }
 
-interface UpsertMatchInput {
+export interface UpsertMatchInput {
   productId: number;
   competitorId: number;
   url: string;
@@ -281,7 +284,9 @@ interface UpsertMatchInput {
  * A match a human has already confirmed or rejected is never silently
  * overwritten by a later automated run — the human decision stands.
  */
-async function upsertMatch(input: UpsertMatchInput): Promise<void> {
+export async function upsertMatch(
+  input: UpsertMatchInput,
+): Promise<{ id: number; status: 'pending' | 'confirmed' | 'rejected' }> {
   // Only one confirmed listing per product/competitor is allowed by the schema,
   // so an auto-confirm must stand down if a human already confirmed a different URL.
   let status: 'pending' | 'confirmed' = input.autoConfirm ? 'confirmed' : 'pending';
@@ -295,7 +300,7 @@ async function upsertMatch(input: UpsertMatchInput): Promise<void> {
     if (existing && existing.competitor_url !== input.url) status = 'pending';
   }
 
-  await query(
+  const { rows: stored } = await query<{ id: number; status: 'pending' | 'confirmed' | 'rejected' }>(
     `INSERT INTO product_matches
        (product_id, competitor_id, competitor_url, competitor_title, competitor_ean,
         confidence, match_tier, status, evidence, confirmed_at, confirmed_by)
@@ -316,7 +321,8 @@ async function upsertMatch(input: UpsertMatchInput): Promise<void> {
                             WHEN product_matches.status = 'rejected' THEN 'rejected'
                             ELSE EXCLUDED.status
                           END,
-       updated_at       = now()`,
+       updated_at       = now()
+     RETURNING id, status`,
     [
       input.productId,
       input.competitorId,
@@ -329,4 +335,5 @@ async function upsertMatch(input: UpsertMatchInput): Promise<void> {
       JSON.stringify(input.evidence ?? {}),
     ],
   );
+  return stored[0]!;
 }

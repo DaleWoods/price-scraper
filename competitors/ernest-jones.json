@@ -19,8 +19,8 @@
   "config": {
     "rendering": "auto",
     "rateLimit": {
-      "minDelayMs": 5000,
-      "jitterMs": 3000,
+      "minDelayMs": 1000,
+      "jitterMs": 500,
       "maxConcurrent": 1
     },
     "retry": {
@@ -71,6 +71,11 @@
           "[data-product-ean]",
           ".product-number .value"
         ]
+      },
+      "patterns": {
+        "wasPrice": [
+          "\"priceData\":\\{[^{}]*\"msrp\":([0-9]+(?:\\.[0-9]+)?)[^{}]*\"value\":{price}\\}"
+        ]
       }
     },
     "search": {
@@ -98,9 +103,11 @@
       ],
       "maxCandidates": 10
     },
-    "discovery": "sitemap"
+    "discovery": "sitemap",
+    "productUrlPattern": "/p/V-\\d+$"
   },
   "_notes": [
+    "Verified against the live site 2026-11-13: sitemap lists 6,933 product pages; price, title, stock and (on branded lines) the barcode read from JSON-LD over plain HTTP in about a second.",
     "JSON-LD is the primary extraction path: schema.org Product/Offer markup is far more stable than CSS classes.",
     "The CSS selectors below it are FALLBACKS and are UNVERIFIED against the live site.",
     "Before go-live, tune them with POST /api/competitors/ernest-jones/test-url — it runs a real",

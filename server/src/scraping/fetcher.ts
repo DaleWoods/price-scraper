@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import type { Competitor } from '../domain/types.js';
 import { getBrowser } from './browser.js';
+import { siteFetch } from './httpClient.js';
 import { describeBlock, diagnoseBlock } from './blockDiagnosis.js';
 import { ScrapeError, isBlockingStatus } from './errors.js';
 import { withRateLimit } from './rateLimiter.js';
@@ -134,7 +135,7 @@ export async function fetchPage(
 async function httpFetch(url: string, userAgent: string): Promise<FetchedPage> {
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await siteFetch(url, {
       headers: {
         'user-agent': userAgent,
         accept: 'text/html,application/xhtml+xml',
@@ -144,7 +145,12 @@ async function httpFetch(url: string, userAgent: string): Promise<FetchedPage> {
       signal: AbortSignal.timeout(env.requestTimeoutMs),
     });
   } catch (err) {
-    const message = (err as Error).message;
+    // "fetch failed" on its own says nothing; the reason is on `cause`
+    // (a refused connection, a reset, an oversized header). Without it every
+    // network fault reads identically and none can be diagnosed from a log.
+    const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+    const reason = cause?.code ?? cause?.message;
+    const message = reason ? `${(err as Error).message} (${reason})` : (err as Error).message;
     const kind = /timeout|abort/i.test(message) ? 'timeout' : 'navigation_failed';
     throw new ScrapeError(kind, `HTTP fetch failed for ${url}: ${message}`, { url, cause: err });
   }
@@ -167,7 +173,32 @@ async function httpFetch(url: string, userAgent: string): Promise<FetchedPage> {
   };
 }
 
+/**
+ * At most this many browser pages at once, across every competitor.
+ *
+ * Chromium is real memory and CPU per page. Competitors now run six at a time
+ * because nearly all of their pages are read over plain HTTP; this keeps the
+ * few that do need a browser from all needing one in the same instant, which
+ * is what once starved a small server into failing its own health check.
+ */
+const MAX_BROWSER_PAGES = 2;
+let browserPagesInUse = 0;
+const browserWaiters: (() => void)[] = [];
+
 async function browserFetch(url: string, userAgent: string): Promise<FetchedPage> {
+  while (browserPagesInUse >= MAX_BROWSER_PAGES) {
+    await new Promise<void>((resolve) => browserWaiters.push(resolve));
+  }
+  browserPagesInUse += 1;
+  try {
+    return await browserFetchUnbounded(url, userAgent);
+  } finally {
+    browserPagesInUse -= 1;
+    browserWaiters.shift()?.();
+  }
+}
+
+async function browserFetchUnbounded(url: string, userAgent: string): Promise<FetchedPage> {
   const browser = await getBrowser();
   const context = await browser.newContext({
     userAgent,

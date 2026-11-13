@@ -9,8 +9,8 @@
   "config": {
     "rendering": "auto",
     "rateLimit": {
-      "minDelayMs": 5000,
-      "jitterMs": 3000,
+      "minDelayMs": 1000,
+      "jitterMs": 500,
       "maxConcurrent": 1
     },
     "retry": {
@@ -100,6 +100,7 @@
     "discovery": "sitemap"
   },
   "_notes": [
+    "Checked 2026-11-13: robots.txt and sitemap readable. Their sitemap index is published as an ordinary page list of per-language sitemap files, which sitemap.ts now follows. Own-label jewellery, so no barcodes in common with ours.",
     "Largely bespoke/configurable diamond jewellery; expect weak matching against fixed catalogue SKUs.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",

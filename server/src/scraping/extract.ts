@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import type { Competitor, SpecAttributes } from '../domain/types.js';
 import { canonicalAttributeName } from '../matching/attributes.js';
+import { looksLikeGtin } from '../matching/identifiers.js';
 import { ScrapeError } from './errors.js';
 import type { FetchedPage } from './fetcher.js';
 
@@ -12,7 +13,12 @@ export interface ExtractedListing {
   promo: boolean;
   inStock: boolean | null;
   availabilityText: string | null;
+  /** The first of gtin, mpn or sku — kept for callers that predate the split below. */
   ean: string | null;
+  /** The barcode, the manufacturer reference, and the retailer's own stock code. */
+  gtin: string | null;
+  mpn: string | null;
+  sku: string | null;
   brand: string | null;
   attributes: SpecAttributes;
   /** Which path produced the price — useful when diagnosing a layout change. */
@@ -44,6 +50,40 @@ export function parsePrice(raw: string | null | undefined): number | null {
   const value = Number.parseFloat(digits);
   if (!Number.isFinite(value) || value < 0) return null;
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * A price as a regular-expression fragment: 499 matches "499", "499.0" and
+ * "499.00"; 196.5 matches "196.5" and "196.50".
+ */
+function pricePattern(price: number): string {
+  const [whole, fraction = ''] = String(price).split('.');
+  return fraction ? `${whole}\\.${fraction}0?` : `${whole}(?:\\.0+)?`;
+}
+
+/**
+ * Read a price out of the page's raw HTML with the competitor's configured
+ * patterns — for sites that publish a previous price only inside embedded
+ * data. A pattern that does not compile is skipped rather than failing the
+ * whole page: a typo in a config file should cost one optional field, not
+ * every price from that competitor.
+ */
+function firstPatternPrice(
+  html: string,
+  patterns: string[] | undefined,
+  price: number,
+): number | null {
+  for (const pattern of patterns ?? []) {
+    let expression: RegExp;
+    try {
+      expression = new RegExp(pattern.replaceAll('{price}', pricePattern(price)));
+    } catch {
+      continue;
+    }
+    const value = parsePrice(html.match(expression)?.[1]);
+    if (value != null) return value;
+  }
+  return null;
 }
 
 function firstText($: cheerio.CheerioAPI, selectors: string[] | undefined): string | null {
@@ -112,6 +152,9 @@ interface JsonLdProduct {
   currency: string | null;
   availability: string | null;
   ean: string | null;
+  gtin: string | null;
+  mpn: string | null;
+  sku: string | null;
   brand: string | null;
   attributes: SpecAttributes;
 }
@@ -150,18 +193,24 @@ function extractFromJsonLd($: cheerio.CheerioAPI): JsonLdProduct | null {
     if (value && !attributes[target]) attributes[target] = value;
   }
 
+  const gtin =
+    asString(product.gtin13) ??
+    asString(product.gtin) ??
+    asString(product.gtin14) ??
+    asString(product.gtin12) ??
+    asString(product.gtin8);
+  const mpn = asString(product.mpn);
+  const sku = asString(product.sku) ?? asString(product.productID);
+
   return {
     title: asString(product.name),
     price: price ?? null,
     currency: asString(offerNode?.priceCurrency) ?? asString(product.priceCurrency),
     availability: asString(offerNode?.availability),
-    ean:
-      asString(product.gtin13) ??
-      asString(product.gtin) ??
-      asString(product.gtin12) ??
-      asString(product.gtin8) ??
-      asString(product.mpn) ??
-      asString(product.sku),
+    ean: gtin ?? mpn ?? sku,
+    gtin,
+    mpn,
+    sku,
     brand: asString(product.brand),
     attributes,
   };
@@ -219,7 +268,9 @@ export function extractListing(competitor: Competitor, page: FetchedPage): Extra
     );
   }
 
-  const wasPrice = parsePrice(firstText($, selectors.wasPrice));
+  const wasPrice =
+    parsePrice(firstText($, selectors.wasPrice)) ??
+    firstPatternPrice(page.html, config.patterns?.wasPrice, price);
   const availabilityText = firstText($, selectors.availability) ?? jsonLd?.availability ?? null;
   const promoBadge = firstText($, selectors.promoBadge);
 
@@ -238,6 +289,8 @@ export function extractListing(competitor: Competitor, page: FetchedPage): Extra
     if (key && value && key.length < 60) attributes[canonicalAttributeName(key)] ??= value;
   });
 
+  const selectorEan = firstText($, selectors.ean);
+
   return {
     title: jsonLd?.title ?? firstText($, selectors.title) ?? ($('h1').first().text().trim() || null),
     price,
@@ -246,7 +299,13 @@ export function extractListing(competitor: Competitor, page: FetchedPage): Extra
     promo: Boolean(promoBadge) || (wasPrice != null && wasPrice > price),
     inStock: interpretAvailability(availabilityText),
     availabilityText,
-    ean: jsonLd?.ean ?? firstText($, selectors.ean),
+    ean: jsonLd?.ean ?? selectorEan,
+    // A configured selector is the fallback for a barcode only: it was written
+    // to find one, and guessing which kind of code it found would be worse
+    // than leaving the reference blank.
+    gtin: jsonLd?.gtin ?? (looksLikeGtin(selectorEan) ? selectorEan : null),
+    mpn: jsonLd?.mpn ?? null,
+    sku: jsonLd?.sku ?? null,
     brand: jsonLd?.brand ?? null,
     attributes,
     source,
