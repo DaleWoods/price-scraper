@@ -100,7 +100,7 @@
     "discovery": "sitemap"
   },
   "_notes": [
-    "Checked 2026-11-13: robots.txt answered HTTP 202 with an empty body, which is a bot challenge rather than a robots file. Not readable directly. Pre-owned watches, so not like-for-like with new stock in any case.",
+    "Checked 2026-11-13: every address, including robots.txt, answered HTTP 202 with an AWS WAF challenge page (x-amzn-waf-action: challenge). Not readable directly. Pre-owned watches, so not like-for-like with new stock in any case.",
     "Pre-owned and vintage watches — stock is one-of-a-kind, so expect lower match rates than a new-goods retailer.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",

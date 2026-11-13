@@ -100,7 +100,7 @@
     "discovery": "sitemap"
   },
   "_notes": [
-    "Checked 2026-11-13: the .com address redirects to .co.uk (corrected here). robots.txt is readable but their declared sitemap answered HTTP 403 to our crawler, so there is no list of product pages to read yet.",
+    "Checked 2026-11-13: the .com address redirects to .co.uk (corrected here). robots.txt is readable and permits product pages, but every other address — home page, category pages, the sitemap — answered our crawler with a Cloudflare challenge page (HTTP 403, cf-mitigated: challenge). Not readable directly.",
     "Spelled 'Chisholm Hunter'. Confirm whether the live site is .com or .co.uk before enabling.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",

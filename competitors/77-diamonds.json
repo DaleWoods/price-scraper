@@ -97,10 +97,11 @@
       ],
       "maxCandidates": 10
     },
-    "discovery": "sitemap"
+    "discovery": "sitemap",
+    "productUrlPattern": "^/(?![a-z]{2}/)[^/]+/[^/]+/p/\\d+$"
   },
   "_notes": [
-    "Checked 2026-11-13: robots.txt and sitemap readable. Their sitemap index is published as an ordinary page list of per-language sitemap files, which sitemap.ts now follows. Own-label jewellery, so no barcodes in common with ours.",
+    "Verified against the live site 2026-11-13: sitemap lists 1,767 UK product pages (plus the same range in 18 other languages, which the pattern leaves out); price reads from JSON-LD over plain HTTP. Own-label jewellery with no barcode or reference published, so matches can only ever be by title and go to the review queue.",
     "Largely bespoke/configurable diamond jewellery; expect weak matching against fixed catalogue SKUs.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",

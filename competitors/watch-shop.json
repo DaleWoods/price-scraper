@@ -100,7 +100,7 @@
     "discovery": "sitemap"
   },
   "_notes": [
-    "Checked 2026-11-13: robots.txt answered HTTP 503 to our crawler — the site turns automated visitors away before anything can be read. Not readable directly.",
+    "Checked 2026-11-13, INCONCLUSIVE: every request, including robots.txt, was reset at the network level before any response arrived — the same from every client tried. That is a refusal of the test machine's address (a US data centre), not an answer about this app. Run Admin → Can we read each competitor? from the deployed app before deciding anything.",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",
     "selector below are informed guesses — they were written without network access to this",
     "retailer, so none of them has been checked against the live site.",

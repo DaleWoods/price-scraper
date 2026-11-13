@@ -101,7 +101,7 @@
     "productUrlPattern": "^/[a-z0-9-]+-\\d+$"
   },
   "_notes": [
-    "Checked 2026-11-13: sitemap readable (about 6,700 product pages) but product pages answered plain HTTP with a 5 KB page and no product data — not yet readable. Own-label jewellery, so no barcodes in common with ours either.",
+    "Verified against the live site 2026-11-13: sitemap lists about 6,700 product pages. The page is built in the browser by JavaScript, so plain HTTP usually returns an empty 5 KB shell and the app falls back to its browser — about 12 seconds a page, where the others take one. Price and stock code read from JSON-LD once rendered. Own-label jewellery with no barcode, so matches can only ever be by title.",
     "Diamond specialist — matching leans on the ring/jewellery attribute tiers, not watch specs.",
     "",
     "SHIPPED DISABLED and UNVERIFIED. The base URL, the search URL pattern and every CSS",

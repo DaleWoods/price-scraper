@@ -26,7 +26,9 @@ already produces.
 
 ## Status at a glance
 
-**Five competitors are verified against their live sites and read cleanly.**
+**Seven of the eleven competitors are verified against their live sites and
+read cleanly — including Ernest Jones, Beaverbrooks and Fraser Hart, the three
+that matter most.**
 On 13 November 2026 the app was run against the real retailers for the first
 time from a host with ordinary internet access. The results below are measured,
 not estimated.
@@ -34,9 +36,10 @@ not estimated.
 | | |
 | --- | --- |
 | **Working end to end** | Feed import, per-fascia pricing, catalogue harvest, barcode matching and review, scanning, comparison, price history, three alert types, scrape health, per-competitor verification, nightly schedule |
-| **Verified readable** | Ernest Jones, H.Samuel, Beaverbrooks, Fraser Hart, Berry's — **about 34,400 product pages** between them, every one publishing a price in JSON-LD and most a barcode |
-| **Not readable directly** | Watch Shop and Austen & Blake (HTTP 503 to any automated visitor), Watchfinder (bot challenge), Chisholm Hunter (sitemap refused), Purely Diamonds (no product data over HTTP). See [What is not built yet](#what-is-not-built-yet) |
-| **The next action** | Enable the five verified competitors (Admin → Competitors, once terms-of-use sign-off is given), point the feed collector at the FTP location, and turn the nightly job on |
+| **Verified readable (7)** | **Ernest Jones, H.Samuel, Beaverbrooks, Fraser Hart, Berry's** — about 34,400 product pages between them, every one publishing a price in JSON-LD and most a barcode. **77 Diamonds** (1,767 UK pages, plain HTTP) and **Purely Diamonds** (about 6,700, needs the browser: roughly 12 seconds a page) also read, but sell only their own label and publish no barcode, so they can only ever be matched by title |
+| **Refuse an automated visitor (2)** | **Chisholm Hunter** — a Cloudflare challenge on every page but robots.txt. **Watchfinder** — an AWS WAF challenge on everything; pre-owned stock in any case |
+| **Inconclusive (2)** | **Watch Shop** and **Austen & Blake** reset the connection before answering anything, from every client tried. That is a refusal of the *test machine's address* (a US data centre), not of this app — re-check from the deployed app before concluding either way |
+| **The next action** | Enable the verified competitors (Admin → Competitors, once terms-of-use sign-off is given), point the feed collector at the FTP location, and turn the nightly job on. Then run **Admin → Can we read each competitor?** from the deployed app to settle Watch Shop and Austen & Blake |
 
 ### Measured against the live sites
 
@@ -68,7 +71,7 @@ another).
 | Spec | Status | Delivered |
 | --- | --- | --- |
 | **§5.1** Product import | ✅ Done | Google Shopping feed per fascia, uploaded by hand **or collected automatically from the FTP location they are delivered to** — which also keeps GTINs intact, since a feed routed via a desktop usually arrives Excel-damaged. Authoritative for its site: prices from an earlier feed are replaced, and products absent from every latest feed are **delisted** rather than deleted. Format detected from magic bytes; damaged identifiers, padding rows and repeated headers are reported rather than hidden. |
-| **§5.2** Competitor config | ✅ Five verified | Competitors are JSON files in `competitors/`. Adding a retailer is config plus a sync — **never a code change**. Eleven are configured; **five are verified against the live sites** (each file's `_notes` records what was found and when), five cannot be read directly, and one sells only its own label. Enabling a competitor remains a deliberate act in Admin. |
+| **§5.2** Competitor config | ✅ Five verified | Competitors are JSON files in `competitors/`. Adding a retailer is config plus a sync — **never a code change**. Eleven are configured; **seven are verified against the live sites** (each file's `_notes` records what was found and when), two refuse automated visitors, and two could not be judged from the test machine. Enabling a competitor remains a deliberate act in Admin. |
 | **§5.3** Matching | ✅ Done | **Barcode first.** Each competitor's catalogue is read once into `competitor_products`; our products are matched to it by GTIN, then by manufacturer reference, in one indexed join — no requests. Whatever is left is scored on title and attributes (Appendix A weights). An exact identifier auto-confirms; a title-only likeness of 60+ goes to the review queue, weaker ones are dropped. Barcodes and references are compared like with like, never with each other. |
 | **§5.4** Scraping | ✅ Done | Sitemap-led catalogue harvest, robots.txt honoured, per-domain rate limiting with jitter, retry with backoff, typed loud failures. Fetches over plain HTTP — which read every page on all five verified sites — and escalates to a browser only where needed. Refusals are diagnosed by cause, and five in a row stop a harvest. Sale prices are flagged from each site's own previous-price markup. |
 | **§5.5** Comparison | ✅ Done | **Two layouts** — a summary against the cheapest competitor, and a **column per competitor** so every price sits side by side. Search by SKU, product name, brand or **EAN/MPN**. Our price vs each competitor's latest, classified lower/equal/higher with £ and % delta, cheapest competitor per product, per-competitor coverage, CSV export, and a price trend chart. Every observation is stored, so history accumulates from day one. Competitor prices are shown with their **age**, so a stale figure cannot read as current. |
@@ -87,10 +90,10 @@ another).
 
 Ordered by how much it matters.
 
-1. **A source for the competitors that will not be read directly.** Watch Shop,
-   Austen & Blake and Watchfinder turn away any automated visitor; Chisholm
-   Hunter refuses its sitemap. This app does not disguise itself to get past
-   that. The two routes that do not involve the retailer's site at all are a
+1. **A source for the competitors that will not be read directly.** Chisholm
+   Hunter and Watchfinder put a bot challenge in front of every page; Watch
+   Shop and Austen & Blake are still to be judged from the deployed app. This
+   app does not disguise itself to get past a challenge. The two routes that do not involve the retailer's site at all are a
    **Google Shopping price API queried by barcode** (one lookup returns every
    retailer advertising that product, including ones never configured here) and
    the retailers' own **affiliate product feeds**. Both are paid or need an
