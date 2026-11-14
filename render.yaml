@@ -42,8 +42,12 @@ services:
       # nested mapping. Put a real contact address here before go-live.
       - key: SCRAPER_USER_AGENT
         value: "WOSG-PriceMonitor/0.1 (+price monitoring; contact: trading@example.com)"
+      # One second after each page, one page at a time per site: about a page
+      # every two seconds. Measured against the live retailers on 13 November
+      # 2026; three seconds made a catalogue take three times as long for no
+      # gain. A site that declares a Crawl-delay still gets it.
       - key: SCRAPER_MIN_DELAY_MS
-        value: "3000"
+        value: "1000"
       - key: SCRAPER_MAX_CONCURRENCY
         value: "2"
       - key: RESPECT_ROBOTS_TXT
