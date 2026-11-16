@@ -84,7 +84,7 @@ export async function startLookup(input: string, preferredFasciaCode?: string | 
 }
 
 /** Store what our own page said, adding to a product we already hold rather than replacing it. */
-async function saveOwnProduct(own: OwnProduct, existingId: number | null): Promise<number> {
+export async function saveOwnProduct(own: OwnProduct, existingId: number | null): Promise<number> {
   const { rows } = await query<{ id: number }>(
     `INSERT INTO products
        (internal_sku, brand, product_name, ean_mpn, mpn, category, our_product_url, image_url, specs, source)
@@ -160,7 +160,7 @@ export interface LookupResult {
   competitors: LookupCompetitor[];
 }
 
-export async function getLookup(productId: number): Promise<LookupResult | null> {
+export async function getLookup(productId: number, runId?: number | null): Promise<LookupResult | null> {
   const { rows: products } = await query<{
     id: number;
     internal_sku: string;
@@ -189,9 +189,13 @@ export async function getLookup(productId: number): Promise<LookupResult | null>
   if (!product) return null;
 
   const { rows: runs } = await query<{ id: number; status: string; started_at: string; finished_at: string | null }>(
-    `SELECT id, status, started_at, finished_at FROM scrape_runs
-     WHERE product_id = $1 ORDER BY id DESC LIMIT 1`,
-    [productId],
+    // A product checked as part of a list belongs to that list's run, which
+    // names no single product; otherwise its own most recent check.
+    runId != null
+      ? `SELECT id, status, started_at, finished_at FROM scrape_runs WHERE id = $1`
+      : `SELECT id, status, started_at, finished_at FROM scrape_runs
+         WHERE product_id = $1 ORDER BY id DESC LIMIT 1`,
+    runId != null ? [runId] : [productId],
   );
   const run = runs[0] ?? null;
   const running = run?.status === 'running';

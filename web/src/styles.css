@@ -1536,3 +1536,23 @@ code {
 
 .price--link { text-decoration: none; }
 .price--link:hover { text-decoration: underline; }
+
+.check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); }
+@media (max-width: 1100px) { .check-grid { grid-template-columns: 1fr; } }
+.check-grid > .card { margin: 0; }
+
+.check-drop {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--sp-4);
+  border: 1px dashed var(--border-strong, var(--border));
+  border-radius: var(--radius-md, 10px);
+  cursor: pointer;
+  background: var(--surface-sunken);
+}
+.check-drop input { display: none; }
+.check-drop > span:first-of-type { font-weight: 600; color: var(--brand-700, inherit); }
+.check-drop:hover { border-color: var(--brand-400, var(--border)); }
+
+.check-feeds { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }

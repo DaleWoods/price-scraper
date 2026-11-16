@@ -732,7 +732,35 @@ export interface RecentLookup {
   found: number;
 }
 
+export interface BatchResult {
+  id: number;
+  fileName: string | null;
+  status: 'finding' | 'checking' | 'done' | 'failed';
+  total: number;
+  processed: number;
+  unresolved: string[];
+  message: string | null;
+  createdAt: string;
+  products: LookupResult[];
+}
+
+export interface RecentBatch {
+  id: number;
+  fileName: string | null;
+  status: string;
+  total: number;
+  products: number;
+  createdAt: string;
+}
+
 export const api = {
+  lookupBatch: (values: string[], fileName: string | null) =>
+    request<{ batchId: number }>('/api/lookup/batch', {
+      method: 'POST',
+      body: JSON.stringify({ values, fileName }),
+    }),
+  batch: (id: number) => request<BatchResult>(`/api/lookup/batch/${id}`),
+  recentBatches: () => request<{ batches: RecentBatch[] }>('/api/lookup/batches'),
   lookup: (query: string) =>
     request<{ productId: number }>('/api/lookup', { method: 'POST', body: JSON.stringify({ query }) }),
   lookupResult: (productId: number) => request<LookupResult>(`/api/lookup/${productId}`),

@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '16 November 2026 (evening)';
+const GUIDE_UPDATED = '16 November 2026 (night)';
 
 function Section({
   id,
@@ -91,24 +91,45 @@ export function GuidePage() {
         </p>
       </Section>
 
-      <Section id="start-here" title="Start here" subtitle="One box">
+      <Section id="start-here" title="Start here" subtitle="Check prices — three ways in">
         <p>
-          Open <strong>Check a product</strong> and paste any one of: a product's address on
-          Goldsmiths, Mappin &amp; Webb or Watches of Switzerland; its SKU; its manufacturer reference;
-          or its barcode. Press <strong>Check prices</strong>.
+          Everything happens on <strong>Check prices</strong>. There are three boxes, for one
+          product, a list, or everything we sell.
         </p>
-        <p>
-          The app reads the product from our own website — name, brand, picture, price and
-          reference — so there is nothing to type in. It then looks for the{' '}
-          <strong>exact same product</strong> at each competitor and lists what it finds: their price,
-          whether that is cheaper or dearer than ours and by how much, whether they have it in stock,
-          and a <strong>View</strong> button that opens their page. A check takes around fifteen
-          seconds; prices appear as each competitor answers.
-        </p>
+        <Term label="One product">
+          Paste a product's address from Goldsmiths, Mappin &amp; Webb or Watches of Switzerland, or type
+          its SKU, its manufacturer reference or its barcode, and press <strong>Check prices</strong>. The
+          app reads the product from our own website — name, brand, picture, price and reference — so there
+          is nothing else to type. It then looks for the <strong>exact same product</strong> at each
+          competitor and lists their price, whether that is cheaper or dearer than ours and by how much,
+          whether they have it in stock, and a <strong>View</strong> button that opens their page. About
+          fifteen seconds; prices appear as each competitor answers.
+        </Term>
+        <Term label="A list of products">
+          Choose a CSV or text file. It can be a plain list — one value per line — of SKUs, references or
+          barcodes in any mix, or a spreadsheet saved as CSV, in which case only the columns headed like an
+          identifier (SKU, ID, GTIN, EAN, barcode, MPN, reference) are read. Press{' '}
+          <strong>Check … products</strong>. The app first finds each one on our sites, then checks them
+          all at every competitor, and shows one row per product with a column per competitor: each price
+          is a link to their page, red where they are cheaper than us. <strong>Download CSV</strong> gives
+          the same table as a spreadsheet. Anything it could not find on our sites is listed separately —
+          usually a typo, or a barcode for a product we have not imported (our website does not show
+          barcodes, so those can only be found once a feed has brought them in). Up to 5,000 at a time;
+          a long list takes a while, and the page can be left and reopened from Recently checked.
+        </Term>
+        <Term label="Everything we sell">
+          <strong>Collect today's feeds</strong> fetches the day's Google feed for each of our sites from
+          the FTP location and imports it — the products live on each site, with their prices. Pressing it
+          twice does no harm: a file already imported is recognised and skipped.{' '}
+          <strong>Check every product now</strong> then checks the whole range at every competitor. That
+          is the long one — hours the first time, while each competitor's product pages are read — and it
+          is what the nightly job does by itself once switched on in Admin. Results are on{' '}
+          <strong>All products</strong>.
+        </Term>
         <p className="small muted" style={{ marginBottom: 0 }}>
-          A competitor shown as <em>Not sold there</em> was checked and does not list that exact
-          product. <em>Couldn't check</em> means their site turned the check away. Nothing is ever
-          shown because it merely looks similar.
+          A competitor shown as <em>Not sold there</em> (or a dash) was checked and does not list that exact
+          product. <em>Couldn't check</em> means their site turned the check away. Nothing is ever shown
+          because it merely looks similar.
         </p>
       </Section>
 

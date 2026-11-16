@@ -24,7 +24,7 @@ interface NavItem {
  * still there for whoever wants it, out of the way of everyone who does not.
  */
 const NAV_ITEMS: NavItem[] = [
-  { to: '/check', label: 'Check a product', icon: '🔎' },
+  { to: '/check', label: 'Check prices', icon: '🔎' },
   { to: '/comparison', label: 'All products', icon: '📊' },
   { to: '/admin', label: 'Admin', icon: '⚙️' },
 ];
@@ -39,7 +39,7 @@ const MORE_ITEMS: NavItem[] = [
 ];
 
 const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
-  '/check': { eyebrow: 'Price check', title: 'Check a product' },
+  '/check': { eyebrow: 'Price check', title: 'Check prices' },
   '/comparison': { eyebrow: 'Price check', title: 'All products' },
   '/report': { eyebrow: 'More', title: 'What moved' },
   '/position': { eyebrow: 'More', title: 'Market position' },

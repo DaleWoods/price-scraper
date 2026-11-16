@@ -199,8 +199,12 @@ async function startLookupRun(options: StartRunOptions): Promise<ScrapeRun> {
       : options.productId != null
         ? [options.productId]
         : null;
-  if (!productIds || productIds.length > SCOPED_SEARCH_MAX) {
-    throw new Error('Only a short list of named products can be checked alongside another run.');
+  // Any length of named list may run alongside another run. A long one reads
+  // catalogues like the nightly job does, but every request still passes the
+  // same per-site rate limiter, so two runs together never ask a competitor
+  // for pages any faster than one would.
+  if (!productIds) {
+    throw new Error('Only named products can be checked alongside another run.');
   }
   const { rows } = await query<ScrapeRun>(
     `INSERT INTO scrape_runs (trigger, status, competitor_id, product_id, product_count)
