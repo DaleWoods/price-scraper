@@ -10,44 +10,61 @@ import { AdminPage } from './pages/AdminPage';
 import { GuidePage } from './pages/GuidePage';
 import { ImportPage } from './pages/ImportPage';
 import { LoginPage } from './pages/LoginPage';
-import { ReviewQueuePage } from './pages/ReviewQueuePage';
+import { CheckPage } from './pages/CheckPage';
 import { RunsPage } from './pages/RunsPage';
 
 interface NavItem {
   to: string;
   label: string;
   icon: string;
-  section: string;
 }
 
+/**
+ * The three things the app is for. Everything else is folded under "More":
+ * still there for whoever wants it, out of the way of everyone who does not.
+ */
 const NAV_ITEMS: NavItem[] = [
-  { to: '/comparison', label: 'Price comparison', icon: '📊', section: 'Monitor' },
-  { to: '/report', label: 'What moved', icon: '📈', section: 'Monitor' },
-  { to: '/position', label: 'Market position', icon: '🎯', section: 'Monitor' },
-  { to: '/alerts', label: 'Alerts', icon: '🔔', section: 'Monitor' },
-  { to: '/review', label: 'Match review', icon: '🔍', section: 'Monitor' },
-  { to: '/runs', label: 'Scrape runs', icon: '🔄', section: 'Monitor' },
-  { to: '/import', label: 'Import feed', icon: '📥', section: 'Configure' },
-  { to: '/admin', label: 'Admin', icon: '⚙️', section: 'Configure' },
-  { to: '/guide', label: 'User guide', icon: '📖', section: 'Help' },
+  { to: '/check', label: 'Check a product', icon: '🔎' },
+  { to: '/comparison', label: 'All products', icon: '📊' },
+  { to: '/admin', label: 'Admin', icon: '⚙️' },
+];
+
+const MORE_ITEMS: NavItem[] = [
+  { to: '/report', label: 'What moved', icon: '📈' },
+  { to: '/position', label: 'Market position', icon: '🎯' },
+  { to: '/alerts', label: 'Alerts', icon: '🔔' },
+  { to: '/runs', label: 'Scrape runs', icon: '🔄' },
+  { to: '/import', label: 'Import feed', icon: '📥' },
+  { to: '/guide', label: 'User guide', icon: '📖' },
 ];
 
 const PAGE_META: Record<string, { eyebrow: string; title: string }> = {
-  '/comparison': { eyebrow: 'Monitor', title: 'Price comparison' },
-  '/report': { eyebrow: 'Monitor', title: 'What moved' },
-  '/position': { eyebrow: 'Monitor', title: 'Market position' },
-  '/alerts': { eyebrow: 'Monitor', title: 'Alerts' },
-  '/review': { eyebrow: 'Monitor', title: 'Match review queue' },
-  '/runs': { eyebrow: 'Monitor', title: 'Scrape runs' },
-  '/import': { eyebrow: 'Configure', title: 'Import product feed' },
-  '/admin': { eyebrow: 'Configure', title: 'Admin' },
+  '/check': { eyebrow: 'Price check', title: 'Check a product' },
+  '/comparison': { eyebrow: 'Price check', title: 'All products' },
+  '/report': { eyebrow: 'More', title: 'What moved' },
+  '/position': { eyebrow: 'More', title: 'Market position' },
+  '/alerts': { eyebrow: 'More', title: 'Alerts' },
+  '/runs': { eyebrow: 'More', title: 'Scrape runs' },
+  '/import': { eyebrow: 'More', title: 'Import product feed' },
+  '/admin': { eyebrow: 'Settings', title: 'Admin' },
   '/guide': { eyebrow: 'Help', title: 'User guide' },
 };
+
+function NavItemLink({ item, badge }: { item: NavItem; badge?: number }) {
+  return (
+    <NavLink to={item.to} className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}>
+      <span className="nav-link__icon" aria-hidden>
+        {item.icon}
+      </span>
+      {item.label}
+      {badge != null && badge > 0 && <span className="nav-link__badge">{badge}</span>}
+    </NavLink>
+  );
+}
 
 export function App() {
   const location = useLocation();
   const [session, setSession] = useState<{ authEnabled: boolean; authenticated: boolean } | null>(null);
-  const [pendingCount, setPendingCount] = useState(0);
   const [openAlertCount, setOpenAlertCount] = useState(0);
   const [fatalError, setFatalError] = useState<string | null>(null);
 
@@ -67,15 +84,6 @@ export function App() {
     void loadSession();
   }, [loadSession]);
 
-  const refreshPendingCount = useCallback(async () => {
-    try {
-      const { total } = await api.matches('pending');
-      setPendingCount(total);
-    } catch {
-      // A failed badge refresh should never block the page.
-    }
-  }, []);
-
   const refreshOpenAlertCount = useCallback(async () => {
     try {
       const { total } = await api.alerts('open');
@@ -84,10 +92,6 @@ export function App() {
       // A failed badge refresh should never block the page.
     }
   }, []);
-
-  useEffect(() => {
-    if (session?.authenticated) void refreshPendingCount();
-  }, [session?.authenticated, location.pathname, refreshPendingCount]);
 
   useEffect(() => {
     if (session?.authenticated) void refreshOpenAlertCount();
@@ -118,7 +122,6 @@ export function App() {
   }
 
   const meta = PAGE_META[location.pathname] ?? { eyebrow: 'Monitor', title: 'Competitor Price Monitor' };
-  const sections = [...new Set(NAV_ITEMS.map((item) => item.section))];
 
   return (
     <div className="app">
@@ -133,31 +136,24 @@ export function App() {
           </div>
         </div>
 
-        {sections.map((section) => (
-          <div key={section}>
-            <div className="sidebar__section">{section}</div>
-            <nav>
-              {NAV_ITEMS.filter((item) => item.section === section).map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}
-                >
-                  <span className="nav-link__icon" aria-hidden>
-                    {item.icon}
-                  </span>
-                  {item.label}
-                  {item.to === '/review' && pendingCount > 0 && (
-                    <span className="nav-link__badge">{pendingCount}</span>
-                  )}
-                  {item.to === '/alerts' && openAlertCount > 0 && (
-                    <span className="nav-link__badge">{openAlertCount}</span>
-                  )}
-                </NavLink>
-              ))}
-            </nav>
-          </div>
-        ))}
+        <nav style={{ marginTop: 'var(--sp-4)' }}>
+          {NAV_ITEMS.map((item) => (
+            <NavItemLink key={item.to} item={item} />
+          ))}
+        </nav>
+
+        <details className="sidebar__more" open={MORE_ITEMS.some((item) => item.to === location.pathname)}>
+          <summary className="sidebar__section">More</summary>
+          <nav>
+            {MORE_ITEMS.map((item) => (
+              <NavItemLink
+                key={item.to}
+                item={item}
+                badge={item.to === '/alerts' ? openAlertCount : undefined}
+              />
+            ))}
+          </nav>
+        </details>
 
         <div className="sidebar__footer">
           Competitor data is public pricing only.
@@ -187,19 +183,21 @@ export function App() {
         </header>
 
         <Routes>
-          <Route path="/" element={<Navigate to="/comparison" replace />} />
+          <Route path="/" element={<Navigate to="/check" replace />} />
+          <Route path="/check" element={<CheckPage />} />
           <Route path="/comparison" element={<ComparisonPage />} />
           <Route path="/report" element={<ReportPage />} />
           <Route path="/position" element={<PositionPage />} />
           <Route path="/alerts" element={<AlertsPage onQueueChange={refreshOpenAlertCount} />} />
-          <Route path="/review" element={<ReviewQueuePage onQueueChange={refreshPendingCount} />} />
+          {/* Nothing is matched by likeness any more, so nothing waits for review. */}
+          <Route path="/review" element={<Navigate to="/check" replace />} />
           <Route path="/runs" element={<RunsPage />} />
           <Route path="/import" element={<ImportPage />} />
           {/* Competitors used to be its own page; it now lives on Admin. */}
           <Route path="/competitors" element={<Navigate to="/admin" replace />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/guide" element={<GuidePage />} />
-          <Route path="*" element={<Navigate to="/comparison" replace />} />
+          <Route path="*" element={<Navigate to="/check" replace />} />
         </Routes>
       </div>
     </div>

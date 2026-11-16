@@ -37,6 +37,19 @@ export function identKey(value: string | null | undefined): string {
 }
 
 /**
+ * A manufacturer reference for comparison: letters and digits only, with a
+ * brand's one- or two-letter prefix dropped when a long number follows it.
+ * Goldsmiths writes Omega's 210.30.42.20.04.001 as "O21030422004001" and
+ * Berry's as "21030422004001"; both become "21030422004001". Mirrored by
+ * ref_key() in migrations/022_exact_matches_only.sql — change both together.
+ */
+export function refKey(value: string | null | undefined): string {
+  const key = identKey(value);
+  const stripped = key.replace(/^[a-z]{1,2}(?=[0-9])/, '');
+  return stripped !== key && stripped.length >= 8 ? stripped : key;
+}
+
+/**
  * Is this value a barcode rather than a reference?
  *
  * Only 12 to 14 digits count. Eight digits is a valid GTIN-8 on paper, but an
@@ -97,12 +110,12 @@ export function referenceContradicts(
   listing: { mpn?: string | null; sku?: string | null },
   trustedFields: readonly ('mpn' | 'sku')[] = [],
 ): boolean {
-  const ours = identKey(ourMpn);
+  const ours = refKey(ourMpn);
   if (!isUsableReference(ours)) return false;
 
   const fields = new Set(trustedFields);
-  const mpnKey = identKey(listing.mpn);
-  const skuKey = identKey(listing.sku);
+  const mpnKey = refKey(listing.mpn);
+  const skuKey = refKey(listing.sku);
   if (mpnKey && skuKey && mpnKey !== skuKey) fields.add('mpn');
 
   for (const field of fields) {
@@ -136,9 +149,9 @@ export function compareIdentifiers(ours: OurIdentifiers, theirs: TheirIdentifier
     return { verdict: 'match', via: 'gtin', ours: ourGtin!, theirs: theirGtin! };
   }
 
-  const ourMpnKey = identKey(ourMpn);
+  const ourMpnKey = refKey(ourMpn);
   if (isUsableReference(ourMpnKey)) {
-    const hit = theirReferences.find((reference) => identKey(reference) === ourMpnKey);
+    const hit = theirReferences.find((reference) => refKey(reference) === ourMpnKey);
     if (hit) return { verdict: 'match', via: 'mpn', ours: ourMpn!, theirs: hit };
   }
 

@@ -151,6 +151,31 @@ for problems that have actually happened, with the real numbers.
   pages between them, so a first complete read is about four and a half hours.
   Matching 269 products against all five stored catalogues took 2.3 seconds.
   Seventy per cent of pages publish a barcode; on branded watches nearly all.
+- **Matches are exact or nothing (since 16 November 2026).** The user tested a
+  real product and got three wrong Berry's watches in a review queue while the
+  right one was missed. Now a competitor page counts only on the same barcode,
+  or the same maker's reference with the brand visible; title likeness is never
+  stored, there is no review queue (page and route removed, pending rows deleted
+  by migration 022). Do not reintroduce name-based suggestions.
+- **References compare through `refKey` / `ref_key()`**, which drops a brand's
+  one- or two-letter prefix before a long number: Goldsmiths and Fraser Hart
+  write `O21030422004001`, Berry's and Beaverbrooks `21030422004001` /
+  `210.30.42.20.04.001`. That one letter was the cause of the miss above.
+- **Where each site shows the maker's reference** (the user's point: it is on
+  every product page): Ernest Jones and H.Samuel under "Model Number" and as
+  `watchModelNumber` in page data — their JSON-LD `mpn` is their own stock
+  number; Fraser Hart "MPN" and JSON-LD `mpn`; Berry's "Code"/"Product code"
+  and JSON-LD `sku`; Beaverbrooks JSON-LD `mpn`. `labelledReference()` in
+  extract.ts reads the labels; a label must open the element's text, or
+  "Supplier Code M140194" is read as a "Code".
+- **Our own sites are read directly** (`ownSite/readOwnProduct.ts`): all three
+  serve `/p/<SKU>`, with name/brand/price/stock in a `dataLayerProduct` div and
+  the reference in `<script id="ng-state">`. They publish no barcode; one is
+  taken from a competitor matched by reference (`adoptBarcode`), and the run
+  re-checks barcode-only competitors once with it. `own_site_urls` indexes our
+  ~300,000 product addresses so a bare reference finds our SKU.
+- **Check a product runs alongside the nightly job** (`exclusive: false`), so a
+  lookup never waits hours. The browser is closed only when no run is in flight.
 - **GTIN and MPN are different things and are never compared with each other.**
   `matching/identifiers.ts` is the only place that decides whether two
   identifiers agree; `gtin_key()` / `ident_key()` in migration 021 are its SQL

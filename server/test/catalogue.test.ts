@@ -48,6 +48,9 @@ describe('competitor catalogue', { skip: !DATABASE_URL && 'DATABASE_URL not set'
     // A barcode nobody of ours carries: read and remembered, matched to nothing.
     { slug: 'other', name: 'OtherBrand Field 36mm', brand: 'OtherBrand', price: '400.00', gtin: '7020000000099' },
     { slug: 'gone', name: 'CatBrand Retired 41mm', brand: 'CatBrand', status: 404 },
+    // The reference without the brand's letter prefix we write ("O…"), as
+    // Berry's writes Omega's; and a barcode we do not hold yet.
+    { slug: 'prefix', name: 'CatBrand Seamaster 42mm White', brand: 'CatBrand', price: '5600.00', mpn: '21030422004001', gtin: '7020000000077' },
   ];
 
   /** What we sell. */
@@ -59,6 +62,8 @@ describe('competitor catalogue', { skip: !DATABASE_URL && 'DATABASE_URL not set'
     { key: 'own', brand: 'CatBrand', name: 'Dress 38mm White', gtin: '7020000000033', mpn: 'CB-DRESS-38' },
     // Nobody lists this one.
     { key: 'unlisted', brand: 'CatBrand', name: 'Pilot 44mm Green', gtin: '7020000000044', mpn: null },
+    // Held by reference, written with a letter prefix the competitor leaves off.
+    { key: 'prefix', brand: 'CatBrand', name: 'Seamaster Diver 300M 42mm', gtin: null, mpn: 'O21030422004001' },
   ];
 
   before(async () => {
@@ -184,7 +189,7 @@ describe('competitor catalogue', { skip: !DATABASE_URL && 'DATABASE_URL not set'
   it('reads every product page in the sitemap once, and nothing that is not a product', async () => {
     await fullRun();
 
-    for (const handle of ['gtin', 'mpn', 'own', 'other', 'gone']) {
+    for (const handle of ['gtin', 'mpn', 'own', 'other', 'gone', 'prefix']) {
       assert.equal(standIn.hits(handle), 1, `${handle} should have been read exactly once`);
     }
     assert.ok(
@@ -197,7 +202,7 @@ describe('competitor catalogue', { skip: !DATABASE_URL && 'DATABASE_URL not set'
       [competitorId],
     );
     const byUrl = new Map(rows.map((row) => [row.url, row]));
-    assert.equal(rows.length, 5);
+    assert.equal(rows.length, 6);
     assert.equal(byUrl.get(standIn.urlFor('gtin'))?.gtin, '7020000000011');
     assert.equal(byUrl.get(standIn.urlFor('mpn'))?.mpn, '220.13.41-21');
     assert.equal(Number(byUrl.get(standIn.urlFor('other'))?.price), 400);
@@ -224,18 +229,35 @@ describe('competitor catalogue', { skip: !DATABASE_URL && 'DATABASE_URL not set'
     assert.deepEqual(await pricesFor('mpn'), [2000]);
   });
 
-  it("does not treat a retailer's own stock code as a different product", async () => {
+  it('stores nothing that only looks like our product', async () => {
     await fullRun();
 
-    // Our barcode against a page that publishes only their stock code is no
-    // evidence either way — so it is scored on its title like any other
-    // candidate, never rejected on the identifier gate.
-    const { rows } = await query<{ evidence: { gatesFailed?: string[] }; status: string }>(
-      'SELECT evidence, status FROM product_matches WHERE product_id = $1 AND competitor_id = $2',
-      [productIds.get('own'), competitorId],
+    // Same brand, a similar name, and their own stock code where a reference
+    // would be: not an exact match, so not a comparison. Nothing is stored for
+    // a person to confirm either — likeness of name is not evidence.
+    assert.equal(await matchFor('own'), null);
+    const { rows } = await query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM product_matches WHERE competitor_id = $1 AND status = 'pending'`,
+      [competitorId],
     );
-    assert.equal(rows.length, 1, 'the title match should have been stored');
-    assert.deepEqual(rows[0]!.evidence.gatesFailed ?? [], []);
+    assert.equal(rows[0]!.count, 0);
+  });
+
+  it('matches a reference written with or without the brand letter in front', async () => {
+    await fullRun();
+
+    const match = await matchFor('prefix');
+    assert.equal(match?.status, 'confirmed');
+    assert.deepEqual(await pricesFor('prefix'), [5600]);
+  });
+
+  it('takes a barcode from a page it matched by reference, so barcode-only retailers can match too', async () => {
+    await fullRun();
+
+    const { rows } = await query<{ gtin: string | null }>('SELECT gtin FROM products WHERE id = $1', [
+      productIds.get('prefix'),
+    ]);
+    assert.equal(rows[0]!.gtin, '7020000000077');
   });
 
   it('stores nothing for a product the competitor does not list', async () => {

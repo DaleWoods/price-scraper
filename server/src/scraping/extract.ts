@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import type { Competitor, SpecAttributes } from '../domain/types.js';
 import { canonicalAttributeName } from '../matching/attributes.js';
-import { looksLikeGtin } from '../matching/identifiers.js';
+import { identKey, looksLikeGtin } from '../matching/identifiers.js';
 import { ScrapeError } from './errors.js';
 import type { FetchedPage } from './fetcher.js';
 
@@ -50,6 +50,45 @@ export function parsePrice(raw: string | null | undefined): number | null {
   const value = Number.parseFloat(digits);
   if (!Number.isFinite(value) || value < 0) return null;
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * The manufacturer's reference as a page labels it.
+ *
+ * Every retailer shows it to shoppers, under one name or another: "Model
+ * Number" (Ernest Jones, H.Samuel), "MPN" (Fraser Hart), "Code" or "Product
+ * code" (Berry's). Ernest Jones and H.Samuel also carry it in their page data
+ * as `watchModelNumber`. Labels that name the retailer's own number — "Item #",
+ * "Supplier Code", "Item code" — are deliberately not on the list.
+ */
+const REFERENCE_KEYS = /"(?:watchModelNumber|modelNumber|manufacturerPartNumber|manufacturerReference)"\s*:\s*"([^"]{4,40})"/;
+const REFERENCE_LABELS =
+  /^(?:Model Number|Model No\.?|Manufacturer(?:'s)? (?:Part Number|Reference)|Reference Number|Ref\. No\.?|MPN|Product code|Code)\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9.\-/]{3,30})(?=\s|<|$)/;
+
+export function labelledReference(html: string, $: cheerio.CheerioAPI): string | null {
+  const fromData = html.match(REFERENCE_KEYS)?.[1]?.trim();
+  if (fromData && /[0-9]/.test(fromData)) return fromData;
+
+  // Visible text, tag by tag, so a label and its value split across two
+  // elements ("<span>Model Number: </span> AT2511-55E") still read as one line.
+  let found: string | null = null;
+  $('li, dd, dt, p, span, div, td, tr').each((_, element) => {
+    if (found) return false;
+    // Tags become spaces, so table cells and spans do not run together
+    // ("Product code" + "WSSA0062" must not read as "Product codeWSSA0062").
+    // The label must open the element's text, so "Supplier Code M140194" is
+    // not read as a "Code".
+    const text = ($.html(element) ?? '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;|&#160;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (text.length > 80) return undefined;
+    const value = text.match(REFERENCE_LABELS)?.[1];
+    if (value && /[0-9]/.test(value)) found = value;
+    return undefined;
+  });
+  return found;
 }
 
 /**
@@ -290,6 +329,16 @@ export function extractListing(competitor: Competitor, page: FetchedPage): Extra
   });
 
   const selectorEan = firstText($, selectors.ean);
+  // The maker's reference as the page labels it for shoppers. Preferred over
+  // the structured `mpn` when that is missing or is just the retailer's own
+  // stock number repeated (Ernest Jones and H.Samuel put their item number in
+  // both `mpn` and `sku`, and the real reference only under "Model Number").
+  const labelled = labelledReference(page.html, $);
+  const structuredMpn = jsonLd?.mpn ?? null;
+  const structuredIsStockCode =
+    structuredMpn != null && jsonLd?.sku != null && identKey(structuredMpn) === identKey(jsonLd.sku);
+  const mpn =
+    labelled && (!structuredMpn || structuredIsStockCode) ? labelled : (structuredMpn ?? labelled);
 
   return {
     title: jsonLd?.title ?? firstText($, selectors.title) ?? ($('h1').first().text().trim() || null),
@@ -304,7 +353,7 @@ export function extractListing(competitor: Competitor, page: FetchedPage): Extra
     // to find one, and guessing which kind of code it found would be worse
     // than leaving the reference blank.
     gtin: jsonLd?.gtin ?? (looksLikeGtin(selectorEan) ? selectorEan : null),
-    mpn: jsonLd?.mpn ?? null,
+    mpn,
     sku: jsonLd?.sku ?? null,
     brand: jsonLd?.brand ?? null,
     attributes,

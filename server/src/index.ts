@@ -17,6 +17,7 @@ import { competitorsRouter } from './routes/competitors.js';
 import { matchesRouter } from './routes/matches.js';
 import { productsRouter } from './routes/products.js';
 import { runsRouter } from './routes/runs.js';
+import { lookupRouter } from './routes/lookup.js';
 import { closeBrowser, warnIfBrowsersPathMisconfigured } from './scraping/browser.js';
 import { syncCompetitorsToDatabase } from './scraping/competitorRegistry.js';
 
@@ -42,6 +43,7 @@ app.use('/api/competitors', requireAuth, competitorsRouter);
 app.use('/api/matches', requireAuth, matchesRouter);
 app.use('/api/comparison', requireAuth, comparisonRouter);
 app.use('/api/runs', requireAuth, runsRouter);
+app.use('/api/lookup', requireAuth, lookupRouter);
 app.use('/api/admin', requireAuth, adminRouter);
 app.use('/api/alerts', requireAuth, alertsRouter);
 app.use('/api/report', requireAuth, reportRouter);

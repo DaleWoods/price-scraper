@@ -5,6 +5,7 @@ import { env } from '../config/env.js';
 import { harvestSitemapUrls, slugWords } from '../scraping/sitemap.js';
 import { isProductUrl } from '../scraping/catalogue.js';
 import { canonicalAttributeName } from './attributes.js';
+import { isUsableReference, refKey } from './identifiers.js';
 
 /**
  * Discovery from a competitor's sitemap rather than their on-site search.
@@ -37,7 +38,7 @@ export function searchTermsFor(product: Product): string[] {
     ]),
   );
 
-  const reference = (specs.reference_number ?? product.ean_mpn ?? '').trim();
+  const reference = (specs.reference_number ?? product.mpn ?? product.ean_mpn ?? '').trim();
   const words = `${product.brand} ${product.product_name} ${reference}`
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
@@ -47,6 +48,13 @@ export function searchTermsFor(product: Product): string[] {
   // Longest first: the distinctive words carry the most signal, and the query
   // is capped so one very long product name cannot dominate a run.
   return [...new Set(words)].sort((a, b) => b.length - a.length).slice(0, 8);
+}
+
+function referenceFromSpecs(product: Product): string | null {
+  for (const [key, value] of Object.entries(product.specs ?? {})) {
+    if (canonicalAttributeName(key) === 'reference_number' && value) return String(value);
+  }
+  return null;
 }
 
 export interface CandidateUrl {
@@ -65,12 +73,45 @@ export async function findCandidateUrls(
   competitor: Competitor,
   limit = 5,
 ): Promise<CandidateUrl[]> {
+  // The reference first. Berry's, Fraser Hart and Beaverbrooks put the maker's
+  // reference in their addresses, so a page whose address contains ours is
+  // almost certainly the product — and it is the one page worth opening.
+  const exact: CandidateUrl[] = [];
+  for (const reference of [product.mpn, referenceFromSpecs(product)]) {
+    const key = refKey(reference);
+    if (!isUsableReference(key)) continue;
+    const { rows } = await query<{ url: string }>(
+      `SELECT url FROM competitor_urls
+       WHERE competitor_id = $1 AND regexp_replace(lower(url), '[^a-z0-9]', '', 'g') LIKE '%' || $2 || '%'
+       LIMIT 20`,
+      [competitor.id, key],
+    );
+    for (const row of rows) {
+      if (isProductUrl(competitor, row.url) && !exact.some((entry) => entry.url === row.url)) {
+        exact.push({ url: row.url, rank: 1 });
+      }
+    }
+  }
+
   const terms = searchTermsFor(product);
-  if (terms.length === 0) return [];
+  if (terms.length === 0) return exact.slice(0, limit);
 
   // OR rather than AND: a slug rarely contains every word, and ranking sorts
   // the near-misses below the strong hits anyway.
-  const tsquery = terms.join(' | ');
+  // The brand must be in the address. Every verified competitor puts it there
+  // for a branded product, and without it a search for an Omega diver's watch
+  // at Ernest Jones offered their Seiko and Casio divers first.
+  const brandWords = (product.brand ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((word) => word.length > 1);
+  const brandKnown = brandWords.length > 0 && product.brand.toLowerCase() !== 'unknown';
+  const otherTerms = terms.filter((term) => !brandWords.includes(term));
+  const tsquery =
+    brandKnown && otherTerms.length > 0
+      ? `(${brandWords.join(' & ')}) & (${otherTerms.join(' | ')})`
+      : terms.join(' | ');
 
   // Over-fetch, then keep only product pages. A brand's blog post and its
   // landing page carry exactly the words a product's title does, and without
@@ -86,10 +127,10 @@ export async function findCandidateUrls(
     [competitor.id, tsquery, limit * 20],
   );
 
-  return rows
-    .filter((row) => isProductUrl(competitor, row.url))
-    .slice(0, limit)
+  const byTitle = rows
+    .filter((row) => isProductUrl(competitor, row.url) && !exact.some((entry) => entry.url === row.url))
     .map((row) => ({ url: row.url, rank: Number(row.rank) }));
+  return [...exact, ...byTitle].slice(0, limit);
 }
 
 export interface UrlRefreshResult {

@@ -53,6 +53,14 @@ export interface StartRunOptions {
    * against are new enough that they might not be in the cache yet.
    */
   forceHarvest?: boolean;
+  /**
+   * False for a one-product lookup from the Check a product page. Such a run
+   * may start while another is in progress — the nightly job can take hours,
+   * and someone checking one watch should not wait behind it. It is small, and
+   * every request still goes through the same per-site rate limiter, so two
+   * runs together never ask a competitor for pages any faster.
+   */
+  exclusive?: boolean;
 }
 
 let activeRunId: number | null = null;
@@ -122,7 +130,11 @@ export function identityMismatch(
  * Returns as soon as the run row exists; the scrape itself continues in the
  * background and its progress is readable from scrape_runs / scrape_run_items.
  */
+/** Runs executing now, exclusive or not; the browser is freed only when none are. */
+let runsInFlight = 0;
+
 export async function startRun(options: StartRunOptions = {}): Promise<ScrapeRun> {
+  if (options.exclusive === false) return await startLookupRun(options);
   if (activeRunId !== null || runStarting) {
     // The id is only available once the row exists, so a caller that loses the
     // race by a few milliseconds is told a run is in progress without one.
@@ -179,6 +191,39 @@ export async function startRun(options: StartRunOptions = {}): Promise<ScrapeRun
   }
 }
 
+/** A non-exclusive run: see StartRunOptions.exclusive. */
+async function startLookupRun(options: StartRunOptions): Promise<ScrapeRun> {
+  const productIds =
+    options.productIds && options.productIds.length > 0
+      ? options.productIds
+      : options.productId != null
+        ? [options.productId]
+        : null;
+  if (!productIds || productIds.length > SCOPED_SEARCH_MAX) {
+    throw new Error('Only a short list of named products can be checked alongside another run.');
+  }
+  const { rows } = await query<ScrapeRun>(
+    `INSERT INTO scrape_runs (trigger, status, competitor_id, product_id, product_count)
+     VALUES ($1, 'running', $2, $3, $4)
+     RETURNING *`,
+    [
+      options.trigger ?? 'lookup',
+      options.competitorId ?? null,
+      productIds.length === 1 ? productIds[0] : null,
+      productIds.length > 1 ? productIds.length : null,
+    ],
+  );
+  const run = rows[0]!;
+  void executeRun(run.id, options.mode ?? 'both', productIds, options).catch(async (err) => {
+    logger.error('runner', `run ${run.id} failed: ${(err as Error).message}`, err);
+    await query(
+      `UPDATE scrape_runs SET status = 'failed', error = $2, finished_at = now() WHERE id = $1`,
+      [run.id, (err as Error).message],
+    ).catch(() => undefined);
+  });
+  return run;
+}
+
 async function executeRun(
   runId: number,
   mode: RunMode,
@@ -201,6 +246,7 @@ async function executeRun(
     return;
   }
 
+  runsInFlight += 1;
   try {
     // Competitors are independent of each other — nothing about scanning
     // Beaverbrooks depends on Ernest Jones having finished — so they run
@@ -216,6 +262,7 @@ async function executeRun(
     // competitor it would multiply by however many are enabled, which is
     // exactly the number nobody thinks about when setting a ceiling.
     const unblockerBudget = new UnblockerBudget();
+    const barcodesBefore = productIds ? await barcodesOf(productIds) : new Map<number, string | null>();
 
     const results = await mapWithConcurrency(competitors, COMPETITOR_CONCURRENCY, (competitor) =>
       runCompetitor(
@@ -237,6 +284,25 @@ async function executeRun(
       );
     }
 
+    // A product checked by its reference can pick up a barcode along the way,
+    // from a retailer that publishes both (see adoptBarcode). Competitors that
+    // publish only a barcode — Ernest Jones, H.Samuel — have already been
+    // checked without it by then, so they are checked once more with it.
+    if (productIds && productIds.length <= SCOPED_SEARCH_MAX) {
+      const retry = await competitorsWorthRetrying(competitors, productIds, barcodesBefore);
+      if (retry.length > 0) {
+        logger.info(
+          'runner',
+          `run ${runId}: barcode learned during the run; checking ${retry.map((c) => c.slug).join(', ')} again`,
+        );
+        results.push(
+          ...(await mapWithConcurrency(retry, COMPETITOR_CONCURRENCY, (competitor) =>
+            runCompetitor(runId, competitor, mode, null, productIds, false, unblockerBudget),
+          )),
+        );
+      }
+    }
+
     let ok = 0;
     let errored = 0;
     let skipped = 0;
@@ -255,9 +321,38 @@ async function executeRun(
     );
     logger.info('runner', `run ${runId} completed: ${ok} ok, ${errored} error, ${skipped} skipped`);
   } finally {
-    // Free the Chromium process between manual runs — nothing is scheduled yet.
-    await closeBrowser();
+    runsInFlight -= 1;
+    // Free the Chromium process once nothing is using it. Another run may
+    // still be in flight — a lookup during the nightly job — and closing the
+    // browser under it would fail every page it had open.
+    if (runsInFlight === 0) await closeBrowser();
   }
+}
+
+async function barcodesOf(productIds: number[]): Promise<Map<number, string | null>> {
+  const { rows } = await query<{ id: number; gtin: string | null }>(
+    'SELECT id, gtin FROM products WHERE id = ANY($1::bigint[])',
+    [productIds],
+  );
+  return new Map(rows.map((row) => [Number(row.id), row.gtin]));
+}
+
+/** Competitors with no confirmed match for a product that gained a barcode during this run. */
+async function competitorsWorthRetrying(
+  competitors: Competitor[],
+  productIds: number[],
+  before: Map<number, string | null>,
+): Promise<Competitor[]> {
+  const after = await barcodesOf(productIds);
+  const gained = productIds.filter((id) => !before.get(id) && after.get(id));
+  if (gained.length === 0) return [];
+  const { rows } = await query<{ competitor_id: number }>(
+    `SELECT DISTINCT competitor_id FROM product_matches
+     WHERE product_id = ANY($1::bigint[]) AND status = 'confirmed'`,
+    [gained],
+  );
+  const matched = new Set(rows.map((row) => Number(row.competitor_id)));
+  return competitors.filter((competitor) => !matched.has(Number(competitor.id)));
 }
 
 /**
@@ -516,7 +611,7 @@ async function scrapeConfirmedMatches(
       );
       if (identity.mismatched) {
         await query(
-          `UPDATE product_matches SET flagged_at = now(), flag_reason = $2 WHERE id = $1`,
+          `UPDATE product_matches SET flagged_at = now(), flag_reason = $2, status = 'rejected' WHERE id = $1`,
           [
             match.match_id,
             `Page now publishes ${identity.theirs}, but this product is ${identity.ours}. ` +
@@ -533,7 +628,7 @@ async function scrapeConfirmedMatches(
           errorKind: 'identity_mismatch',
           error:
             `${match.internal_sku}: the page now identifies as ${identity.theirs}, not ` +
-            `${identity.ours}. No price recorded; the match is flagged for review.`,
+            `${identity.ours}. No price recorded; the match is set aside and the next check looks for the right page.`,
           durationMs: Date.now() - startedAt,
         });
         errored += 1;

@@ -37,6 +37,8 @@ export interface RowCompetitorPrice {
   deltaAbs: number | null;
   deltaPct: number | null;
   observedAt: string;
+  /** The competitor page the price was read from. */
+  sourceUrl: string | null;
 }
 
 export interface ComparisonRow {
@@ -684,7 +686,57 @@ const qs = (params: Record<string, string | number | null | undefined>): string 
   return query ? `?${query}` : '';
 };
 
+/** Check a product: one of ours, and what each competitor has for it. */
+export type LookupStatus = 'found' | 'checking' | 'not_found' | 'blocked' | 'error' | 'not_checked';
+
+export interface LookupCompetitor {
+  slug: string;
+  name: string;
+  status: LookupStatus;
+  price: number | null;
+  wasPrice: number | null;
+  onSale: boolean;
+  inStock: boolean | null;
+  url: string | null;
+  title: string | null;
+  seenAt: string | null;
+  matchedOn: string | null;
+  note: string | null;
+}
+
+export interface LookupResult {
+  product: {
+    id: number;
+    sku: string;
+    name: string;
+    brand: string;
+    mpn: string | null;
+    gtin: string | null;
+    url: string | null;
+    imageUrl: string | null;
+    siteName: string | null;
+    price: number | null;
+    wasPrice: number | null;
+  };
+  running: boolean;
+  checkedAt: string | null;
+  competitors: LookupCompetitor[];
+}
+
+export interface RecentLookup {
+  productId: number;
+  sku: string;
+  name: string;
+  brand: string;
+  lookedUpAt: string;
+  found: number;
+}
+
 export const api = {
+  lookup: (query: string) =>
+    request<{ productId: number }>('/api/lookup', { method: 'POST', body: JSON.stringify({ query }) }),
+  lookupResult: (productId: number) => request<LookupResult>(`/api/lookup/${productId}`),
+  recentLookups: () => request<{ recent: RecentLookup[] }>('/api/lookup/recent'),
   session: () => request<{ authEnabled: boolean; authenticated: boolean }>('/api/auth/session'),
   login: (password: string) =>
     request<{ authenticated: boolean }>('/api/auth/login', {

@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '16 November 2026';
+const GUIDE_UPDATED = '16 November 2026 (evening)';
 
 function Section({
   id,
@@ -91,26 +91,25 @@ export function GuidePage() {
         </p>
       </Section>
 
-      <Section id="start-here" title="Start here" subtitle="Three steps to a working comparison">
-        <ol className="guide-steps">
-          <li>
-            <strong>Import a feed for each site.</strong> Import feed → choose the site → drop the
-            file. Do this separately for Goldsmiths, Mappin &amp; Webb and Watches of Switzerland;
-            each carries its own prices.
-          </li>
-          <li>
-            <strong>Check what competitors allow.</strong> Admin → Can we read each competitor?
-            This visits each site and says whether we are allowed in, whether their products can be
-            found, and whether a price can be read off one. Expand a row for the detail behind the
-            verdict.
-          </li>
-          <li>
-            <strong>Run a scrape.</strong> Scrape runs → Start run. Use a small product limit for
-            the first run against a new competitor, then review what it found under Match review. To
-            prove the whole chain works, put one SKU you know a competitor stocks in the
-            single-product box and scan just that.
-          </li>
-        </ol>
+      <Section id="start-here" title="Start here" subtitle="One box">
+        <p>
+          Open <strong>Check a product</strong> and paste any one of: a product's address on
+          Goldsmiths, Mappin &amp; Webb or Watches of Switzerland; its SKU; its manufacturer reference;
+          or its barcode. Press <strong>Check prices</strong>.
+        </p>
+        <p>
+          The app reads the product from our own website — name, brand, picture, price and
+          reference — so there is nothing to type in. It then looks for the{' '}
+          <strong>exact same product</strong> at each competitor and lists what it finds: their price,
+          whether that is cheaper or dearer than ours and by how much, whether they have it in stock,
+          and a <strong>View</strong> button that opens their page. A check takes around fifteen
+          seconds; prices appear as each competitor answers.
+        </p>
+        <p className="small muted" style={{ marginBottom: 0 }}>
+          A competitor shown as <em>Not sold there</em> was checked and does not list that exact
+          product. <em>Couldn't check</em> means their site turned the check away. Nothing is ever
+          shown because it merely looks similar.
+        </p>
       </Section>
 
       <Section id="pages" title="The pages, one by one">
@@ -235,7 +234,7 @@ export function GuidePage() {
           <br />
           <strong>New lines nothing has compared yet</strong> lists products live on the site with
           no competitor price at all, newest first, and says which of three things is holding each
-          one up: nothing has looked for it, candidates are waiting in Match review, or it is
+          one up: nothing has looked for it, nothing exact has been found, or it is
           matched and simply not scanned yet. Discovery runs now reach uncovered products before
           ones already priced, so this list drains on its own — but a line that went live today and
           matters commercially is visible immediately rather than hiding as a blank row among
@@ -286,8 +285,7 @@ export function GuidePage() {
           true, so you never need to check whether an old one still stands. A price drop is a
           moment in time rather than an ongoing state, so it stays until acknowledged.{' '}
           <strong>Acknowledging</strong> only marks that you have seen it; it touches no price or
-          match. The sidebar badge counts open alerts, the same way Match review's badge counts
-          pending candidates.
+          match. The badge beside Alerts, under More, counts open alerts.
           <br />
           <br />
           How big a difference is worth raising one is set under <strong>Admin → Alert
@@ -306,21 +304,12 @@ export function GuidePage() {
           <br />
           So every time we read a page we check the <strong>barcode on it still matches the barcode
           on our product</strong>. If it does not, no price is recorded and the match is flagged.
-          Pick <em>Flagged — page changed</em> on Match review to see them, with the reason on each
-          row. Two ways out: <strong>Still correct</strong> if the retailer has simply corrected
-          their barcode, which resumes pricing it, or <strong>Reject</strong> if the page really is
-          a different product now, which frees the scanner to go and find the right one.
+          That page is set aside for good, and the next check of the product looks for the right
+          one.
           <br />
           <br />
           A page that publishes no barcode at all is left alone — silence is not disagreement, and
           plenty of pages carry no identifier.
-        </Term>
-        <Term label="Match review">
-          Candidate matches the scraper found, strongest first. Confirm the ones that are genuinely
-          the same product and reject the rest. A rejection is remembered — a later run will not
-          re-suggest it. This page also has an <strong>Our site</strong> selector, because the price
-          shown beside a candidate is the price at that site. Tick several rows — or the header
-          checkbox for all pending ones — to confirm or reject them together.
         </Term>
         <Term label="Scrape runs">
           Start a run and see what each one did. <em>Prices</em> re-checks products already matched;{' '}
@@ -398,8 +387,8 @@ export function GuidePage() {
           <strong>Add a test product</strong>, at the top of the page, puts a single product in by
           hand without waiting on a feed — give it a SKU, brand, name and ideally a barcode or
           manufacturer reference, and it can scan straight away. Those two are what let it be matched
-          to a competitor's page with certainty; without either it can only be matched on its name,
-          which always goes to the review queue. A product added this way survives feed imports that do not mention
+          to a competitor's page with certainty; without either it cannot be matched at all, since
+          nothing is matched on its name. A product added this way survives feed imports that do not mention
           it, unlike everything else, because it is a fixture rather than something the feed owns.
           Delete it from Price comparison when you have finished with it.
         </Term>
@@ -422,7 +411,7 @@ export function GuidePage() {
           of our products are matched there. Look here first when a price you expected is missing:
           if <em>Read so far</em> is not yet complete, their catalogue simply has not been read that
           far; if it is complete and the product is still unmatched, they do not list it — or list
-          it without a barcode, in which case it will be in the review queue if the title is close.
+          it without a barcode or reference we can match, which is never guessed at.
           <br />
           <br />
           <strong>Nightly job</strong> is the one to check first if anything looks out of date. It
@@ -543,47 +532,30 @@ export function GuidePage() {
         </Term>
       </Section>
 
-      <Section id="matching" title="How matching works" subtitle="And why some things need a human">
+      <Section id="matching" title="How matching works" subtitle="Exact matches only">
         <p>
-          Each competitor's product pages are read once and remembered — their{' '}
-          <strong>catalogue</strong>. Every product page states its own barcode and, usually, the
-          manufacturer's reference, so finding which of their pages is our product is a lookup
-          against what has already been read, not a search of their site. A product of ours is
-          matched the moment its barcode appears in a competitor's catalogue, and priced from that
-          same page.
+          A competitor's page counts as our product only when it carries the{' '}
+          <strong>same barcode</strong>, or the <strong>same manufacturer reference</strong> on a
+          page that also names the brand. Nothing else is shown — not a similar name, not the same
+          model in another dial colour. A near-miss presented as a comparison is worse than none, so
+          there is nothing to review and no queue to work through.
         </p>
         <p>
-          This replaced an older method that took our products one at a time and guessed which of a
-          competitor's addresses might be the same thing from the words in it. That was slow —
-          several page loads per product, per competitor — and it missed any product whose address
-          shared no words with our title. The older method is still used when you scan a single
-          named product, so a test gets an answer straight away even where a catalogue has not been
-          read yet.
+          References are compared on their letters and digits, and without a brand's one- or
+          two-letter prefix: Goldsmiths writes the Omega reference 210.30.42.20.04.001 as{' '}
+          <span className="mono">O21030422004001</span>, Berry's as{' '}
+          <span className="mono">21030422004001</span>, and both are the same watch.
         </p>
-        <Term label="EAN / MPN exact — the strongest">
-          The competitor publishes the same barcode, or the same manufacturer reference on a listing
-          that also names the brand. This is as certain as it gets and is confirmed automatically.
-          The two are never compared with each other: our barcode against a page that shows only a
-          reference is not a disagreement, just no evidence. Only two <em>different barcodes</em>{' '}
-          prove a page is a different product.
-        </Term>
-        <Term label="Brand and specifications">
-          Same brand, and the attributes that define the product agree — case size, metal, dial
-          colour, carat weight. Strong, but usually worth a glance.
-        </Term>
-        <Term label="Fuzzy name and specs — always review">
-          The names look alike and nothing contradicts. This is a suggestion, not a conclusion. Two
-          watches in a family often differ only by a detail the page does not state. From a
-          competitor's catalogue only the single closest title is ever suggested, and only when it
-          is a strong likeness; a second-hand listing is never offered against a new product.
-        </Term>
+        <p>
+          Our own website shows the reference but not the barcode; Ernest Jones and H.Samuel show
+          the barcode but not the reference. So once a product has been matched by reference at a
+          retailer that shows both, its barcode is taken from there and used to look at Ernest Jones
+          and H.Samuel too.
+        </p>
         <p className="small muted" style={{ marginBottom: 0 }}>
-          Brand is a gate: a candidate is rejected outright unless the brand can be confirmed, whatever
-          else matches. That includes a page that genuinely is the right product but simply does not
-          state its brand anywhere the scraper can read — not published as structured data, and not
-          in the visible title — which reads identically to a wrong-brand rejection in the run detail.
-          Your confirmations and rejections always outrank the scraper — an automated run will not
-          overturn a human decision.
+          Each competitor's product pages are also read and remembered over time — their
+          catalogue — so a product checked later is often matched straight from what is held, with
+          no further request to the competitor.
         </p>
       </Section>
 

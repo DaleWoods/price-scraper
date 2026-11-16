@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { after, before, describe, it } from 'node:test';
 import type { Competitor, Product } from '../src/domain/types.ts';
-import { compareIdentifiers, gtinKey, identKey, looksLikeGtin, referenceContradicts } from '../src/matching/identifiers.ts';
+import { compareIdentifiers, gtinKey, identKey, looksLikeGtin, referenceContradicts, refKey } from '../src/matching/identifiers.ts';
 import { scoreCandidate } from '../src/matching/score.ts';
 import { isProductUrl } from '../src/scraping/catalogue.ts';
-import { extractListing } from '../src/scraping/extract.ts';
+import { extractListing, labelledReference } from '../src/scraping/extract.ts';
+import * as cheerio from 'cheerio';
 import type { FetchedPage } from '../src/scraping/fetcher.ts';
 import { siteFetch } from '../src/scraping/httpClient.ts';
 import { identityMismatch } from '../src/scraping/runner.ts';
@@ -356,5 +357,63 @@ describe('referenceContradicts', () => {
 
   it('says nothing when we hold no usable reference', () => {
     assert.equal(referenceContradicts(null, { mpn: 'L37204726', sku: 'X-1' }), false);
+  });
+});
+
+describe('refKey', () => {
+  it('drops a brand letter in front of a long number', () => {
+    // Goldsmiths and Fraser Hart write Omega's reference with an "O"; Berry's
+    // and Beaverbrooks do not.
+    assert.equal(refKey('O21030422004001'), refKey('210.30.42.20.04.001'));
+    assert.equal(refKey('L3.720.4.72.6'), refKey('37204726'));
+  });
+
+  it('leaves a reference alone when the letters are part of it', () => {
+    assert.equal(refKey('WSSA0086'), 'wssa0086');
+    assert.equal(refKey('GAC-2500-9AER'), 'gac25009aer');
+    // Too short after the letter to be safely the same number.
+    assert.equal(refKey('T1234567'), 't1234567');
+  });
+
+  it('lets compareIdentifiers match across the prefix', () => {
+    const verdict = compareIdentifiers({ mpn: 'O21030422004001' }, { sku: '21030422004001' });
+    assert.equal(verdict.verdict, 'match');
+  });
+});
+
+describe('labelledReference', () => {
+  const read = (html: string) => labelledReference(html, cheerio.load(html));
+
+  it('reads "Model Number" split across two elements, as Ernest Jones and H.Samuel show it', () => {
+    const html = '<ul><li class="spec"><span>Model Number: </span> AT2511-55E </li><li><span>Watch Brand: </span> Citizen</li></ul>';
+    assert.equal(read(html), 'AT2511-55E');
+  });
+
+  it('prefers the reference in the page data when there is one', () => {
+    assert.equal(read('<script>{"watchModelNumber":"AR80082SET"}</script><p>Item # 1028505</p>'), 'AR80082SET');
+  });
+
+  it('reads "MPN" and "Product code" labels', () => {
+    assert.equal(read('<div>MPN: H70405740</div>'), 'H70405740');
+    assert.equal(read('<table><tr><td>Product code</td><td>WSSA0062</td></tr></table>'), 'WSSA0062');
+  });
+
+  it("ignores the retailer's own item number", () => {
+    assert.equal(read('<p>Item # 1080845</p><p>Supplier Code M140194</p>'), null);
+  });
+});
+
+describe('extracting the reference', () => {
+  it('uses the labelled model number when the structured mpn is just the stock code', () => {
+    const competitor = { id: 1, slug: 'x', config: { rendering: 'http', product: { useJsonLd: true, sanityContains: ['h1'] } } } as Competitor;
+    const html =
+      '<script type="application/ld+json">{"@type":"Product","name":"Citizen","sku":"1080845","mpn":"1080845",' +
+      '"offers":{"@type":"Offer","price":"199","priceCurrency":"GBP"}}</script><h1>Citizen</h1>' +
+      '<li><span>Model Number: </span> AT2511-55E </li>';
+    const listing = extractListing(competitor, {
+      url: 'https://x/p/1', finalUrl: 'https://x/p/1', html, status: 200, renderedWith: 'http',
+    });
+    assert.equal(listing.mpn, 'AT2511-55E');
+    assert.equal(listing.sku, '1080845');
   });
 });

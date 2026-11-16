@@ -976,6 +976,17 @@ code {
 .drawer__body {
   padding: var(--sp-6);
   overflow-y: auto;
+  /* A flex child will not shrink below its content without this, so the body
+     grew past the bottom of the screen instead of scrolling, and everything
+     under the first table was out of reach. */
+  min-height: 0;
+}
+
+/* Each section keeps its full height so the panel scrolls. Without this the
+   sections were squashed to fit the screen and cut off — the Coverage table
+   showed two competitors and nothing below them could be reached. */
+.drawer__body > * {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: var(--sp-5);
@@ -1459,3 +1470,69 @@ code {
   margin-left: auto;
   font-weight: 600;
 }
+
+/* ---------- Check a product ---------- */
+
+.check-form { display: flex; gap: var(--sp-3); }
+.check-form__input { flex: 1; font-size: var(--text-base); padding: 12px 14px; }
+@media (max-width: 640px) { .check-form { flex-direction: column; } }
+
+.check-product {
+  display: flex;
+  gap: var(--sp-5);
+  align-items: center;
+  padding: var(--sp-5) var(--sp-6);
+  border-bottom: 1px solid var(--border);
+}
+.check-product__image {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  border-radius: var(--radius-md, 10px);
+  background: #fff;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.check-product__image--empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: 28px;
+}
+.check-product__name { margin: 2px 0 4px; font-size: var(--text-lg); }
+.check-product__price { text-align: right; flex-shrink: 0; }
+.check-product__amount { font-size: var(--text-xl); font-weight: 700; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .check-product { flex-wrap: wrap; }
+  .check-product__price { text-align: left; }
+}
+
+.check-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-6);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  flex-wrap: wrap;
+}
+.check-summary .cell-secondary.truncate { max-width: 340px; }
+
+.text-higher { color: var(--pos-higher-fg); }
+.text-lower { color: var(--pos-lower-fg); }
+
+/* The less-used pages, folded away under "More" in the sidebar. */
+.sidebar__more {
+  margin-top: var(--sp-3);
+}
+.sidebar__more > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.sidebar__more > summary::-webkit-details-marker { display: none; }
+.sidebar__more > summary::after { content: ' ▸'; }
+.sidebar__more[open] > summary::after { content: ' ▾'; }
+
+.price--link { text-decoration: none; }
+.price--link:hover { text-decoration: underline; }

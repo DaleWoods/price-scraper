@@ -1,5 +1,5 @@
 import { query } from '../db/pool.js';
-import { gtinKey, identKey } from '../matching/identifiers.js';
+import { gtinKey, refKey } from '../matching/identifiers.js';
 
 /**
  * Turn whatever someone has to hand — our SKU, a barcode, or the manufacturer's
@@ -24,19 +24,19 @@ export async function resolveProducts(
 
   const lowered = cleaned.map((value) => value.toLowerCase());
   const gtinKeys = cleaned.map((value) => gtinKey(value));
-  const identKeys = cleaned.map((value) => identKey(value));
+  const refKeys = cleaned.map((value) => refKey(value));
 
   const { rows } = await query<{ id: number; hit: number }>(
     `SELECT p.id, v.ord::int AS hit
-     FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY AS v(sku, gk, ik, ord)
+     FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY AS v(sku, gk, rk, ord)
      JOIN products p ON
           lower(p.internal_sku) = v.sku
        -- Eight digits or more before it counts as a barcode: a short number is
        -- far more likely to be a SKU than a barcode, and is matched as one above.
        OR (length(v.gk) >= 8 AND p.gtin IS NOT NULL AND gtin_key(p.gtin) = v.gk)
        OR (length(v.gk) >= 8 AND p.ean_mpn IS NOT NULL AND gtin_key(p.ean_mpn) = v.gk)
-       OR (length(v.ik) >= 5 AND p.mpn IS NOT NULL AND ident_key(p.mpn) = v.ik)`,
-    [lowered, gtinKeys, identKeys],
+       OR (length(v.rk) >= 5 AND p.mpn IS NOT NULL AND ref_key(p.mpn) = v.rk)`,
+    [lowered, gtinKeys, refKeys],
   );
 
   const matched = new Set(rows.map((row) => row.hit));

@@ -1,3 +1,4 @@
+import { ensureOwnIndex } from './ownSite/ownIndex.js';
 import { env } from './config/env.js';
 import { query } from './db/pool.js';
 import { logger } from './lib/logger.js';
@@ -163,6 +164,12 @@ async function claim(name: string, occurrence: string): Promise<boolean> {
 /** Collect feeds, then scan. Exported so Admin can trigger it by hand. */
 export async function runNightlyJob(): Promise<{ feeds: string; scan: string }> {
   const summary = { feeds: 'skipped', scan: 'not started' };
+
+  // Keep the index of our own product addresses fresh, so a check by
+  // manufacturer reference tomorrow does not wait for it to be rebuilt.
+  await ensureOwnIndex().catch((err) => {
+    logger.warn('scheduler', `own-site index not refreshed: ${(err as Error).message}`);
+  });
 
   const ingest = await ingestFeedsFromSource();
   if (!ingest.configured) {

@@ -2,7 +2,7 @@ import { query } from '../db/pool.js';
 import type { Competitor, Product, SpecAttributes } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { recordPriceObservation } from '../scraping/observations.js';
-import { upsertMatch } from './discovery.js';
+import { adoptBarcode, upsertMatch } from './discovery.js';
 import { referenceContradicts } from './identifiers.js';
 import { MIN_CANDIDATE_THRESHOLD, scoreCandidate, type CandidateListing } from './score.js';
 import { searchTermsFor } from './sitemapDiscovery.js';
@@ -107,7 +107,7 @@ const TITLE_MATCH_MIN = 60;
 const TRUSTED_FIELD_HITS = 3;
 
 /** Second-hand stock is not the same product at a different price. */
-const PRE_OWNED = /\bpre[\s-]?owned\b|\bsecond[\s-]?hand\b|\bpreloved\b|\bpre[\s-]?loved\b/i;
+export const PRE_OWNED = /\bpre[\s-]?owned\b|\bsecond[\s-]?hand\b|\bpreloved\b|\bpre[\s-]?loved\b/i;
 
 /** Which of a competitor's fields demonstrably hold manufacturer references. */
 export async function trustedReferenceFields(competitorId: number): Promise<('mpn' | 'sku')[]> {
@@ -116,12 +116,12 @@ export async function trustedReferenceFields(competitorId: number): Promise<('mp
        (SELECT count(*)::int FROM products p
           JOIN competitor_products cp
             ON cp.competitor_id = $1 AND cp.status = 'ok' AND cp.mpn IS NOT NULL
-           AND ident_key(cp.mpn) = ident_key(p.mpn)
+           AND ref_key(cp.mpn) = ref_key(p.mpn)
          WHERE p.mpn IS NOT NULL AND length(ident_key(p.mpn)) >= 5) AS mpn_hits,
        (SELECT count(*)::int FROM products p
           JOIN competitor_products cp
             ON cp.competitor_id = $1 AND cp.status = 'ok' AND cp.sku IS NOT NULL
-           AND ident_key(cp.sku) = ident_key(p.mpn)
+           AND ref_key(cp.sku) = ref_key(p.mpn)
          WHERE p.mpn IS NOT NULL AND length(ident_key(p.mpn)) >= 5) AS sku_hits`,
     [competitorId],
   );
@@ -176,14 +176,14 @@ export async function matchFromCatalogue(
      FROM open_products p
      JOIN competitor_products cp
        ON cp.competitor_id = $1 AND cp.status = 'ok' AND cp.mpn IS NOT NULL
-      AND ident_key(cp.mpn) = ident_key(p.mpn)
+      AND ref_key(cp.mpn) = ref_key(p.mpn)
      WHERE p.mpn IS NOT NULL AND length(ident_key(p.mpn)) >= 5
      UNION
      SELECT p.id, cp.id
      FROM open_products p
      JOIN competitor_products cp
        ON cp.competitor_id = $1 AND cp.status = 'ok' AND cp.sku IS NOT NULL
-      AND ident_key(cp.sku) = ident_key(p.mpn)
+      AND ref_key(cp.sku) = ref_key(p.mpn)
      WHERE p.mpn IS NOT NULL AND length(ident_key(p.mpn)) >= 5`,
     [competitor.id, productIds],
   );
@@ -198,74 +198,9 @@ export async function matchFromCatalogue(
     }
   }
 
-  // ---- 2. Title matches, for products no identifier reached -----------------
-  //
-  // Only products this competitor has no match row for at all: one a person
-  // has already rejected should not be offered back every night.
-  const { rows: unmatched } = await query<Product>(
-    `SELECT p.* FROM products p
-     WHERE p.delisted_at IS NULL
-       AND ($2::bigint[] IS NULL OR p.id = ANY($2::bigint[]))
-       AND NOT EXISTS (
-         SELECT 1 FROM product_matches m
-         WHERE m.product_id = p.id AND m.competitor_id = $1
-       )
-     ORDER BY p.id`,
-    [competitor.id, productIds],
-  );
-
-  const trusted = await trustedReferenceFields(competitor.id);
-
-  for (const product of unmatched) {
-    if (settled.has(product.id)) continue;
-
-    const brandWords = product.brand
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ')
-      .split(/\s+/)
-      .filter((word) => word.length > 1);
-    // A listing that does not name the brand cannot pass the brand gate, so
-    // there is no point scoring it — and requiring the brand in the query is
-    // what keeps this to an index lookup for the many products a competitor
-    // simply does not stock.
-    if (brandWords.length === 0 || product.brand.toLowerCase() === 'unknown') continue;
-
-    const terms = searchTermsFor(product).filter((term) => !brandWords.includes(term));
-    if (terms.length === 0) continue;
-
-    const tsquery = `(${brandWords.join(' & ')}) & (${terms.join(' | ')})`;
-    const { rows: candidates } = await query<CatalogueRow>(
-      `SELECT cp.*
-       FROM competitor_products cp,
-            to_tsquery('simple', $2) AS q
-       WHERE cp.competitor_id = $1 AND cp.status = 'ok'
-         AND to_tsvector('simple', coalesce(cp.brand, '') || ' ' || coalesce(cp.title, '')) @@ q
-       ORDER BY ts_rank(to_tsvector('simple', coalesce(cp.brand, '') || ' ' || coalesce(cp.title, '')), q) DESC
-       LIMIT $3`,
-      [competitor.id, tsquery, TITLE_CANDIDATES],
-    );
-
-    // Only the single strongest title is offered. Several weaker ones for the
-    // same product are several things for a person to reject.
-    let best: { row: CatalogueRow; confidence: number } | null = null;
-    for (const row of candidates) {
-      // Their reference is known to be the manufacturer's, and it is not ours.
-      if (referenceContradicts(product.mpn, row, trusted)) continue;
-      if (PRE_OWNED.test(row.title ?? '') && !PRE_OWNED.test(product.product_name)) continue;
-
-      const scored = scoreCandidate(product, toListing(row));
-      if (!scored.viable || scored.confidence < TITLE_MATCH_MIN) continue;
-      if (!best || scored.confidence > best.confidence) best = { row, confidence: scored.confidence };
-    }
-
-    if (best) {
-      const stored = await scoreAndStore(competitor, product, best.row, options, result, TITLE_MATCH_MIN);
-      if (stored) {
-        result.byTitle += 1;
-        settled.add(product.id);
-      }
-    }
-  }
+  // Nothing is matched by likeness of name. Tried on real products it offered
+  // other models from the same collection — a different dial, a different
+  // case — and a near-miss presented as a comparison is worse than none.
   result.matchedProductIds = [...settled];
 
   if (result.byIdentifier + result.byTitle > 0) {
@@ -299,6 +234,9 @@ async function scoreAndStore(
 
   const listing = toListing(row);
   const scored = scoreCandidate(product, listing);
+  // Exact identifier matches only: the same barcode, or the same maker's
+  // reference on a listing that names our brand.
+  if (scored.tier !== 'ean_mpn_exact') return false;
   const minimum = Math.max(MIN_CANDIDATE_THRESHOLD, minimumConfidence);
   if (!scored.viable || scored.confidence < minimum) return false;
   // A second-hand listing can share a barcode with the new one. It is not the
@@ -317,7 +255,10 @@ async function scoreAndStore(
     autoConfirm: scored.autoAccept,
   });
 
-  if (stored.status === 'confirmed') result.autoConfirmed += 1;
+  if (stored.status === 'confirmed') {
+    result.autoConfirmed += 1;
+    await adoptBarcode(product.id, row.gtin);
+  }
   else if (stored.status === 'pending') result.pending += 1;
 
   // Price it now, from the page we already hold — but only a page read during

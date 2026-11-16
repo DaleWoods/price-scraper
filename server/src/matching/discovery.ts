@@ -8,8 +8,8 @@ import { fetchAndExtract } from '../scraping/fetchAndExtract.js';
 import { fetchPage } from '../scraping/fetcher.js';
 import { canonicalAttributeName } from './attributes.js';
 import { recordCatalogueListing } from '../scraping/catalogue.js';
-import { trustedReferenceFields } from './catalogueMatch.js';
-import { referenceContradicts } from './identifiers.js';
+import { PRE_OWNED, trustedReferenceFields } from './catalogueMatch.js';
+import { looksLikeGtin, referenceContradicts } from './identifiers.js';
 import { findCandidateUrls } from './sitemapDiscovery.js';
 import { AUTO_ACCEPT_THRESHOLD, MIN_CANDIDATE_THRESHOLD, scoreCandidate, type CandidateListing } from './score.js';
 
@@ -58,7 +58,19 @@ export function rejectionReason(scored: ReturnType<typeof scoreCandidate>): stri
  * Exported for the test that proves a slow candidate stops the loop rather
  * than running unbounded.
  */
-export const DISCOVERY_BUDGET_MS = 60_000;
+export const DISCOVERY_BUDGET_MS = 150_000;
+
+/**
+ * How many candidate pages are opened for one product at one competitor.
+ *
+ * Twenty-five, where it was three. Matching is now exact — a page counts only
+ * if its barcode or reference is ours — so a lookalike opened costs a request
+ * and nothing else, and the search stops at the first exact match. Three was
+ * too few on real sites: Beaverbrooks lists a dozen pages all titled "OMEGA
+ * Seamaster Diver 300M 42mm…", differing only in dial and bracelet, and the
+ * right one was never among the first three.
+ */
+export const MAX_CANDIDATES = 25;
 
 /** A reference held only in specs, for rows written before migration 021. */
 function referenceOf(product: Product): string | null {
@@ -110,7 +122,7 @@ export async function discoverMatchesForProduct(
   let results: { url: string; title: string; price: number | null }[];
 
   if (mode === 'sitemap') {
-    const candidates = await findCandidateUrls(product, competitor);
+    const candidates = await findCandidateUrls(product, competitor, MAX_CANDIDATES);
     outcome.candidatesFound = candidates.length;
 
     if (candidates.length === 0) {
@@ -173,7 +185,7 @@ export async function discoverMatchesForProduct(
     // cheaply first, which keeps request volume down.
     .filter((entry) => mode === 'sitemap' || entry.preliminary.viable)
     .sort((a, b) => b.preliminary.confidence - a.preliminary.confidence)
-    .slice(0, 3);
+    .slice(0, MAX_CANDIDATES);
 
   let bestAttempt: { url: string; confidence: number; reason: string } | null = null;
   const budgetStart = Date.now();
@@ -271,7 +283,23 @@ export async function discoverMatchesForProduct(
       continue;
     }
 
-    const autoConfirm = scored.confidence >= AUTO_ACCEPT_THRESHOLD;
+    // Exact identifier matches only. A page that merely looks like ours — the
+    // same model in another dial colour, say — is reported as the closest
+    // miss and never stored: a near-miss shown as a comparison is worse than
+    // none.
+    // Second-hand stock is a different offer, whatever its reference says.
+    const preOwned = PRE_OWNED.test(`${listing.title} ${listing.url}`) && !PRE_OWNED.test(product.product_name);
+    if (scored.tier !== 'ean_mpn_exact' || preOwned) {
+      if (!bestAttempt || scored.confidence > bestAttempt.confidence) {
+        bestAttempt = {
+          url: listing.url,
+          confidence: scored.confidence,
+          reason: 'it looks similar, but neither its barcode nor its manufacturer reference is ours',
+        };
+      }
+      continue;
+    }
+
     await upsertMatch({
       productId: product.id,
       competitorId: competitor.id,
@@ -281,11 +309,14 @@ export async function discoverMatchesForProduct(
       confidence: scored.confidence,
       tier: scored.tier,
       evidence: scored.evidence,
-      autoConfirm,
+      autoConfirm: true,
     });
+    await adoptBarcode(product.id, listing.gtin);
 
     outcome.candidatesStored += 1;
-    if (autoConfirm) outcome.autoConfirmed += 1;
+    outcome.autoConfirmed += 1;
+    // Found: there is no second right answer to look for.
+    break;
   }
 
   if (outcome.candidatesStored === 0) outcome.bestAttempt = bestAttempt;
@@ -295,6 +326,20 @@ export async function discoverMatchesForProduct(
   }
 
   return outcome;
+}
+
+/**
+ * Take a barcode for our product from a competitor page it has just been
+ * matched to exactly by manufacturer reference.
+ *
+ * Our own product pages publish the reference but not the barcode, and Ernest
+ * Jones and H.Samuel publish the barcode but not the reference — so without
+ * this a product looked up from our site could never be matched there. Only
+ * fills a gap: a barcode we already hold is never replaced.
+ */
+export async function adoptBarcode(productId: number, gtin: string | null | undefined): Promise<void> {
+  if (!gtin || !looksLikeGtin(gtin)) return;
+  await query(`UPDATE products SET gtin = $2 WHERE id = $1 AND gtin IS NULL`, [productId, gtin]);
 }
 
 export interface UpsertMatchInput {

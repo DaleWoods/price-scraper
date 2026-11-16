@@ -267,6 +267,8 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
         deltaAbs,
         deltaPct,
         observedAt: observation.observed_at,
+        // So every price on the page can be a link to the page it came from.
+        sourceUrl: observation.source_url,
       };
     });
 

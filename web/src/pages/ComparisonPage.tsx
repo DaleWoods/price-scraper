@@ -25,7 +25,6 @@ import {
   TableSkeleton,
   useToast,
 } from '../components/ui';
-import { EvidenceStrip } from '../components/EvidenceStrip';
 import { CompetitorLabel } from '../components/CompetitorLogo';
 import { PriceHistoryChart } from '../components/PriceHistoryChart';
 
@@ -74,14 +73,14 @@ export function ComparisonPage() {
    * 'grid' answers "by whom, and where does everyone else sit", with a column
    * per competitor. Both read the same rows — the grid needs no extra request.
    */
-  const [view, setView] = useState<'summary' | 'grid'>('summary');
+  // One layout: every competitor's price side by side, each a link to their page.
+  const view = 'grid' as 'summary' | 'grid';
 
   const [search, setSearch] = useState('');
   const [brand, setBrand] = useState('');
   // Prices are per fascia, so this chooses whose price the whole page compares.
   const [fascia, setFascia] = useState('');
   const [fascias, setFascias] = useState<Fascia[]>([]);
-  const [clearing, setClearing] = useState(false);
   const [removingProductId, setRemovingProductId] = useState<number | null>(null);
   const [scanningProductId, setScanningProductId] = useState<number | null>(null);
   const [category, setCategory] = useState('');
@@ -182,36 +181,6 @@ export function ComparisonPage() {
   };
 
   /**
-   * Empty the catalogue.
-   *
-   * "Start from scratch": products, our prices, matches and observations all
-   * go. Competitors, their logos and the cached sitemap URLs stay, since none
-   * of those came from a feed.
-   */
-  const deleteAllProducts = async () => {
-    const count = data?.summary.products ?? 0;
-    if (
-      !window.confirm(
-        `Delete all ${count} product(s) and everything recorded against them?\n\n` +
-          'Your competitors and their settings are kept. Re-import a feed to repopulate.',
-      )
-    ) {
-      return;
-    }
-    setClearing(true);
-    try {
-      const result = await api.deleteAllProducts();
-      setSelected(null);
-      await load();
-      toast(`Deleted ${result.deleted} product(s).`, 'ok');
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'Could not clear the catalogue', 'error');
-    } finally {
-      setClearing(false);
-    }
-  };
-
-  /**
    * Scan this one product now.
    *
    * The testing path: you know a competitor lists this watch and want to see
@@ -229,39 +198,6 @@ export function ComparisonPage() {
       toast(err instanceof ApiError ? err.message : 'Could not start that run', 'error');
     } finally {
       setScanningProductId(null);
-    }
-  };
-
-  /**
-   * Wipe every recorded competitor price and match.
-   *
-   * Products and our own prices survive: those come from the feed, not from
-   * scraping, so this only clears what a run produced. Rejections survive too,
-   * so clearing never re-opens a candidate someone has already turned down.
-   */
-  const clearAllComparisons = async () => {
-    if (
-      !window.confirm(
-        'Delete every recorded competitor price and match?\n\n' +
-          'Your products, your own prices and your rejected matches are not affected. ' +
-          'A later run will rebuild the comparisons.',
-      )
-    ) {
-      return;
-    }
-    setClearing(true);
-    try {
-      const result = await api.clearAllComparisons();
-      setSelected(null);
-      await load();
-      toast(
-        `Cleared ${result.observationsRemoved} observation(s) and ${result.matchesRemoved} match(es).`,
-        'ok',
-      );
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'Could not clear comparisons', 'error');
-    } finally {
-      setClearing(false);
     }
   };
 
@@ -284,24 +220,8 @@ export function ComparisonPage() {
 
   const togglePosition = (next: PositionFilter) => setPosition((current) => (current === next ? '' : next));
 
-  const runNow = async () => {
-    try {
-      const { run } = await api.startRun({ mode: 'prices' });
-      toast(`Scrape run #${run.id} started — prices for confirmed matches.`, 'ok');
-    } catch (err) {
-      toast(err instanceof ApiError ? err.message : 'Could not start the run', 'error');
-    }
-  };
-
   return (
     <div className="page">
-      <p className="page__intro">
-        Our price against each competitor's latest observed price. Position is measured against the
-        cheapest in-stock competitor — <strong>they are cheaper</strong> is the column that needs action.
-      </p>
-
-      <EvidenceStrip fascia={fascia} />
-
       <div className="stat-grid">
         <Stat
           label="Products"
@@ -311,7 +231,7 @@ export function ComparisonPage() {
           icon="◆"
         />
         <Stat
-          label="We are cheaper"
+          label="We're cheaper"
           value={summary?.lower ?? '—'}
           meta="We undercut the market"
           tone="lower"
@@ -320,7 +240,7 @@ export function ComparisonPage() {
           onClick={() => togglePosition('lower')}
         />
         <Stat
-          label="Level"
+          label="Same price"
           value={summary?.equal ?? '—'}
           meta="Matched on price"
           tone="equal"
@@ -329,7 +249,7 @@ export function ComparisonPage() {
           onClick={() => togglePosition('equal')}
         />
         <Stat
-          label="They are cheaper"
+          label="They're cheaper"
           value={summary?.higher ?? '—'}
           meta="Undercut by a competitor"
           tone="higher"
@@ -337,81 +257,22 @@ export function ComparisonPage() {
           active={position === 'higher'}
           onClick={() => togglePosition('higher')}
         />
-        <Stat
-          label="Match coverage"
-          value={`${summary?.matchCoveragePct?.toFixed(0) ?? 0}%`}
-          meta={`${summary?.unmatched ?? 0} with no competitor price`}
-          tone="teal"
-          icon="◎"
-          active={position === 'unmatched'}
-          onClick={() => togglePosition('unmatched')}
-        />
-        {(summary?.awaitingOurPrice ?? 0) > 0 && (
-          <Stat
-            label="Awaiting our price"
-            value={summary?.awaitingOurPrice ?? 0}
-            meta="Imported, no price loaded yet"
-            tone="info"
-            icon="⏳"
-            active={position === 'awaiting_price'}
-            onClick={() => togglePosition('awaiting_price')}
-          />
-        )}
       </div>
 
       {error && <Alert tone="danger" title="Could not load prices">{error}</Alert>}
 
       <Card
-        title="Comparison"
-        subtitle={data ? `${rows.length} of ${data.total} products` : undefined}
+        title="Our products against every competitor"
+        subtitle={
+          data
+            ? `${rows.length} of ${data.total} products · click a price to open that competitor's page, or a product for its detail`
+            : undefined
+        }
         actions={
           <>
-            <div className="seg" role="group" aria-label="Table layout">
-              <button
-                type="button"
-                className={`btn btn--sm ${view === 'summary' ? 'btn--primary' : ''}`}
-                onClick={() => setView('summary')}
-                title="One row per product, against the cheapest competitor"
-              >
-                Summary
-              </button>
-              <button
-                type="button"
-                className={`btn btn--sm ${view === 'grid' ? 'btn--primary' : ''}`}
-                onClick={() => setView('grid')}
-                title="A column per competitor, so every price sits side by side"
-              >
-                Every competitor
-              </button>
-            </div>
             <a className="btn btn--sm" href={exportUrl} download>
               Export CSV
             </a>
-            {(data?.summary.withCompetitorPrice ?? 0) > 0 && (
-              <button
-                type="button"
-                className="btn btn--sm"
-                onClick={() => void clearAllComparisons()}
-                disabled={clearing}
-                title="Delete every recorded competitor price and match, keeping the products"
-              >
-                {clearing ? 'Clearing…' : 'Clear comparisons'}
-              </button>
-            )}
-            {(data?.summary.products ?? 0) > 0 && (
-              <button
-                type="button"
-                className="btn btn--sm"
-                onClick={() => void deleteAllProducts()}
-                disabled={clearing}
-                title="Empty the catalogue — every product and everything recorded against it"
-              >
-                Delete all products
-              </button>
-            )}
-            <button type="button" className="btn btn--sm btn--accent" onClick={runNow}>
-              Run now
-            </button>
           </>
         }
         bodyless
@@ -1080,8 +941,12 @@ function CompetitorGrid({
                   }
                   return (
                     <td key={id} className="num nowrap">
-                      <span
-                        className={`price ${
+                      <a
+                        href={entry.sourceUrl ?? undefined}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                        className={`price price--link ${
                           entry.position === 'higher'
                             ? 'price--higher'
                             : entry.position === 'lower'
@@ -1098,8 +963,8 @@ function CompetitorGrid({
                                 : 'No comparison possible'
                         }
                       >
-                        {formatMoney(entry.price, row.product.currency)}
-                      </span>
+                        {formatMoney(entry.price, row.product.currency)} ↗
+                      </a>
                       {entry.inStock === false && (
                         <div className="cell-secondary xs">out of stock</div>
                       )}
