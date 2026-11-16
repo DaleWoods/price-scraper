@@ -1555,4 +1555,17 @@ code {
 .check-drop > span:first-of-type { font-weight: 600; color: var(--brand-700, inherit); }
 .check-drop:hover { border-color: var(--brand-400, var(--border)); }
 
+.feed-progress { display: grid; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.feed-progress__head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-2); align-items: baseline; }
+.feed-progress__bar { height: 8px; border-radius: 999px; background: var(--brand-100); overflow: hidden; }
+.feed-progress__bar--main { height: 12px; }
+.feed-progress__bar > span { display: block; height: 100%; background: var(--brand-500); border-radius: inherit; transition: width 0.6s ease; }
+.feed-progress__sites { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+.feed-progress__sites li { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr); gap: 4px var(--sp-3); align-items: center; }
+.feed-progress__sites li > .small { grid-column: 2; }
+.feed-progress__site { font-weight: 600; }
+@media (max-width: 600px) {
+  .feed-progress__sites li { grid-template-columns: 1fr; }
+  .feed-progress__sites li > .small { grid-column: 1; }
+}
 .check-feeds { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }

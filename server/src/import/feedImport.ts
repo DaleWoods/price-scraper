@@ -143,8 +143,16 @@ export async function importFeed(
   source: Buffer | { path: string },
   filename: string,
   fasciaCode: string,
+  /** Told how far through the file the import is, after each batch written. */
+  onProgress?: (progress: { rows: number; fraction: number }) => void,
 ): Promise<FeedImportResult> {
-  const { headers, rows } = await openTabular(source, filename);
+  const table = await openTabular(source, filename);
+  const { headers, rows } = table;
+  const report = (): void =>
+    onProgress?.({
+      rows: result.totalRows,
+      fraction: table.totalBytes > 0 ? table.bytesRead() / table.totalBytes : 0,
+    });
   if (headers.length === 0) {
     throw new Error('The uploaded feed appears to be empty — no header row was found.');
   }
@@ -423,7 +431,10 @@ export async function importFeed(
         specs: JSON.stringify(specs),
         price,
       });
-      if (parsed.length >= WRITE_CHUNK) await flush();
+      if (parsed.length >= WRITE_CHUNK) {
+        await flush();
+        report();
+      }
     }
     await flush();
 

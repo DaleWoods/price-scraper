@@ -2,7 +2,7 @@ import { gunzipSync } from 'node:zlib';
 import { Client as FtpClient } from 'basic-ftp';
 import SftpClient from 'ssh2-sftp-client';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdtemp, open, rename, rm } from 'node:fs/promises';
+import { mkdtemp, open, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -346,6 +346,9 @@ export async function fetchNewestFeeds(
      * waste of minutes and bandwidth.
      */
     skip?: (fasciaCode: string, signature: string) => Promise<boolean>;
+    /** Told about each file found, then how much of it has arrived, every second. */
+    onFile?: (fasciaCode: string, file: RemoteFile) => void;
+    onDownload?: (fasciaCode: string, bytes: number) => void;
   } = {},
 ): Promise<
   {
@@ -380,6 +383,7 @@ export async function fetchNewestFeeds(
           continue;
         }
 
+        options.onFile?.(fasciaCode, file);
         const signature = fileSignature(file);
         if (await options.skip?.(fasciaCode, signature)) {
           results.push({
@@ -397,7 +401,21 @@ export async function fetchNewestFeeds(
         // imported (see discardFeed).
         const folder = await mkdtemp(path.join(tmpdir(), 'feed-'));
         const localPath = path.join(folder, 'feed');
-        await connection.download(config.directory, file.name, localPath);
+        // How much has arrived is read from the size of the file on disk,
+        // which works the same for every kind of connection.
+        const ticker = options.onDownload
+          ? setInterval(() => {
+              stat(localPath)
+                .then((info) => options.onDownload?.(fasciaCode, info.size))
+                .catch(() => undefined);
+            }, 1000)
+          : null;
+        try {
+          await connection.download(config.directory, file.name, localPath);
+        } finally {
+          if (ticker) clearInterval(ticker);
+        }
+        options.onDownload?.(fasciaCode, file.size);
         await gunzipFileIfNeeded(localPath, file.name);
         results.push({
           fasciaCode,

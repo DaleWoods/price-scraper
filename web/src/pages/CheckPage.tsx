@@ -7,6 +7,8 @@ import {
   relativeTime,
   type BatchResult,
   type FeedIngestReport,
+  type FeedJob,
+  type FeedProgressItem,
   type LookupCompetitor,
   type LookupResult,
   type RecentBatch,
@@ -380,25 +382,130 @@ const SITE_NAMES: Record<string, string> = {
   '470': 'Watches of Switzerland',
 };
 
+/** Downloading counts for a quarter of each file's share of the bar, importing the rest. */
+function itemFraction(item: FeedProgressItem): number {
+  switch (item.stage) {
+    case 'done':
+    case 'skipped':
+    case 'failed':
+      return 1;
+    case 'waiting':
+      return 0;
+    default: {
+      const downloaded = item.totalBytes > 0 ? Math.min(1, item.downloadedBytes / item.totalBytes) : 0;
+      return 0.25 * downloaded + 0.75 * Math.min(1, item.importFraction);
+    }
+  }
+}
+
+function overallFraction(items: FeedProgressItem[]): number {
+  if (items.length === 0) return 0;
+  // Weighted by file size: the 388 MB Goldsmiths feed is most of the work.
+  const weight = (item: FeedProgressItem) => Math.max(item.totalBytes, 1);
+  const total = items.reduce((sum, item) => sum + weight(item), 0);
+  return items.reduce((sum, item) => sum + weight(item) * itemFraction(item), 0) / total;
+}
+
+const megabytes = (bytes: number) => `${Math.round(bytes / 1_000_000)} MB`;
+
+function describeStage(item: FeedProgressItem): string {
+  switch (item.stage) {
+    case 'waiting':
+      return 'Waiting';
+    case 'downloading':
+      return `Downloading — ${megabytes(item.downloadedBytes)} of ${megabytes(item.totalBytes)}`;
+    case 'downloaded':
+      return 'Downloaded, waiting to import';
+    case 'importing':
+      return `Importing — ${Math.round(item.importFraction * 100)}%, ${item.rowsRead.toLocaleString()} products read`;
+    case 'done':
+      return `Done — ${item.rowsRead.toLocaleString()} products`;
+    case 'skipped':
+      return 'Already up to date';
+    case 'failed':
+      return 'Failed';
+  }
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.max(1, Math.round(seconds))} sec`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} hr ${minutes % 60} min`;
+}
+
+function FeedProgress({ job }: { job: FeedJob }) {
+  const items = job.progress ?? [];
+  const fraction = overallFraction(items);
+  const elapsed = job.startedAt ? (Date.now() - new Date(job.startedAt).getTime()) / 1000 : 0;
+  // A time left is only worth showing once there is enough done to judge by.
+  const remaining = fraction > 0.03 && elapsed > 20 ? (elapsed / fraction) * (1 - fraction) : null;
+
+  return (
+    <div className="feed-progress" role="status" aria-live="polite">
+      <div className="feed-progress__head">
+        <strong>{items.length === 0 ? 'Connecting to the FTP server…' : `${Math.round(fraction * 100)}% done`}</strong>
+        <span className="small muted">
+          {formatDuration(elapsed)} so far
+          {remaining !== null && ` · about ${formatDuration(remaining)} left`}
+        </span>
+      </div>
+      <div className="feed-progress__bar feed-progress__bar--main">
+        <span style={{ width: `${fraction * 100}%` }} />
+      </div>
+      {items.length > 0 && (
+        <ul className="feed-progress__sites">
+          {items.map((item) => (
+            <li key={item.fasciaCode}>
+              <span className="feed-progress__site">{SITE_NAMES[item.fasciaCode] ?? item.fasciaCode}</span>
+              <div className="feed-progress__bar">
+                <span style={{ width: `${itemFraction(item) * 100}%` }} />
+              </div>
+              <span className="small muted">{describeStage(item)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function FeedsCard() {
   const toast = useToast();
   const [collecting, setCollecting] = useState(false);
   const [report, setReport] = useState<FeedIngestReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [job, setJob] = useState<FeedJob | null>(null);
 
-  const collect = async () => {
+  const collect = async (resume = false) => {
     setCollecting(true);
     setError(null);
+    setReport(null);
     try {
-      setReport(await api.fetchFeeds());
+      setReport(await api.fetchFeeds(false, setJob, { resume }));
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Could not collect the feeds';
       // Not set up yet is a setting to add, not a failure; say which.
       setError(/no feed location is configured/i.test(message) ? 'not-configured' : message);
     } finally {
       setCollecting(false);
+      setJob(null);
     }
   };
+
+  // A collection already running (started before the page was opened or
+  // reloaded) is picked up and followed, rather than looking idle.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .feedJob()
+      .then((current) => {
+        if (!cancelled && current.running) void collect(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const checkAll = async () => {
     try {
@@ -416,7 +523,7 @@ function FeedsCard() {
       actions={
         <>
           <button type="button" className="btn btn--primary" disabled={collecting} onClick={() => void collect()}>
-            {collecting ? 'Collecting… (large feeds take a few minutes)' : "Collect today's feeds"}
+            {collecting ? 'Collecting…' : "Collect today's feeds"}
           </button>
           <button type="button" className="btn" onClick={() => void checkAll()}>
             Check every product now
@@ -424,6 +531,7 @@ function FeedsCard() {
         </>
       }
     >
+      {collecting && job && <FeedProgress job={job} />}
       {error && error !== 'not-configured' && <Alert tone="danger">{error}</Alert>}
       {(error === 'not-configured' || (report && !report.configured)) && (
         <Alert tone="warn" title="The FTP location isn't set up yet">

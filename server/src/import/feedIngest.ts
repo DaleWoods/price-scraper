@@ -74,8 +74,21 @@ async function recordSignature(
   ]);
 }
 
+/** How far one site's feed has got, for the progress bars on Check prices. */
+export interface FeedProgressItem {
+  fasciaCode: string;
+  filename: string | null;
+  stage: 'waiting' | 'downloading' | 'downloaded' | 'importing' | 'done' | 'skipped' | 'failed';
+  totalBytes: number;
+  downloadedBytes: number;
+  /** 0 to 1: how far through the downloaded file the import has read. */
+  importFraction: number;
+  rowsRead: number;
+}
+
 export async function ingestFeedsFromSource(
   options: { force?: boolean } = {},
+  progress: FeedProgressItem[] = [],
 ): Promise<IngestReport> {
   const startedAt = new Date().toISOString();
 
@@ -109,13 +122,44 @@ export async function ingestFeedsFromSource(
     };
   }
 
+  progress.length = 0;
+  for (const { fasciaCode } of patterns) {
+    progress.push({
+      fasciaCode,
+      filename: null,
+      stage: 'waiting',
+      totalBytes: 0,
+      downloadedBytes: 0,
+      importFraction: 0,
+      rowsRead: 0,
+    });
+  }
+  const itemFor = (fasciaCode: string): FeedProgressItem =>
+    progress.find((item) => item.fasciaCode === fasciaCode) ?? ({} as FeedProgressItem);
+
   // A file already imported is not even downloaded.
   const fetched = await fetchNewestFeeds(patterns, {
+    onFile: (fasciaCode, file) => {
+      const item = itemFor(fasciaCode);
+      item.filename = file.name;
+      item.totalBytes = file.size;
+      item.stage = 'downloading';
+    },
+    onDownload: (fasciaCode, bytes) => {
+      const item = itemFor(fasciaCode);
+      item.downloadedBytes = bytes;
+    },
     skip: options.force ? undefined : (fasciaCode, signature) => alreadyImported(fasciaCode, signature),
   });
   const outcomes: FascialIngestOutcome[] = [];
 
   for (const entry of fetched) {
+    const item = itemFor(entry.fasciaCode);
+    item.stage = entry.skipped ? 'skipped' : entry.feed ? 'downloaded' : 'failed';
+  }
+
+  for (const entry of fetched) {
+    const item = itemFor(entry.fasciaCode);
     if (entry.skipped) {
       outcomes.push({
         fasciaCode: entry.fasciaCode,
@@ -142,7 +186,14 @@ export async function ingestFeedsFromSource(
     const { feed } = entry;
 
     try {
-      const result = await importFeed({ path: feed.path }, feed.filename, entry.fasciaCode);
+      item.stage = 'importing';
+      const result = await importFeed({ path: feed.path }, feed.filename, entry.fasciaCode, (step) => {
+        item.rowsRead = step.rows;
+        item.importFraction = step.fraction;
+      });
+      item.importFraction = 1;
+      item.rowsRead = result.totalRows;
+      item.stage = 'done';
       await recordSignature(result.feedImportId, entry.fasciaCode, feed.signature);
 
       outcomes.push({
@@ -166,6 +217,7 @@ export async function ingestFeedsFromSource(
           `${result.withUsableIdentifier} with a usable identifier`,
       );
     } catch (err) {
+      item.stage = 'failed';
       // Deliberately caught per fascia. One malformed feed must not stop the
       // other two sites being updated — a partial refresh beats none.
       outcomes.push({
@@ -205,6 +257,8 @@ export async function ingestFeedsFromSource(
  */
 interface FeedJob {
   running: boolean;
+  /** One entry per site, updated as the job goes; empty while connecting. */
+  progress: FeedProgressItem[];
   startedAt: string;
   finishedAt: string | null;
   report: IngestReport | null;
@@ -225,9 +279,10 @@ export function startFeedJob(options: { force?: boolean } = {}): FeedJob {
     finishedAt: null,
     report: null,
     error: null,
+    progress: [],
   };
   feedJob = job;
-  void ingestFeedsFromSource(options)
+  void ingestFeedsFromSource(options, job.progress)
     .then((report) => {
       job.report = report;
     })

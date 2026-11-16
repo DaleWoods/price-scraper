@@ -389,6 +389,26 @@ export interface SchedulerStatus {
 }
 
 /** What came back from collecting the daily feeds off the FTP location. */
+/** How far one site's feed has got while the feeds are being collected. */
+export interface FeedProgressItem {
+  fasciaCode: string;
+  filename: string | null;
+  stage: 'waiting' | 'downloading' | 'downloaded' | 'importing' | 'done' | 'skipped' | 'failed';
+  totalBytes: number;
+  downloadedBytes: number;
+  importFraction: number;
+  rowsRead: number;
+}
+
+export interface FeedJob {
+  running: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  report: FeedIngestReport | null;
+  error: string | null;
+  progress?: FeedProgressItem[];
+}
+
 export interface FeedIngestReport {
   configured: boolean;
   startedAt: string;
@@ -895,6 +915,9 @@ export const api = {
   runNightly: () =>
     request<{ feeds: string; scan: string }>('/api/admin/run-nightly', { method: 'POST' }),
 
+  /** The current or last feed collection, without starting one. */
+  feedJob: () => request<FeedJob>('/api/admin/fetch-feeds'),
+
   feedSource: () => request<FeedSourceListing>('/api/admin/feed-source'),
 
   /**
@@ -902,12 +925,19 @@ export const api = {
    * background job — a 388 MB feed takes minutes, longer than a request is
    * held open — so this starts it, then asks every few seconds until it ends.
    */
-  fetchFeeds: async (force = false): Promise<FeedIngestReport> => {
-    type Job = { running: boolean; report: FeedIngestReport | null; error: string | null };
-    let job = await request<Job>(`/api/admin/fetch-feeds${force ? '?force=1' : ''}`, { method: 'POST' });
+  fetchFeeds: async (
+    force = false,
+    onProgress?: (job: FeedJob) => void,
+    options: { resume?: boolean } = {},
+  ): Promise<FeedIngestReport> => {
+    let job = options.resume
+      ? await request<FeedJob>('/api/admin/fetch-feeds')
+      : await request<FeedJob>(`/api/admin/fetch-feeds${force ? '?force=1' : ''}`, { method: 'POST' });
+    onProgress?.(job);
     while (job.running) {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      job = await request<Job>('/api/admin/fetch-feeds');
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      job = await request<FeedJob>('/api/admin/fetch-feeds');
+      onProgress?.(job);
     }
     if (job.error) throw new ApiError(job.error, 500);
     if (!job.report) throw new ApiError('The feed collection finished without a report.', 500);

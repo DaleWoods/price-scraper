@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { open, readFile } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { parse as parseCsvStream } from 'csv-parse';
 import { parse as parseCsv } from 'csv-parse/sync';
@@ -153,6 +153,10 @@ export async function parseTabularFile(buffer: Buffer, filename: string): Promis
 export interface StreamedTable {
   headers: string[];
   rows: AsyncIterable<ParsedRow>;
+  /** Size of the whole file, for showing how far through it the reading is. */
+  totalBytes: number;
+  /** How much of the file has been read so far. */
+  bytesRead(): number;
 }
 
 /**
@@ -171,10 +175,16 @@ export async function openTabular(source: Buffer | { path: string }, filename: s
   if (detectFormat(head) !== 'text') {
     const buffer = Buffer.isBuffer(source) ? source : await readFile(source.path);
     const table = await parseTabularFile(buffer, filename);
+    let done = 0;
     return {
       headers: table.headers,
+      totalBytes: buffer.length,
+      bytesRead: () => (table.rows.length === 0 ? buffer.length : Math.round((done / table.rows.length) * buffer.length)),
       rows: (async function* () {
-        yield* table.rows;
+        for (const row of table.rows) {
+          done += 1;
+          yield row;
+        }
       })(),
     };
   }
@@ -182,10 +192,17 @@ export async function openTabular(source: Buffer | { path: string }, filename: s
   const firstLineText = head.toString('utf8').replace(/^﻿/, '');
   const delimiter = detectDelimiter(firstLineText);
   const input = Buffer.isBuffer(source) ? Readable.from([source]) : createReadStream(source.path);
+  // A tab-separated feed is read without quoting. Product text is full of
+  // quote marks used as inches and in names (12" chain, "Love" pendant); read
+  // as CSV-style quoting they stop the whole import at the first one. A value
+  // that really was wrapped in quotes has them taken off below, and a value
+  // with a line break in it is joined back together.
+  const tabbed = delimiter === '\t';
   const parser = input.pipe(
     parseCsvStream({
       bom: true,
       delimiter,
+      quote: tabbed ? false : '"',
       columns: false,
       skip_empty_lines: true,
       relax_column_count: true,
@@ -194,19 +211,56 @@ export async function openTabular(source: Buffer | { path: string }, filename: s
     }),
   );
   const iterator = parser[Symbol.asyncIterator]() as AsyncIterator<string[]>;
+  const totalBytes = Buffer.isBuffer(source) ? source.length : (await stat(source.path)).size;
 
   const first = await iterator.next();
   const headers = first.done ? [] : (first.value as string[]);
 
   return {
     headers,
+    totalBytes,
+    bytesRead: () => Math.min(totalBytes, parser.info.bytes),
     rows: (async function* () {
-      let rowNumber = 1;
+      let lineNumber = 1;
+      let pending: { record: string[]; rowNumber: number } | null = null;
+      // Joining lines only ever happens to a row short of columns whose last
+      // value opened a quote and did not close it. "Love" pendant, in a full
+      // row, is left alone.
+      const brokenOff = (cells: string[]): boolean =>
+        cells.length < headers.length && opensQuote(cells[cells.length - 1] ?? '');
       for (;;) {
         const next = await iterator.next();
-        if (next.done) return;
-        rowNumber += 1;
-        const record = next.value as string[];
+        if (next.done && !pending) return;
+        let record: string[];
+        let rowNumber: number;
+        if (next.done) {
+          // Whatever was still being joined when the file ended: kept as it is.
+          ({ record, rowNumber } = pending!);
+          pending = null;
+        } else {
+          lineNumber += 1;
+          rowNumber = lineNumber;
+          record = next.value as string[];
+        }
+
+        if (tabbed) {
+          if (pending) {
+            const joined: string[] = [...pending.record];
+            joined[joined.length - 1] = `${joined[joined.length - 1] ?? ''}\n${record[0] ?? ''}`;
+            joined.push(...record.slice(1));
+            if (brokenOff(joined) && lineNumber - pending.rowNumber < 50) {
+              pending = { record: joined, rowNumber: pending.rowNumber };
+              continue;
+            }
+            rowNumber = pending.rowNumber;
+            record = joined;
+            pending = null;
+          } else if (brokenOff(record) && !next.done) {
+            pending = { record, rowNumber };
+            continue;
+          }
+          record = record.map(unquote);
+        }
         if (record.every((cell) => !cell?.trim())) continue;
         const values: Record<string, string> = {};
         headers.forEach((header, index) => {
@@ -216,6 +270,19 @@ export async function openTabular(source: Buffer | { path: string }, filename: s
       }
     })(),
   };
+}
+
+/** A value that starts with a quote that is not closed by the end of the line. */
+function opensQuote(cell: string): boolean {
+  return cell.startsWith('"') && (cell.length === 1 || !cell.endsWith('"'));
+}
+
+/** "Value" → Value, with "" inside turned back into ". Anything else as it is. */
+export function unquote(cell: string): string {
+  if (cell.length >= 2 && cell.startsWith('"') && cell.endsWith('"')) {
+    return cell.slice(1, -1).replace(/""/g, '"').trim();
+  }
+  return cell;
 }
 
 async function readHead(path: string, bytes: number): Promise<Buffer> {
