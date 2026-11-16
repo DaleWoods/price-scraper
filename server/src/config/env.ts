@@ -83,6 +83,13 @@ export const env = {
   feedFtpUser: process.env.FEED_FTP_USER?.trim() || null,
   feedFtpPassword: process.env.FEED_FTP_PASSWORD || null,
   feedFtpDirectory: process.env.FEED_FTP_DIRECTORY?.trim() || '/',
+  /**
+   * SHA-256 fingerprint of the feed server's certificate, for a server whose
+   * certificate is self-signed. See connectFtpsPinned in import/feedSource.ts.
+   */
+  get feedFtpTlsFingerprint(): string | null {
+    return process.env.FEED_FTP_TLS_FINGERPRINT?.trim() || null;
+  },
 
   /**
    * Which filename belongs to which of our sites, as

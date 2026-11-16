@@ -127,19 +127,78 @@ interface Connection {
   close(): Promise<void>;
 }
 
+/** A connection refused for a reason someone must act on, with the words to say so. */
+export class FeedCertificateError extends Error {}
+
+/** "AA:BB:…" or "aabb…", either way, compared on the hex digits alone. */
+export function normaliseFingerprint(value: string): string {
+  return value.replace(/[^0-9a-f]/gi, '').toUpperCase();
+}
+
+/**
+ * FTPS to a server whose certificate is self-signed.
+ *
+ * The feed server (acapps.net) presents a certificate it signed itself, so
+ * ordinary verification fails — correctly — and the connection was refused.
+ * Turning verification off would send the password to whatever answered.
+ * Instead the certificate is pinned: its SHA-256 fingerprint is set once as
+ * FEED_FTP_TLS_FINGERPRINT, and the password is only sent once the server has
+ * proved it holds exactly that certificate. Until the setting exists, the
+ * connection stops before logging in and reports the fingerprint it saw, so it
+ * can be checked against FileZilla's certificate prompt and copied in.
+ *
+ * A certificate that does verify normally (one issued by a real authority) is
+ * accepted without a pin.
+ */
+async function connectFtpsPinned(client: FtpClient, config: FeedSourceConfig): Promise<void> {
+  await client.connect(config.host, config.port ?? 21);
+  await client.useTLS({ rejectUnauthorized: false, servername: config.host });
+
+  const socket = client.ftp.socket as import('node:tls').TLSSocket;
+  const trusted = socket.authorized === true;
+  const seen = socket.getPeerCertificate?.()?.fingerprint256 ?? '';
+  const pinned = env.feedFtpTlsFingerprint;
+
+  if (!trusted) {
+    if (!pinned) {
+      client.close();
+      throw new FeedCertificateError(
+        `The feed server's certificate is self-signed, so it has to be approved once before the password is ` +
+          `sent. Its SHA-256 fingerprint is ${seen}. If that matches the fingerprint FileZilla shows for ` +
+          `${config.host}, add it in Render as FEED_FTP_TLS_FINGERPRINT and collect again.`,
+      );
+    }
+    if (normaliseFingerprint(seen) !== normaliseFingerprint(pinned)) {
+      client.close();
+      throw new FeedCertificateError(
+        `The feed server presented a different certificate from the one approved (FEED_FTP_TLS_FINGERPRINT), ` +
+          `so the password was not sent. It now presents ${seen}. If the server's certificate has genuinely been ` +
+          `renewed, check the new fingerprint in FileZilla and update the setting.`,
+      );
+    }
+  }
+
+  await client.login(config.user ?? undefined, config.password ?? undefined);
+  await client.useDefaultSettings();
+}
+
 async function connectFtp(config: FeedSourceConfig): Promise<Connection> {
   const client = new FtpClient(env.requestTimeoutMs);
   // The library logs the full command stream, credentials included, when
   // verbose. It must stay off.
   client.ftp.verbose = false;
 
-  await client.access({
-    host: config.host,
-    port: config.port,
-    user: config.user,
-    password: config.password,
-    secure: config.protocol === 'ftps',
-  });
+  if (config.protocol === 'ftps') {
+    await connectFtpsPinned(client, config);
+  } else {
+    await client.access({
+      host: config.host,
+      port: config.port,
+      user: config.user,
+      password: config.password,
+      secure: false,
+    });
+  }
 
   return {
     async list(directory) {
