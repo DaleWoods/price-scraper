@@ -92,6 +92,27 @@ describe('FTPS with a self-signed certificate', { skip: !haveOpenssl && 'openssl
     assert.equal(logins, 0);
   });
 
+  it('forgives a password pasted with a space and a line break on the end', async () => {
+    process.env.FEED_FTP_TLS_FINGERPRINT = fingerprint;
+    process.env.FEED_FTP_PASSWORD = 'secret \n';
+    try {
+      const files = await feedSource.listFeedDirectory();
+      assert.equal(files.length, 1);
+    } finally {
+      process.env.FEED_FTP_PASSWORD = 'secret';
+    }
+  });
+
+  it('explains a wrong password in words', async () => {
+    process.env.FEED_FTP_TLS_FINGERPRINT = fingerprint;
+    process.env.FEED_FTP_PASSWORD = 'wrong';
+    try {
+      await assert.rejects(feedSource.listFeedDirectory(), /refused the username or password/);
+    } finally {
+      process.env.FEED_FTP_PASSWORD = 'secret';
+    }
+  });
+
   it('logs in and lists the feeds once the certificate is approved, however the fingerprint is written', async () => {
     process.env.FEED_FTP_TLS_FINGERPRINT = fingerprint.replace(/:/g, '').toLowerCase();
     const files = await feedSource.listFeedDirectory();

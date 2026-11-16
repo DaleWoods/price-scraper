@@ -178,8 +178,33 @@ async function connectFtpsPinned(client: FtpClient, config: FeedSourceConfig): P
     }
   }
 
-  await client.login(config.user ?? undefined, config.password ?? undefined);
+  await loginWithRetry(client, config);
   await client.useDefaultSettings();
+}
+
+/**
+ * Log in, with the password cleaned of anything pasted around it.
+ *
+ * The first real collection was refused with "530 Login incorrect". A password
+ * pasted into a settings page often carries a space or line break at either
+ * end, invisible in the box. A line break cannot be sent over FTP at all, and
+ * an FTP password starting or ending with a space is vanishingly rare, so both
+ * are removed. A refusal after that is explained in words rather than as a
+ * bare FTP code.
+ */
+async function loginWithRetry(client: FtpClient, config: FeedSourceConfig): Promise<void> {
+  const user = (config.user ?? '').trim();
+  const password = (config.password ?? '').trim();
+  try {
+    await client.login(user, password);
+  } catch (err) {
+    if (!/\b530\b/.test((err as Error).message)) throw err;
+    throw new FeedCertificateError(
+      `The FTP server (${config.host}) refused the username or password (530 Login incorrect). ` +
+        `Check FEED_FTP_USER is exactly "${user}" as in FileZilla, and retype FEED_FTP_PASSWORD in Render ` +
+        `rather than pasting it.`,
+    );
+  }
 }
 
 async function connectFtp(config: FeedSourceConfig): Promise<Connection> {

@@ -81,7 +81,9 @@ export const env = {
   feedFtpHost: process.env.FEED_FTP_HOST?.trim() || null,
   feedFtpPort: process.env.FEED_FTP_PORT ? optionalInt('FEED_FTP_PORT', 0) || null : null,
   feedFtpUser: process.env.FEED_FTP_USER?.trim() || null,
-  feedFtpPassword: process.env.FEED_FTP_PASSWORD || null,
+  get feedFtpPassword(): string | null {
+    return process.env.FEED_FTP_PASSWORD || null;
+  },
   feedFtpDirectory: process.env.FEED_FTP_DIRECTORY?.trim() || '/',
   /**
    * SHA-256 fingerprint of the feed server's certificate, for a server whose
