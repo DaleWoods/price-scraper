@@ -1,3 +1,7 @@
+import { createReadStream } from 'node:fs';
+import { open, readFile } from 'node:fs/promises';
+import { Readable } from 'node:stream';
+import { parse as parseCsvStream } from 'csv-parse';
 import { parse as parseCsv } from 'csv-parse/sync';
 import ExcelJS from 'exceljs';
 
@@ -142,5 +146,85 @@ export async function parseTabularFile(buffer: Buffer, filename: string): Promis
       );
     default:
       return parseCsvBuffer(buffer);
+  }
+}
+
+/** Rows read one at a time, for files too large to hold in memory. */
+export interface StreamedTable {
+  headers: string[];
+  rows: AsyncIterable<ParsedRow>;
+}
+
+/**
+ * Open a feed for reading row by row: an uploaded file (a Buffer) or one saved
+ * to disk by the FTP collector (a path).
+ *
+ * The Goldsmiths feed on the FTP server is 388 MB. Read whole, as text, then
+ * parsed into rows, it needs well over a gigabyte — more than the server has —
+ * so a text feed is parsed as it streams and only the current row is held.
+ * An Excel workbook cannot be streamed this way; it is read whole as before,
+ * which is fine for the hand-uploaded files that ever arrive as one.
+ */
+export async function openTabular(source: Buffer | { path: string }, filename: string): Promise<StreamedTable> {
+  const head = Buffer.isBuffer(source) ? source.subarray(0, 64 * 1024) : await readHead(source.path, 64 * 1024);
+
+  if (detectFormat(head) !== 'text') {
+    const buffer = Buffer.isBuffer(source) ? source : await readFile(source.path);
+    const table = await parseTabularFile(buffer, filename);
+    return {
+      headers: table.headers,
+      rows: (async function* () {
+        yield* table.rows;
+      })(),
+    };
+  }
+
+  const firstLineText = head.toString('utf8').replace(/^﻿/, '');
+  const delimiter = detectDelimiter(firstLineText);
+  const input = Buffer.isBuffer(source) ? Readable.from([source]) : createReadStream(source.path);
+  const parser = input.pipe(
+    parseCsvStream({
+      bom: true,
+      delimiter,
+      columns: false,
+      skip_empty_lines: true,
+      relax_column_count: true,
+      relax_quotes: true,
+      trim: true,
+    }),
+  );
+  const iterator = parser[Symbol.asyncIterator]() as AsyncIterator<string[]>;
+
+  const first = await iterator.next();
+  const headers = first.done ? [] : (first.value as string[]);
+
+  return {
+    headers,
+    rows: (async function* () {
+      let rowNumber = 1;
+      for (;;) {
+        const next = await iterator.next();
+        if (next.done) return;
+        rowNumber += 1;
+        const record = next.value as string[];
+        if (record.every((cell) => !cell?.trim())) continue;
+        const values: Record<string, string> = {};
+        headers.forEach((header, index) => {
+          if (header) values[header] = (record[index] ?? '').trim();
+        });
+        yield { rowNumber, values };
+      }
+    })(),
+  };
+}
+
+async function readHead(path: string, bytes: number): Promise<Buffer> {
+  const handle = await open(path, 'r');
+  try {
+    const buffer = Buffer.alloc(bytes);
+    const { bytesRead } = await handle.read(buffer, 0, bytes, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
   }
 }

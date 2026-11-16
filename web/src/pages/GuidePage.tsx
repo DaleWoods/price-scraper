@@ -119,8 +119,10 @@ export function GuidePage() {
         </Term>
         <Term label="Everything we sell">
           <strong>Collect today's feeds</strong> fetches the day's Google feed for each of our sites from
-          the FTP location and imports it — the products live on each site, with their prices. Pressing it
-          twice does no harm: a file already imported is recognised and skipped.{' '}
+          the FTP location and imports it — the products live on each site, with their prices. The
+          Goldsmiths feed is close to 400 MB, so this takes a few minutes; it carries on if you leave the
+          page. Pressing it twice does no harm: a file already imported is recognised and not even
+          downloaded again.{' '}
           <strong>Check every product now</strong> then checks the whole range at every competitor. That
           is the long one — hours the first time, while each competitor's product pages are read — and it
           is what the nightly job does by itself once switched on in Admin. Results are on{' '}

@@ -1,7 +1,12 @@
 import { gunzipSync } from 'node:zlib';
 import { Client as FtpClient } from 'basic-ftp';
 import SftpClient from 'ssh2-sftp-client';
-import { Writable } from 'node:stream';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdtemp, open, rename, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import { createGunzip } from 'node:zlib';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 
@@ -117,7 +122,8 @@ export function fileSignature(file: RemoteFile): string {
 
 interface Connection {
   list(directory: string): Promise<RemoteFile[]>;
-  download(directory: string, name: string): Promise<Buffer>;
+  /** Save the file to `localPath` as it arrives, never holding it in memory. */
+  download(directory: string, name: string, localPath: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -146,16 +152,8 @@ async function connectFtp(config: FeedSourceConfig): Promise<Connection> {
           modifiedAt: entry.modifiedAt ? entry.modifiedAt.getTime() : 0,
         }));
     },
-    async download(directory, name) {
-      const chunks: Buffer[] = [];
-      const sink = new Writable({
-        write(chunk, _encoding, callback) {
-          chunks.push(Buffer.from(chunk));
-          callback();
-        },
-      });
-      await client.downloadTo(sink, `${directory.replace(/\/$/, '')}/${name}`);
-      return Buffer.concat(chunks);
+    async download(directory, name, localPath) {
+      await client.downloadTo(localPath, `${directory.replace(/\/$/, '')}/${name}`);
     },
     async close() {
       client.close();
@@ -184,9 +182,8 @@ async function connectSftp(config: FeedSourceConfig): Promise<Connection> {
           modifiedAt: entry.modifyTime ?? 0,
         }));
     },
-    async download(directory, name) {
-      const data = await client.get(`${directory.replace(/\/$/, '')}/${name}`);
-      return Buffer.isBuffer(data) ? data : Buffer.from(data as unknown as string);
+    async download(directory, name, localPath) {
+      await client.get(`${directory.replace(/\/$/, '')}/${name}`, createWriteStream(localPath));
     },
     async close() {
       await client.end();
@@ -214,8 +211,30 @@ export function unzippedName(name: string): string {
 export interface FetchedFeed {
   file: RemoteFile;
   signature: string;
-  buffer: Buffer;
+  /** Where the file was saved; the caller deletes it once imported. */
+  path: string;
   filename: string;
+}
+
+/** Decompress a gzipped file on disk in place, streaming; leaves a plain file alone. */
+async function gunzipFileIfNeeded(filePath: string, name: string): Promise<void> {
+  const handle = await open(filePath, 'r');
+  const magic = Buffer.alloc(2);
+  try {
+    await handle.read(magic, 0, 2, 0);
+  } finally {
+    await handle.close();
+  }
+  if (magic[0] !== 0x1f || magic[1] !== 0x8b) return;
+  logger.info('feed-source', `${name} is gzipped; decompressing`);
+  const plain = `${filePath}.plain`;
+  await pipeline(createReadStream(filePath), createGunzip(), createWriteStream(plain));
+  await rename(plain, filePath);
+}
+
+/** Delete a downloaded feed and the folder it was saved in. */
+export async function discardFeed(feed: FetchedFeed): Promise<void> {
+  await rm(path.dirname(feed.path), { recursive: true, force: true }).catch(() => undefined);
 }
 
 /**
@@ -236,7 +255,23 @@ export async function listFeedDirectory(): Promise<RemoteFile[]> {
 /** Fetch the newest file matching each pattern, in one connection. */
 export async function fetchNewestFeeds(
   patterns: { fasciaCode: string; pattern: string }[],
-): Promise<{ fasciaCode: string; pattern: string; feed: FetchedFeed | null; error: string | null }[]> {
+  options: {
+    /**
+     * Asked before each download. True skips the file: the Goldsmiths feed is
+     * 388 MB, and fetching it only to find it was imported yesterday is a
+     * waste of minutes and bandwidth.
+     */
+    skip?: (fasciaCode: string, signature: string) => Promise<boolean>;
+  } = {},
+): Promise<
+  {
+    fasciaCode: string;
+    pattern: string;
+    feed: FetchedFeed | null;
+    error: string | null;
+    skipped?: { filename: string; signature: string };
+  }[]
+> {
   const config = feedSourceConfig();
   const connection = await connect(config);
   const results: Awaited<ReturnType<typeof fetchNewestFeeds>> = [];
@@ -261,16 +296,29 @@ export async function fetchNewestFeeds(
           continue;
         }
 
-        const raw = await connection.download(config.directory, file.name);
+        const signature = fileSignature(file);
+        if (await options.skip?.(fasciaCode, signature)) {
+          results.push({
+            fasciaCode,
+            pattern,
+            feed: null,
+            error: null,
+            skipped: { filename: unzippedName(file.name), signature },
+          });
+          continue;
+        }
+
+        // Saved to disk, not memory: a whole feed held in memory is what does
+        // not fit on the server. Each file gets its own folder, deleted once
+        // imported (see discardFeed).
+        const folder = await mkdtemp(path.join(tmpdir(), 'feed-'));
+        const localPath = path.join(folder, 'feed');
+        await connection.download(config.directory, file.name, localPath);
+        await gunzipFileIfNeeded(localPath, file.name);
         results.push({
           fasciaCode,
           pattern,
-          feed: {
-            file,
-            signature: fileSignature(file),
-            buffer: maybeGunzip(raw, file.name),
-            filename: unzippedName(file.name),
-          },
+          feed: { file, signature, path: localPath, filename: unzippedName(file.name) },
           error: null,
         });
       } catch (err) {

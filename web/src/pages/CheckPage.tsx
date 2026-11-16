@@ -416,7 +416,7 @@ function FeedsCard() {
       actions={
         <>
           <button type="button" className="btn btn--primary" disabled={collecting} onClick={() => void collect()}>
-            {collecting ? 'Collecting…' : "Collect today's feeds"}
+            {collecting ? 'Collecting… (large feeds take a few minutes)' : "Collect today's feeds"}
           </button>
           <button type="button" className="btn" onClick={() => void checkAll()}>
             Check every product now

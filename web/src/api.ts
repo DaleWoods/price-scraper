@@ -897,10 +897,22 @@ export const api = {
 
   feedSource: () => request<FeedSourceListing>('/api/admin/feed-source'),
 
-  fetchFeeds: (force = false) =>
-    request<FeedIngestReport>(`/api/admin/fetch-feeds${force ? '?force=1' : ''}`, {
-      method: 'POST',
-    }),
+  /**
+   * Collect the feeds and wait for the result. The server runs it as a
+   * background job — a 388 MB feed takes minutes, longer than a request is
+   * held open — so this starts it, then asks every few seconds until it ends.
+   */
+  fetchFeeds: async (force = false): Promise<FeedIngestReport> => {
+    type Job = { running: boolean; report: FeedIngestReport | null; error: string | null };
+    let job = await request<Job>(`/api/admin/fetch-feeds${force ? '?force=1' : ''}`, { method: 'POST' });
+    while (job.running) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      job = await request<Job>('/api/admin/fetch-feeds');
+    }
+    if (job.error) throw new ApiError(job.error, 500);
+    if (!job.report) throw new ApiError('The feed collection finished without a report.', 500);
+    return job.report;
+  },
 
   verifyCompetitor: (slug: string) =>
     request<CompetitorVerification>(`/api/admin/verify-competitor/${slug}`, { method: 'POST' }),

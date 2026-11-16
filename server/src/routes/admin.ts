@@ -7,7 +7,7 @@ import { buildSearchUrl, listCompetitors } from '../scraping/competitorRegistry.
 import { getScrapeHealth } from '../services/scrapeHealth.js';
 import { catalogueCoverage } from '../scraping/catalogue.js';
 import { verifyCompetitor } from '../services/competitorVerification.js';
-import { ingestFeedsFromSource } from '../import/feedIngest.js';
+import { feedJobStatus, ingestFeedsFromSource, startFeedJob } from '../import/feedIngest.js';
 import { isFeedSourceConfigured, listFeedDirectory } from '../import/feedSource.js';
 import { runNightlyJob, schedulerStatus } from '../scheduler.js';
 
@@ -248,21 +248,22 @@ export interface RobotsCheckRow {
  * so this can be scheduled and triggered by hand without anyone having to
  * work out whether it has already run.
  */
-adminRouter.post('/fetch-feeds', async (req, res, next) => {
-  try {
-    const report = await ingestFeedsFromSource({ force: req.query.force === '1' });
-    if (!report.configured) {
-      res.status(400).json({
-        error:
-          'No feed location is configured. Set FEED_FTP_HOST, FEED_FTP_USER, ' +
-          'FEED_FTP_PASSWORD and a FEED_FTP_PATTERN_<fascia code> per site.',
-      });
-      return;
-    }
-    res.json(report);
-  } catch (err) {
-    next(err);
+adminRouter.post('/fetch-feeds', (req, res) => {
+  if (!isFeedSourceConfigured()) {
+    res.status(400).json({
+      error:
+        'No feed location is configured. Set FEED_FTP_HOST, FEED_FTP_USER, ' +
+        'FEED_FTP_PASSWORD and a FEED_FTP_PATTERN_<fascia code> per site.',
+    });
+    return;
   }
+  // Starts the collection and answers at once; the page then asks for
+  // progress at GET /fetch-feeds. See startFeedJob for why.
+  res.status(202).json(startFeedJob({ force: req.query.force === '1' }));
+});
+
+adminRouter.get('/fetch-feeds', (_req, res) => {
+  res.json(feedJobStatus() ?? { running: false, startedAt: null, finishedAt: null, report: null, error: null });
 });
 
 /**

@@ -2,7 +2,7 @@ import { query } from '../db/pool.js';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import { importFeed, type FeedImportResult } from './feedImport.js';
-import { fetchNewestFeeds, isFeedSourceConfigured } from './feedSource.js';
+import { discardFeed, fetchNewestFeeds, isFeedSourceConfigured } from './feedSource.js';
 
 /**
  * Collect today's feeds and import them, one per fascia.
@@ -109,10 +109,24 @@ export async function ingestFeedsFromSource(
     };
   }
 
-  const fetched = await fetchNewestFeeds(patterns);
+  // A file already imported is not even downloaded.
+  const fetched = await fetchNewestFeeds(patterns, {
+    skip: options.force ? undefined : (fasciaCode, signature) => alreadyImported(fasciaCode, signature),
+  });
   const outcomes: FascialIngestOutcome[] = [];
 
   for (const entry of fetched) {
+    if (entry.skipped) {
+      outcomes.push({
+        fasciaCode: entry.fasciaCode,
+        pattern: entry.pattern,
+        filename: entry.skipped.filename,
+        status: 'unchanged',
+        message: `${entry.skipped.filename} has already been imported — nothing has changed since.`,
+        result: null,
+      });
+      continue;
+    }
     if (entry.error || !entry.feed) {
       outcomes.push({
         fasciaCode: entry.fasciaCode,
@@ -127,20 +141,8 @@ export async function ingestFeedsFromSource(
 
     const { feed } = entry;
 
-    if (!options.force && (await alreadyImported(entry.fasciaCode, feed.signature))) {
-      outcomes.push({
-        fasciaCode: entry.fasciaCode,
-        pattern: entry.pattern,
-        filename: feed.filename,
-        status: 'unchanged',
-        message: `${feed.filename} has already been imported — nothing has changed since.`,
-        result: null,
-      });
-      continue;
-    }
-
     try {
-      const result = await importFeed(feed.buffer, feed.filename, entry.fasciaCode);
+      const result = await importFeed({ path: feed.path }, feed.filename, entry.fasciaCode);
       await recordSignature(result.feedImportId, entry.fasciaCode, feed.signature);
 
       outcomes.push({
@@ -178,6 +180,8 @@ export async function ingestFeedsFromSource(
         'feed-ingest',
         `[${entry.fasciaCode}] ${feed.filename} failed: ${(err as Error).message}`,
       );
+    } finally {
+      await discardFeed(feed);
     }
   }
 
@@ -187,4 +191,53 @@ export async function ingestFeedsFromSource(
     finishedAt: new Date().toISOString(),
     outcomes,
   };
+}
+
+/**
+ * Collecting the feeds as a background job, for the buttons on Check prices
+ * and Admin.
+ *
+ * Downloading and importing three feeds, one of them 388 MB, takes minutes —
+ * far longer than a browser or the hosting platform will hold a request open.
+ * So the button starts the job and the page asks how it is going. Only one
+ * collection runs at a time; asking again while one is running just reports
+ * on that one.
+ */
+interface FeedJob {
+  running: boolean;
+  startedAt: string;
+  finishedAt: string | null;
+  report: IngestReport | null;
+  error: string | null;
+}
+
+let feedJob: FeedJob | null = null;
+
+export function feedJobStatus(): FeedJob | null {
+  return feedJob;
+}
+
+export function startFeedJob(options: { force?: boolean } = {}): FeedJob {
+  if (feedJob?.running) return feedJob;
+  const job: FeedJob = {
+    running: true,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    report: null,
+    error: null,
+  };
+  feedJob = job;
+  void ingestFeedsFromSource(options)
+    .then((report) => {
+      job.report = report;
+    })
+    .catch((err) => {
+      job.error = (err as Error).message;
+      logger.error('feed-ingest', `feed collection failed: ${job.error}`);
+    })
+    .finally(() => {
+      job.running = false;
+      job.finishedAt = new Date().toISOString();
+    });
+  return job;
 }

@@ -1,6 +1,6 @@
 import { withTransaction } from '../db/pool.js';
 import { canonicalAttributeName } from '../matching/attributes.js';
-import { parseTabularFile } from './parseTabular.js';
+import { openTabular } from './parseTabular.js';
 
 /**
  * Google Shopping feed import.
@@ -140,11 +140,11 @@ const NON_SPEC_COLUMNS = new Set([
 ]);
 
 export async function importFeed(
-  buffer: Buffer,
+  source: Buffer | { path: string },
   filename: string,
   fasciaCode: string,
 ): Promise<FeedImportResult> {
-  const { headers, rows } = await parseTabularFile(buffer, filename);
+  const { headers, rows } = await openTabular(source, filename);
   if (headers.length === 0) {
     throw new Error('The uploaded feed appears to be empty — no header row was found.');
   }
@@ -165,7 +165,7 @@ export async function importFeed(
   if (!fascia) throw new Error(`No fascia configured with code "${fasciaCode}".`);
 
   const result: FeedImportResult = {
-    totalRows: rows.length,
+    totalRows: 0,
     stalePricesRemoved: 0,
     productsDelisted: 0,
     productsRelisted: 0,
@@ -204,219 +204,229 @@ export async function importFeed(
 
   const parsed: ParsedProduct[] = [];
 
-  for (const { rowNumber, values } of rows) {
-    const get = (key: string) => (values[key] ?? '').trim();
-    const sku = get('id');
-
-    if (!sku) {
-      result.skippedBlank += 1;
-      continue;
-    }
-    // The export repeats its own header part-way through the file.
-    if (sku === 'id') {
-      result.skippedHeaderRepeat += 1;
-      continue;
-    }
-
-    const title = get('title');
-    if (!title) {
-      result.failed += 1;
-      result.errors.push({ row: rowNumber, id: sku, error: 'title is missing' });
-      continue;
-    }
-
-    // Prefer GTIN — a real barcode is the strongest match — but only when it
-    // survived export intact.
-    const rawGtin = get('gtin');
-    const rawMpn = get('mpn');
-    if (rawGtin && isDamagedIdentifier(rawGtin)) result.damagedGtin += 1;
-    if (rawMpn && isDamagedIdentifier(rawMpn)) result.damagedMpn += 1;
-
-    const identifier =
-      rawGtin && !isDamagedIdentifier(rawGtin)
-        ? rawGtin
-        : rawMpn && !isDamagedIdentifier(rawMpn)
-          ? rawMpn
-          : null;
-    if (identifier) result.withUsableIdentifier += 1;
-
-    const availability = get('availability') || 'unknown';
-    result.availability[availability] = (result.availability[availability] ?? 0) + 1;
-
-    const specs: Record<string, string> = {};
-    for (const header of headers) {
-      if (!header || NON_SPEC_COLUMNS.has(header)) continue;
-      const value = get(header);
-      if (value) specs[canonicalAttributeName(header)] = value;
-    }
-    // Kept as an attribute so ring-size variants of one product stay linked.
-    const groupId = get('item_group_id');
-    if (groupId) specs.item_group_id = groupId;
-
-    let price: ParsedProduct['price'] = null;
-    if (get('price_visible').toUpperCase() === 'FALSE') {
-      // Not shown to customers, so there is nothing to compare.
-      result.priceHidden += 1;
-    } else if (!isInStock(availability)) {
-      // Not currently sellable, so a competitor being cheaper on it is not
-      // useful information — treated the same as a hidden price. Delisted
-      // like any other product the feed has stopped pricing (Spec: the feed
-      // is authoritative for what a fascia sells).
-      result.outOfStock += 1;
-    } else {
-      const regular = parseFeedPrice(get('price'));
-      if (!regular) {
-        result.failed += 1;
-        result.errors.push({
-          row: rowNumber,
-          id: sku,
-          error: `price "${get('price')}" could not be read`,
-        });
-      } else {
-        const sale = parseFeedPrice(get('sale_price'));
-        // A sale counts only when genuinely cheaper AND its window is open: the
-        // feed carries scheduled promotions that are not live yet.
-        const cheaper = sale !== null && sale.amount < regular.amount;
-        const windowOpen = isSaleWindowOpen(get('sale_price_effective_date'));
-        if (cheaper && !windowOpen) result.saleNotYetActive += 1;
-        const useSale = cheaper && windowOpen;
-        if (useSale) result.onSale += 1;
-
-        price = {
-          amount: useSale ? sale!.amount : regular.amount,
-          regular: useSale ? regular.amount : null,
-          onSale: useSale,
-          currency: regular.currency ?? fascia.currency,
-        };
-      }
-    }
-
-    parsed.push({
-      sku,
-      brand: get('brand') || 'Unknown',
-      title,
-      identifier,
-      // Both halves are kept, not just the preferred one: several competitors
-      // publish only the manufacturer reference, and a product held by barcode
-      // alone could never be matched to them exactly.
-      gtin: rawGtin && !isDamagedIdentifier(rawGtin) ? rawGtin : null,
-      mpn: rawMpn && !isDamagedIdentifier(rawMpn) ? rawMpn : null,
-      category: get('product_type') || null,
-      link: get('link') || null,
-      specs: JSON.stringify(specs),
-      price,
-    });
-  }
-
   // One transaction for the whole write: the import record, the rows it writes
   // and the cleanup that follows all land together or not at all. Recording the
   // import separately used to leave an orphan row behind a failed load.
   await withTransaction(async (client) => {
     const { rows: importRows } = await client.query<{ id: number }>(
       'INSERT INTO feed_imports (fascia_id, filename, rows_read) VALUES ($1, $2, $3) RETURNING id',
-      [fascia.id, filename, rows.length],
+      [fascia.id, filename, 0],
     );
     const feedImportId = importRows[0]!.id;
     result.feedImportId = feedImportId;
 
-    // Written in chunks rather than a row at a time: a feed is tens of thousands
-    // of rows, and a round trip each would dominate the import.
-    const skuToId = new Map<string, number>();
 
-    for (const chunk of chunked(parsed, WRITE_CHUNK)) {
-      const values: unknown[] = [];
-      const tuples = chunk.map((product, index) => {
-        const base = index * 9;
-        values.push(
-          product.sku,
-          product.brand,
-          product.title,
-          product.identifier,
-          product.category,
-          product.link,
-          product.specs,
-          product.gtin,
-          product.mpn,
+    // Written in batches as the file streams in, rather than all at the end:
+    // holding every row of a 388 MB feed until the end is what would not fit.
+    const flush = async (): Promise<void> => {
+      if (parsed.length === 0) return;
+      // The same SKU twice in one batch cannot be upserted in one statement.
+      const batch = [...new Map(parsed.map((product) => [product.sku, product])).values()];
+      parsed.length = 0;
+      const skuToId = new Map<string, number>();
+      for (const chunk of chunked(batch, WRITE_CHUNK)) {
+        const values: unknown[] = [];
+        const tuples = chunk.map((product, index) => {
+          const base = index * 9;
+          values.push(
+            product.sku,
+            product.brand,
+            product.title,
+            product.identifier,
+            product.category,
+            product.link,
+            product.specs,
+            product.gtin,
+            product.mpn,
+          );
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}::jsonb, $${base + 8}, $${base + 9})`;
+        });
+
+        const { rows: upserted } = await client.query<{
+          id: number;
+          internal_sku: string;
+          existed: boolean;
+        }>(
+          `INSERT INTO products
+             (internal_sku, brand, product_name, ean_mpn, category, our_product_url, specs, gtin, mpn)
+           VALUES ${tuples.join(', ')}
+           ON CONFLICT (internal_sku) DO UPDATE SET
+             brand           = EXCLUDED.brand,
+             product_name    = EXCLUDED.product_name,
+             ean_mpn         = COALESCE(EXCLUDED.ean_mpn, products.ean_mpn),
+             gtin            = COALESCE(EXCLUDED.gtin, products.gtin),
+             mpn             = COALESCE(EXCLUDED.mpn, products.mpn),
+             category        = EXCLUDED.category,
+             our_product_url = EXCLUDED.our_product_url,
+             specs           = products.specs || EXCLUDED.specs,
+             updated_at      = now()
+           RETURNING id, internal_sku, (xmax <> 0) AS existed`,
+          values,
         );
-        return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}::jsonb, $${base + 8}, $${base + 9})`;
+
+        for (const product of upserted) {
+          skuToId.set(product.internal_sku, product.id);
+          if (product.existed) result.productsUpdated += 1;
+          else result.productsCreated += 1;
+        }
+      }
+
+      const priced = batch.filter((product) => product.price !== null);
+      for (const chunk of chunked(priced, WRITE_CHUNK)) {
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        for (const product of chunk) {
+          const productId = skuToId.get(product.sku);
+          if (productId === undefined) continue;
+          const base = values.length;
+          values.push(
+            productId,
+            fascia.id,
+            product.price!.amount,
+            product.price!.regular,
+            product.price!.onSale,
+            product.price!.currency,
+            feedImportId,
+            product.link,
+          );
+          tuples.push(
+            `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, now(), $${base + 7}, $${base + 8})`,
+          );
+        }
+        if (tuples.length === 0) continue;
+
+        // product_url is per fascia, not just per product: the same internal_sku
+        // can be sold at more than one of our sites, each with its own page.
+        // products.our_product_url (written above) stays a single, "last feed
+        // imported" value — good enough as a fallback for a delisted or manual
+        // product with no fascia_prices row — but this is the value that is
+        // actually correct for whichever fascia is being looked at.
+        await client.query(
+          `INSERT INTO fascia_prices
+             (product_id, fascia_id, price, regular_price, on_sale, currency,
+              imported_at, feed_import_id, product_url)
+           VALUES ${tuples.join(', ')}
+           ON CONFLICT (product_id, fascia_id) DO UPDATE SET
+             feed_import_id = EXCLUDED.feed_import_id,
+             price          = EXCLUDED.price,
+             regular_price  = EXCLUDED.regular_price,
+             on_sale        = EXCLUDED.on_sale,
+             currency       = EXCLUDED.currency,
+             imported_at    = now(),
+             product_url    = EXCLUDED.product_url`,
+          values,
+        );
+        result.pricesWritten += tuples.length;
+      }
+    };
+
+    for await (const { rowNumber, values } of rows) {
+      result.totalRows += 1;
+      const get = (key: string) => (values[key] ?? '').trim();
+      const sku = get('id');
+
+      if (!sku) {
+        result.skippedBlank += 1;
+        continue;
+      }
+      // The export repeats its own header part-way through the file.
+      if (sku === 'id') {
+        result.skippedHeaderRepeat += 1;
+        continue;
+      }
+
+      const title = get('title');
+      if (!title) {
+        result.failed += 1;
+        result.errors.push({ row: rowNumber, id: sku, error: 'title is missing' });
+        continue;
+      }
+
+      // Prefer GTIN — a real barcode is the strongest match — but only when it
+      // survived export intact.
+      const rawGtin = get('gtin');
+      const rawMpn = get('mpn');
+      if (rawGtin && isDamagedIdentifier(rawGtin)) result.damagedGtin += 1;
+      if (rawMpn && isDamagedIdentifier(rawMpn)) result.damagedMpn += 1;
+
+      const identifier =
+        rawGtin && !isDamagedIdentifier(rawGtin)
+          ? rawGtin
+          : rawMpn && !isDamagedIdentifier(rawMpn)
+            ? rawMpn
+            : null;
+      if (identifier) result.withUsableIdentifier += 1;
+
+      const availability = get('availability') || 'unknown';
+      result.availability[availability] = (result.availability[availability] ?? 0) + 1;
+
+      const specs: Record<string, string> = {};
+      for (const header of headers) {
+        if (!header || NON_SPEC_COLUMNS.has(header)) continue;
+        const value = get(header);
+        if (value) specs[canonicalAttributeName(header)] = value;
+      }
+      // Kept as an attribute so ring-size variants of one product stay linked.
+      const groupId = get('item_group_id');
+      if (groupId) specs.item_group_id = groupId;
+
+      let price: ParsedProduct['price'] = null;
+      if (get('price_visible').toUpperCase() === 'FALSE') {
+        // Not shown to customers, so there is nothing to compare.
+        result.priceHidden += 1;
+      } else if (!isInStock(availability)) {
+        // Not currently sellable, so a competitor being cheaper on it is not
+        // useful information — treated the same as a hidden price. Delisted
+        // like any other product the feed has stopped pricing (Spec: the feed
+        // is authoritative for what a fascia sells).
+        result.outOfStock += 1;
+      } else {
+        const regular = parseFeedPrice(get('price'));
+        if (!regular) {
+          result.failed += 1;
+          result.errors.push({
+            row: rowNumber,
+            id: sku,
+            error: `price "${get('price')}" could not be read`,
+          });
+        } else {
+          const sale = parseFeedPrice(get('sale_price'));
+          // A sale counts only when genuinely cheaper AND its window is open: the
+          // feed carries scheduled promotions that are not live yet.
+          const cheaper = sale !== null && sale.amount < regular.amount;
+          const windowOpen = isSaleWindowOpen(get('sale_price_effective_date'));
+          if (cheaper && !windowOpen) result.saleNotYetActive += 1;
+          const useSale = cheaper && windowOpen;
+          if (useSale) result.onSale += 1;
+
+          price = {
+            amount: useSale ? sale!.amount : regular.amount,
+            regular: useSale ? regular.amount : null,
+            onSale: useSale,
+            currency: regular.currency ?? fascia.currency,
+          };
+        }
+      }
+
+      parsed.push({
+        sku,
+        brand: get('brand') || 'Unknown',
+        title,
+        identifier,
+        // Both halves are kept, not just the preferred one: several competitors
+        // publish only the manufacturer reference, and a product held by barcode
+        // alone could never be matched to them exactly.
+        gtin: rawGtin && !isDamagedIdentifier(rawGtin) ? rawGtin : null,
+        mpn: rawMpn && !isDamagedIdentifier(rawMpn) ? rawMpn : null,
+        category: get('product_type') || null,
+        link: get('link') || null,
+        specs: JSON.stringify(specs),
+        price,
       });
-
-      const { rows: upserted } = await client.query<{
-        id: number;
-        internal_sku: string;
-        existed: boolean;
-      }>(
-        `INSERT INTO products
-           (internal_sku, brand, product_name, ean_mpn, category, our_product_url, specs, gtin, mpn)
-         VALUES ${tuples.join(', ')}
-         ON CONFLICT (internal_sku) DO UPDATE SET
-           brand           = EXCLUDED.brand,
-           product_name    = EXCLUDED.product_name,
-           ean_mpn         = COALESCE(EXCLUDED.ean_mpn, products.ean_mpn),
-           gtin            = COALESCE(EXCLUDED.gtin, products.gtin),
-           mpn             = COALESCE(EXCLUDED.mpn, products.mpn),
-           category        = EXCLUDED.category,
-           our_product_url = EXCLUDED.our_product_url,
-           specs           = products.specs || EXCLUDED.specs,
-           updated_at      = now()
-         RETURNING id, internal_sku, (xmax <> 0) AS existed`,
-        values,
-      );
-
-      for (const product of upserted) {
-        skuToId.set(product.internal_sku, product.id);
-        if (product.existed) result.productsUpdated += 1;
-        else result.productsCreated += 1;
-      }
+      if (parsed.length >= WRITE_CHUNK) await flush();
     }
+    await flush();
 
-    const priced = parsed.filter((product) => product.price !== null);
-    for (const chunk of chunked(priced, WRITE_CHUNK)) {
-      const values: unknown[] = [];
-      const tuples: string[] = [];
-      for (const product of chunk) {
-        const productId = skuToId.get(product.sku);
-        if (productId === undefined) continue;
-        const base = values.length;
-        values.push(
-          productId,
-          fascia.id,
-          product.price!.amount,
-          product.price!.regular,
-          product.price!.onSale,
-          product.price!.currency,
-          feedImportId,
-          product.link,
-        );
-        tuples.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, now(), $${base + 7}, $${base + 8})`,
-        );
-      }
-      if (tuples.length === 0) continue;
-
-      // product_url is per fascia, not just per product: the same internal_sku
-      // can be sold at more than one of our sites, each with its own page.
-      // products.our_product_url (written above) stays a single, "last feed
-      // imported" value — good enough as a fallback for a delisted or manual
-      // product with no fascia_prices row — but this is the value that is
-      // actually correct for whichever fascia is being looked at.
-      await client.query(
-        `INSERT INTO fascia_prices
-           (product_id, fascia_id, price, regular_price, on_sale, currency,
-            imported_at, feed_import_id, product_url)
-         VALUES ${tuples.join(', ')}
-         ON CONFLICT (product_id, fascia_id) DO UPDATE SET
-           feed_import_id = EXCLUDED.feed_import_id,
-           price          = EXCLUDED.price,
-           regular_price  = EXCLUDED.regular_price,
-           on_sale        = EXCLUDED.on_sale,
-           currency       = EXCLUDED.currency,
-           imported_at    = now(),
-           product_url    = EXCLUDED.product_url`,
-        values,
-      );
-      result.pricesWritten += tuples.length;
-    }
 
     // The feed is authoritative for its fascia, so anything it did not mention
     // is no longer sold there. Done after the writes so a failure part-way
@@ -454,13 +464,14 @@ export async function importFeed(
 
     await client.query(
       `UPDATE feed_imports
-       SET products_seen = $2, prices_written = $3, delisted = $4
+       SET products_seen = $2, prices_written = $3, delisted = $4, rows_read = $5
        WHERE id = $1`,
       [
         feedImportId,
         result.productsCreated + result.productsUpdated,
         result.pricesWritten,
         result.productsDelisted,
+        result.totalRows,
       ],
     );
   });
