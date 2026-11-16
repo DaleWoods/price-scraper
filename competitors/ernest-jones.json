@@ -5,17 +5,7 @@
   "searchUrlPattern": "https://www.ernestjones.co.uk/search?q={query}",
   "enabled": true,
   "scrapeFrequency": "daily",
-  "brands": [
-    "TAG Heuer",
-    "Longines",
-    "Tissot",
-    "Gucci",
-    "Emporio Armani",
-    "Rado",
-    "Bremont",
-    "Michael Kors",
-    "Tudor"
-  ],
+  "brands": [],
   "config": {
     "rendering": "auto",
     "rateLimit": {
@@ -108,6 +98,7 @@
   },
   "_notes": [
     "Verified against the live site 2026-11-13: sitemap lists 6,933 product pages; price, title, stock and (on branded lines) the barcode read from JSON-LD over plain HTTP in about a second.",
+    "brands emptied 2026-11-16: the list (TAG Heuer, Longines, Tissot, Gucci, Emporio Armani, Rado, Bremont, Michael Kors, Tudor) was an early guess, and wrong — the live catalogue includes Omega and other brands it left out, so every product of those brands was skipped as \"not stocked\" without being looked for. Leave empty: reading the catalogue shows what they actually sell.",
     "JSON-LD is the primary extraction path: schema.org Product/Offer markup is far more stable than CSS classes.",
     "The CSS selectors below it are FALLBACKS and are UNVERIFIED against the live site.",
     "Before go-live, tune them with POST /api/competitors/ernest-jones/test-url — it runs a real",

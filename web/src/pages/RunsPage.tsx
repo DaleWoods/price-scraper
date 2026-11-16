@@ -11,25 +11,13 @@ import {
 import { Alert, Card, EmptyState, TableSkeleton, useToast } from '../components/ui';
 import { ERROR_KIND_COPY } from '../errorKinds';
 import { AddTestProductCard } from '../components/AddTestProduct';
+import { parseSkuList } from '../skuList';
 
 const MODE_COPY: Record<string, string> = {
   prices: 'Scrape prices for confirmed matches only',
   discover: 'Search for candidate matches for unmatched products',
   both: 'Look for new candidates, then scrape prices for confirmed matches',
 };
-
-/** Splits an uploaded SKU list on newlines, commas or tabs, trims, and drops blanks/dupes. */
-function parseSkuList(text: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of text.split(/[\r\n,\t]+/)) {
-    const value = raw.trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    out.push(value);
-  }
-  return out;
-}
 
 export function RunsPage() {
   const toast = useToast();
@@ -170,7 +158,11 @@ export function RunsPage() {
         : oneUrl
           ? ' for that product'
           : bulkSkus.length > 0
-            ? ` for ${bulkSkus.length - (unresolved?.length ?? 0)} of ${bulkSkus.length} uploaded product(s)`
+            ? // Several values can be the same product (its SKU, barcode and
+              // reference all in one feed row), so the product count comes from
+              // the run itself, not from the number of values matched.
+              ` for ${run.product_count ?? 1} product(s) — ` +
+              `${bulkSkus.length - (unresolved?.length ?? 0)} of ${bulkSkus.length} uploaded values matched`
             : '';
       toast(`Run #${run.id} started${scopeLabel}.`, 'ok');
       if (unresolved && unresolved.length > 0) setUnresolvedSkus(unresolved);
@@ -191,7 +183,9 @@ export function RunsPage() {
   return (
     <div className="page">
       <p className="page__intro">
-        The MVP has no scheduler — runs are triggered here by hand. Every target produces a row, so a
+        Check products against competitors on demand: one product by its SKU, barcode or
+        manufacturer reference, or a whole list uploaded as a file. The nightly job (Admin) does the
+        same for everything in the latest feeds without anyone pressing a button. Every target produces a row, so a
         competitor changing their layout shows up as a scrape error rather than a silently wrong price.
       </p>
 
@@ -233,7 +227,7 @@ export function RunsPage() {
           </div>
           <div className="field">
             <label className="label" htmlFor="sku">
-              Single product (SKU)
+              Single product (SKU, barcode or ref)
             </label>
             <input
               id="sku"
@@ -271,12 +265,12 @@ export function RunsPage() {
           </div>
           <div className="field">
             <label className="label" htmlFor="bulk-skus">
-              …or upload a list of SKUs
+              …or upload a list
             </label>
             {bulkFileName ? (
               <div className="row small" style={{ gap: 8, marginTop: 8 }}>
                 <span className="badge badge--info">
-                  {bulkSkus.length} SKU{bulkSkus.length === 1 ? '' : 's'} · {bulkFileName}
+                  {bulkSkus.length} value{bulkSkus.length === 1 ? '' : 's'} · {bulkFileName}
                 </span>
                 <button type="button" className="btn btn--sm btn--ghost" onClick={clearBulkSkus}>
                   Clear
@@ -367,9 +361,9 @@ export function RunsPage() {
       </Card>
 
       {unresolvedSkus && unresolvedSkus.length > 0 && (
-        <Alert tone="warn" title={`${unresolvedSkus.length} uploaded SKU(s) weren't found`}>
-          The run started for everything that matched. These didn't match a product currently in the
-          catalogue — check for typos, or import the feed if they're new:{' '}
+        <Alert tone="warn" title={`${unresolvedSkus.length} uploaded value(s) weren't found`}>
+          The run started for everything that matched. These didn't match any product we hold by SKU,
+          barcode or manufacturer reference — check for typos, or import the feed if they're new:{' '}
           <span className="mono">
             {unresolvedSkus.slice(0, 15).join(', ')}
             {unresolvedSkus.length > 15 ? `, and ${unresolvedSkus.length - 15} more` : ''}

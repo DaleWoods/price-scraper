@@ -137,8 +137,19 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
   if (filters.search) {
     params.push(`%${filters.search}%`);
     const index = params.length;
+    params.push(filters.search);
     conditions.push(
-      `(p.product_name ILIKE $${index} OR p.internal_sku ILIKE $${index} OR p.brand ILIKE $${index} OR coalesce(p.ean_mpn, '') ILIKE $${index})`,
+      // Barcodes and references are also compared on their letters and digits
+      // alone, so "220.13.41" finds a product held as "22013412110001", and a
+      // barcode typed without its leading zero still finds it. $n holds the
+      // term wrapped in % for ILIKE; the raw term is $n + 1.
+      `(p.product_name ILIKE $${index} OR p.internal_sku ILIKE $${index} OR p.brand ILIKE $${index}
+        OR coalesce(p.ean_mpn, '') ILIKE $${index} OR coalesce(p.gtin, '') ILIKE $${index}
+        OR coalesce(p.mpn, '') ILIKE $${index}
+        OR (length(ident_key($${index + 1})) >= 5
+            AND strpos(ident_key(p.mpn), ident_key($${index + 1})) > 0)
+        OR (length(gtin_key($${index + 1})) >= 8
+            AND gtin_key(coalesce(p.gtin, p.ean_mpn)) = gtin_key($${index + 1})))`,
     );
   }
 

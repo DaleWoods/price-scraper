@@ -5,14 +5,7 @@
   "searchUrlPattern": "https://www.beaverbrooks.co.uk/search?q={query}",
   "enabled": false,
   "scrapeFrequency": "daily",
-  "brands": [
-    "TAG Heuer",
-    "Longines",
-    "Tissot",
-    "Gucci",
-    "Emporio Armani",
-    "Rado"
-  ],
+  "brands": [],
   "config": {
     "rendering": "auto",
     "rateLimit": {
@@ -87,6 +80,7 @@
   },
   "_notes": [
     "Verified against the live site 2026-11-13: sitemap lists 8,218 product pages; JSON-LD carries gtin13 and the manufacturer reference (mpn). Their response headers exceed Node's default limit — see scraping/httpClient.ts.",
+    "brands emptied 2026-11-16: the list (TAG Heuer, Longines, Tissot, Gucci, Emporio Armani, Rado) was an early guess, and wrong — the live catalogue includes Omega and other brands it left out, so every product of those brands was skipped as \"not stocked\" without being looked for. Leave empty: reading the catalogue shows what they actually sell.",
     "Shipped DISABLED. This file exists to demonstrate that adding a competitor is configuration,",
     "not code (Spec s5.2) — drop a JSON file in this directory, run `npm run seed`, flip enabled.",
     "Selectors are unverified placeholders. Beaverbrooks is Phase 2 scope; do not enable without",

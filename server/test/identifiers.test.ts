@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { after, before, describe, it } from 'node:test';
 import type { Competitor, Product } from '../src/domain/types.ts';
-import { compareIdentifiers, gtinKey, identKey, looksLikeGtin } from '../src/matching/identifiers.ts';
+import { compareIdentifiers, gtinKey, identKey, looksLikeGtin, referenceContradicts } from '../src/matching/identifiers.ts';
 import { scoreCandidate } from '../src/matching/score.ts';
 import { isProductUrl } from '../src/scraping/catalogue.ts';
 import { extractListing } from '../src/scraping/extract.ts';
@@ -330,5 +330,31 @@ describe('against a site with awkward responses', () => {
     const response = await siteFetch(`${origin}/big-headers`);
     assert.equal(response.status, 200);
     assert.equal(await response.text(), '<h1>fine</h1>');
+  });
+});
+
+describe('referenceContradicts', () => {
+  it('believes an mpn that differs from the retailer’s own code', () => {
+    // Fraser Hart: maker's reference in mpn, their own code in sku.
+    assert.equal(referenceContradicts('220.13.41.21.10.001', { mpn: '220.12.41.21.03.001', sku: '12-34-5-6789' }), true);
+  });
+
+  it('ignores an mpn that is just the retailer’s stock code repeated', () => {
+    // Ernest Jones and H.Samuel publish the same stock number in both.
+    assert.equal(referenceContradicts('220.13.41.21.10.001', { mpn: '1292447', sku: '1292447' }), false);
+  });
+
+  it('does not treat a prefix or suffix as a different reference', () => {
+    assert.equal(referenceContradicts('126610LN', { mpn: 'M126610LN-0001', sku: 'ABC-123' }), false);
+  });
+
+  it('uses a field learned to hold references even when nothing else marks it', () => {
+    // Berry's: the maker's reference is the sku, and there is no mpn.
+    assert.equal(referenceContradicts('WSSA0086', { sku: 'WSSA0087' }, ['sku']), true);
+    assert.equal(referenceContradicts('WSSA0086', { sku: 'WSSA0087' }), false);
+  });
+
+  it('says nothing when we hold no usable reference', () => {
+    assert.equal(referenceContradicts(null, { mpn: 'L37204726', sku: 'X-1' }), false);
   });
 });

@@ -3,7 +3,7 @@ import type { Competitor, Product, SpecAttributes } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { recordPriceObservation } from '../scraping/observations.js';
 import { upsertMatch } from './discovery.js';
-import { identKey, isUsableReference } from './identifiers.js';
+import { referenceContradicts } from './identifiers.js';
 import { MIN_CANDIDATE_THRESHOLD, scoreCandidate, type CandidateListing } from './score.js';
 import { searchTermsFor } from './sitemapDiscovery.js';
 
@@ -110,7 +110,7 @@ const TRUSTED_FIELD_HITS = 3;
 const PRE_OWNED = /\bpre[\s-]?owned\b|\bsecond[\s-]?hand\b|\bpreloved\b|\bpre[\s-]?loved\b/i;
 
 /** Which of a competitor's fields demonstrably hold manufacturer references. */
-async function trustedReferenceFields(competitorId: number): Promise<('mpn' | 'sku')[]> {
+export async function trustedReferenceFields(competitorId: number): Promise<('mpn' | 'sku')[]> {
   const { rows } = await query<{ mpn_hits: number; sku_hits: number }>(
     `SELECT
        (SELECT count(*)::int FROM products p
@@ -247,14 +247,10 @@ export async function matchFromCatalogue(
 
     // Only the single strongest title is offered. Several weaker ones for the
     // same product are several things for a person to reject.
-    const ourReference = identKey(product.mpn);
     let best: { row: CatalogueRow; confidence: number } | null = null;
     for (const row of candidates) {
       // Their reference is known to be the manufacturer's, and it is not ours.
-      const differs =
-        isUsableReference(ourReference) &&
-        trusted.some((field) => row[field] && identKey(row[field]) !== ourReference);
-      if (differs) continue;
+      if (referenceContradicts(product.mpn, row, trusted)) continue;
       if (PRE_OWNED.test(row.title ?? '') && !PRE_OWNED.test(product.product_name)) continue;
 
       const scored = scoreCandidate(product, toListing(row));

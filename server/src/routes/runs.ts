@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db/pool.js';
+import { resolveProducts } from '../services/productLookup.js';
 import { getActiveRunId, startRun, type RunMode } from '../scraping/runner.js';
 
 export const runsRouter: Router = Router();
@@ -40,16 +41,20 @@ runsRouter.post('/', async (req, res) => {
     // that scans nothing.
     let productId = req.body?.productId ? Number(req.body.productId) : null;
     const sku = typeof req.body?.sku === 'string' ? req.body.sku.trim() : '';
+    // The box takes a SKU, a barcode or a manufacturer reference. One value
+    // can be two of our products (the same barcode on two SKUs); both are
+    // checked rather than picking one arbitrarily.
+    let identifierIds: number[] | null = null;
     if (!productId && sku) {
-      const { rows } = await query<{ id: number }>(
-        'SELECT id FROM products WHERE lower(internal_sku) = lower($1)',
-        [sku],
-      );
-      if (!rows[0]) {
-        res.status(404).json({ error: `No product with SKU "${sku}". Import its feed first.` });
+      const { productIds: found } = await resolveProducts([sku]);
+      if (found.length === 0) {
+        res.status(404).json({
+          error: `No product with SKU, barcode or reference "${sku}". Import its feed, or add it by hand.`,
+        });
         return;
       }
-      productId = rows[0].id;
+      if (found.length === 1) productId = found[0]!;
+      else identifierIds = found;
     }
 
     const productUrl = typeof req.body?.productUrl === 'string' ? req.body.productUrl.trim() : '';
@@ -91,20 +96,18 @@ runsRouter.post('/', async (req, res) => {
           .filter((value: unknown): value is string => typeof value === 'string' && value.trim() !== '')
           .map((value: string) => value.trim())
       : [];
-    let productIds: number[] | null = null;
+    let productIds: number[] | null = identifierIds;
     let unresolvedSkus: string[] = [];
     if (!productId && !sku && !productUrl && skusInput.length > 0) {
-      const { rows } = await query<{ id: number; internal_sku: string }>(
-        'SELECT id, internal_sku FROM products WHERE lower(internal_sku) = ANY($1::text[])',
-        [skusInput.map((value) => value.toLowerCase())],
-      );
-      const found = new Set(rows.map((row) => row.internal_sku.toLowerCase()));
-      productIds = rows.map((row) => row.id);
-      unresolvedSkus = skusInput.filter((value) => !found.has(value.toLowerCase()));
+      const resolved = await resolveProducts(skusInput);
+      productIds = resolved.productIds;
+      unresolvedSkus = resolved.unresolved;
 
       if (productIds.length === 0) {
         res.status(404).json({
-          error: `None of the ${skusInput.length} uploaded SKU(s) matched a product. Check the file, or import its feed first.`,
+          error:
+            `None of the ${skusInput.length} uploaded value(s) matched a product by SKU, barcode or ` +
+            'reference. Check the file, or import its feed first.',
         });
         return;
       }

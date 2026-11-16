@@ -256,6 +256,38 @@ describe('competitor catalogue', { skip: !DATABASE_URL && 'DATABASE_URL not set'
     assert.deepEqual(await pricesFor('gtin'), [1000, 1000]);
   });
 
+  it('finds our products by SKU, barcode or reference, however they are written', async () => {
+    const { resolveProducts } = await import('../src/services/productLookup.ts');
+    const result = await resolveProducts([
+      `${SKU_PREFIX.toUpperCase()}GTIN`, // our SKU, different case
+      '07020000000044', // a barcode with a leading zero we do not hold
+      '220-13-41.21', // a reference punctuated differently to ours ("2201341.21")
+      'no-such-thing-123',
+    ]);
+    assert.deepEqual(
+      [...result.productIds].sort(),
+      [productIds.get('gtin'), productIds.get('unlisted'), productIds.get('mpn')].sort(),
+    );
+    assert.deepEqual(result.unresolved, ['no-such-thing-123']);
+  });
+
+  it('reads catalogues for a long uploaded list rather than searching product by product', async () => {
+    // Above the scoped-search limit a list behaves like a full run for
+    // reading, and matches only the products it names.
+    const named = [productIds.get('gtin')!, ...Array.from({ length: 60 }, (_, i) => -1 - i)];
+    const run = await startRun({ trigger: 'tst-cat', mode: 'both', competitorId, productIds: named });
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
+      const { rows } = await query<{ status: string }>('SELECT status FROM scrape_runs WHERE id = $1', [run.id]);
+      if (rows[0] && rows[0].status !== 'running') break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    assert.equal(standIn.hits('other'), 1, 'the catalogue should have been read');
+    assert.equal((await matchFor('gtin'))?.status, 'confirmed');
+    assert.deepEqual(await pricesFor('gtin'), [1000]);
+    assert.equal(await matchFor('mpn'), null, 'a product not on the list must not be matched');
+  });
+
   it('gives up on a competitor that refuses five pages in a row', async () => {
     const { rows } = await query<Parameters<typeof harvestCatalogue>[0]>(
       'SELECT * FROM competitors WHERE id = $1',

@@ -7,6 +7,9 @@ import { extractSearchResults } from '../scraping/extract.js';
 import { fetchAndExtract } from '../scraping/fetchAndExtract.js';
 import { fetchPage } from '../scraping/fetcher.js';
 import { canonicalAttributeName } from './attributes.js';
+import { recordCatalogueListing } from '../scraping/catalogue.js';
+import { trustedReferenceFields } from './catalogueMatch.js';
+import { referenceContradicts } from './identifiers.js';
 import { findCandidateUrls } from './sitemapDiscovery.js';
 import { AUTO_ACCEPT_THRESHOLD, MIN_CANDIDATE_THRESHOLD, scoreCandidate, type CandidateListing } from './score.js';
 
@@ -56,6 +59,14 @@ export function rejectionReason(scored: ReturnType<typeof scoreCandidate>): stri
  * than running unbounded.
  */
 export const DISCOVERY_BUDGET_MS = 60_000;
+
+/** A reference held only in specs, for rows written before migration 021. */
+function referenceOf(product: Product): string | null {
+  for (const [key, value] of Object.entries(product.specs ?? {})) {
+    if (canonicalAttributeName(key) === 'reference_number' && value) return String(value);
+  }
+  return null;
+}
 
 /**
  * The term we hand to the competitor's on-site search. A manufacturer reference
@@ -166,6 +177,7 @@ export async function discoverMatchesForProduct(
 
   let bestAttempt: { url: string; confidence: number; reason: string } | null = null;
   const budgetStart = Date.now();
+  const trusted = await trustedReferenceFields(competitor.id);
 
   for (const { result, preliminary } of prescored) {
     // A candidate is a guess, not yet evidence — retrying it against the
@@ -207,6 +219,9 @@ export async function discoverMatchesForProduct(
       const { page, listing: extracted } = await fetchAndExtract(competitor, result.url, {
         maxAttempts: 1,
       });
+      // Every page opened here is a page of their catalogue; keeping it means
+      // the next lookup of this product, or any other, needs no request.
+      await recordCatalogueListing(competitor.id, result.url, page, extracted).catch(() => undefined);
       listing = {
         url: page.finalUrl,
         title: extracted.title ?? result.title,
@@ -230,6 +245,22 @@ export async function discoverMatchesForProduct(
     // A sitemap candidate that could not be opened has nothing behind it but a
     // URL guess, which is not evidence of a match.
     if (mode === 'sitemap' && !opened) continue;
+
+    // A title likeness the page's own manufacturer reference contradicts.
+    if (
+      scored.viable &&
+      scored.tier !== 'ean_mpn_exact' &&
+      referenceContradicts(product.mpn ?? referenceOf(product), listing, trusted)
+    ) {
+      if (!bestAttempt || scored.confidence > bestAttempt.confidence) {
+        bestAttempt = {
+          url: listing.url,
+          confidence: scored.confidence,
+          reason: `its manufacturer reference (${listing.mpn ?? listing.sku}) is not ours`,
+        };
+      }
+      continue;
+    }
 
     if (!scored.viable || scored.confidence < MIN_CANDIDATE_THRESHOLD) {
       // Keep the strongest rejection: this is what a test run needs to answer

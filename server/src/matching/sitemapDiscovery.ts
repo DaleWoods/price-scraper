@@ -3,6 +3,7 @@ import type { Competitor, Product } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { env } from '../config/env.js';
 import { harvestSitemapUrls, slugWords } from '../scraping/sitemap.js';
+import { isProductUrl } from '../scraping/catalogue.js';
 import { canonicalAttributeName } from './attributes.js';
 
 /**
@@ -71,6 +72,10 @@ export async function findCandidateUrls(
   // the near-misses below the strong hits anyway.
   const tsquery = terms.join(' | ');
 
+  // Over-fetch, then keep only product pages. A brand's blog post and its
+  // landing page carry exactly the words a product's title does, and without
+  // this they out-ranked the products and used up every attempt — the search
+  // for an Omega at Ernest Jones opened "discover-omega" and two blog posts.
   const { rows } = await query<{ url: string; rank: number }>(
     `SELECT url, ts_rank(to_tsvector('simple', slug), q) AS rank
      FROM competitor_urls, to_tsquery('simple', $2) AS q
@@ -78,10 +83,13 @@ export async function findCandidateUrls(
        AND to_tsvector('simple', slug) @@ q
      ORDER BY rank DESC, length(url)
      LIMIT $3`,
-    [competitor.id, tsquery, limit],
+    [competitor.id, tsquery, limit * 20],
   );
 
-  return rows.map((row) => ({ url: row.url, rank: Number(row.rank) }));
+  return rows
+    .filter((row) => isProductUrl(competitor, row.url))
+    .slice(0, limit)
+    .map((row) => ({ url: row.url, rank: Number(row.rank) }));
 }
 
 export interface UrlRefreshResult {

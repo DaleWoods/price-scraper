@@ -70,6 +70,50 @@ export interface TheirIdentifiers {
   ean?: string | null;
 }
 
+/**
+ * Does the listing's manufacturer reference show it is a *different* product
+ * from ours?
+ *
+ * Only ever asked of a candidate that did not match on an identifier — one
+ * found by its title — and only believed when the field it comes from really
+ * holds the maker's reference. That is known two ways:
+ *
+ *   - `trustedFields`: fields that have already matched several of our
+ *     references exactly at this competitor (learned from the catalogue);
+ *   - on the listing itself: an `mpn` that differs from the retailer's own
+ *     `sku`. Ernest Jones and H.Samuel publish their stock number in both, so
+ *     the two are equal and say nothing; Beaverbrooks and Fraser Hart publish
+ *     the maker's reference as `mpn` beside their own code.
+ *
+ * One reference containing the other is not a contradiction: retailers add or
+ * drop a prefix or suffix ("M126610LN-0001" against "126610LN").
+ *
+ * Without this, three Seamaster Aqua Terras in three dial colours were all put
+ * to a person for review against a product whose reference matched none of
+ * them, when the page said so plainly.
+ */
+export function referenceContradicts(
+  ourMpn: string | null | undefined,
+  listing: { mpn?: string | null; sku?: string | null },
+  trustedFields: readonly ('mpn' | 'sku')[] = [],
+): boolean {
+  const ours = identKey(ourMpn);
+  if (!isUsableReference(ours)) return false;
+
+  const fields = new Set(trustedFields);
+  const mpnKey = identKey(listing.mpn);
+  const skuKey = identKey(listing.sku);
+  if (mpnKey && skuKey && mpnKey !== skuKey) fields.add('mpn');
+
+  for (const field of fields) {
+    const theirs = field === 'mpn' ? mpnKey : skuKey;
+    if (!isUsableReference(theirs)) continue;
+    if (theirs.includes(ours) || ours.includes(theirs)) continue;
+    return true;
+  }
+  return false;
+}
+
 export type IdentifierVerdict =
   | { verdict: 'match'; via: 'gtin' | 'mpn'; ours: string; theirs: string }
   | { verdict: 'conflict'; ours: string; theirs: string }

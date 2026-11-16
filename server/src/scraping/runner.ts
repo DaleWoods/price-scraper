@@ -261,6 +261,18 @@ async function executeRun(
 }
 
 /**
+ * The longest named list still searched for product by product.
+ *
+ * The per-product search opens up to three guessed pages per product per
+ * competitor: fine for checking a handful, ruinous for an uploaded list of
+ * thousands (2,500 products at five competitors is up to 37,500 page loads,
+ * against about 34,000 to read all five catalogues outright — once). Above
+ * this, a scoped run reads catalogues like a full run and matches only the
+ * named products against them.
+ */
+const SCOPED_SEARCH_MAX = 50;
+
+/**
  * How many competitors run concurrently within one scrape run.
  *
  * Six, where it was three. The limit existed because every page used to be
@@ -349,9 +361,12 @@ async function runCompetitor(
     }
 
     // A full run reads the competitor's catalogue: every product page not yet
-    // read, plus the slice due a re-read. A run scoped to named products does
-    // not — it is meant to answer quickly, from what is already held.
-    if (productIds == null) {
+    // read, plus the slice due a re-read. So does a run over a long uploaded
+    // list — for a few hundred products, reading the catalogue is far cheaper
+    // than guessing pages product by product. A run over a handful of named
+    // products does not: it is meant to answer quickly, from what is held.
+    const smallList = productIds != null && productIds.length <= SCOPED_SEARCH_MAX;
+    if (!smallList) {
       const harvest = await harvestCatalogue(competitor, {
         runId,
         maxPages: limit,
@@ -391,7 +406,7 @@ async function runCompetitor(
     const matched = await matchFromCatalogue(competitor, {
       runId,
       productIds,
-      priceIfReadSince: productIds == null ? runStartedAt : null,
+      priceIfReadSince: smallList ? null : runStartedAt,
     });
     if (matched.byIdentifier + matched.byTitle > 0) {
       await recordRunItem(runId, {
@@ -410,7 +425,7 @@ async function runCompetitor(
     // catalogue may not have been read yet and an answer is wanted now. A full
     // run does not need it: the harvest above reads those same pages, all of
     // them, and matches on what they say rather than on their address.
-    if (productIds != null) {
+    if (smallList && productIds != null) {
       const settled = new Set(matched.matchedProductIds);
       const remaining = productIds.filter((id) => !settled.has(id));
       if (remaining.length > 0) {

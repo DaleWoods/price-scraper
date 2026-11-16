@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { query } from '../db/pool.js';
 import { importFeed } from '../import/feedImport.js';
+import { looksLikeGtin } from '../matching/identifiers.js';
 import { getProductCoverage, getProductHistory } from '../services/comparison.js';
 
 export const productsRouter: Router = Router();
@@ -28,7 +29,9 @@ productsRouter.get('/', async (req, res, next) => {
     let where = '';
     if (search) {
       params.push(`%${search}%`);
-      where = `WHERE product_name ILIKE $1 OR internal_sku ILIKE $1 OR brand ILIKE $1`;
+      where =
+        `WHERE product_name ILIKE $1 OR internal_sku ILIKE $1 OR brand ILIKE $1 ` +
+        `OR coalesce(ean_mpn, '') ILIKE $1 OR coalesce(gtin, '') ILIKE $1 OR coalesce(mpn, '') ILIKE $1`;
     }
 
     const { rows } = await query(
@@ -124,21 +127,33 @@ productsRouter.post('/', async (req, res) => {
       return;
     }
 
+    // The barcode and the manufacturer reference are held separately, because
+    // catalogue matching joins on each (see matching/identifiers.ts). Without
+    // this a product added by hand carried its barcode only in the older
+    // combined field, which that join never reads, and could not be matched.
+    const eanMpn = text(body.eanMpn) || null;
+    const reference = text(body.referenceNumber) || null;
+    const gtin = eanMpn && looksLikeGtin(eanMpn) ? eanMpn : null;
+    const mpn = reference ?? (eanMpn && !gtin ? eanMpn : null);
+
     const { rows } = await query<{ id: number }>(
       `INSERT INTO products
-         (internal_sku, brand, product_name, ean_mpn, category, our_product_url, specs, source)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'manual')
+         (internal_sku, brand, product_name, ean_mpn, category, our_product_url, specs, source,
+          gtin, mpn)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, 'manual', $8, $9)
        RETURNING id`,
       [
         internalSku,
         brand,
         productName,
-        text(body.eanMpn) || null,
+        eanMpn ?? reference,
         text(body.category) || null,
         text(body.ourProductUrl) || null,
         JSON.stringify(
           text(body.referenceNumber) ? { reference_number: text(body.referenceNumber) } : {},
         ),
+        gtin,
+        mpn,
       ],
     );
 

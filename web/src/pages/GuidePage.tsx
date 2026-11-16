@@ -13,7 +13,7 @@ import { Alert, Card } from '../components/ui';
  */
 
 /** Shown at the foot of the page so staleness is visible rather than assumed. */
-const GUIDE_UPDATED = '13 November 2026';
+const GUIDE_UPDATED = '16 November 2026';
 
 function Section({
   id,
@@ -172,9 +172,12 @@ export function GuidePage() {
           competitor, so the file is the full side-by-side picture rather than just the cheapest.
           <br />
           <br />
-          The <strong>search box takes a SKU, a product name, a brand, or an EAN/MPN</strong>. The
-          barcode is usually the quickest way to a single product, since it is the one identifier
-          that does not change between us and a competitor.
+          The <strong>search box takes a SKU, a product name, a brand, a barcode or a manufacturer
+          reference</strong>. Barcodes and references are matched however they are written: a
+          reference with dots, dashes or spaces finds the same product as one without, and a barcode
+          typed without its leading zero still finds it. The barcode is usually the quickest way to
+          a single product, since it is the one identifier that does not change between us and a
+          competitor.
         </Term>
         <Term label="Based on — the line above every page">
           The first thing anyone asks of a percentage is how much it is drawn from, so every
@@ -344,16 +347,32 @@ export function GuidePage() {
           that always needs the browser is visible rather than guessed at.
           <br />
           <br />
-          A run can be scoped three ways. Putting a <strong>SKU</strong> in the single-product box —
-          or pasting the product's own page URL on our site into the box beside it — scopes the run
-          to that one product, which is how you test whether something you know a competitor lists
-          gets picked up; either one resolves to the same product, and a URL that isn't in the last
-          imported feed says so rather than guessing. <strong>Uploading a list of SKUs</strong>{' '}
-          (a plain text file or CSV export, one per line or comma/tab separated) scopes it to exactly
-          that batch instead — the middle ground between testing one product and scanning the whole
-          catalogue, for when you want to check a specific set without waiting on everything else.
-          Any SKU in the file that doesn't match a product is reported once the run starts rather
-          than silently dropped, so a typo doesn't just quietly vanish from the batch. All three
+          You do not need this page for day-to-day comparison. Everything in the latest Google feeds —
+          which is what is live and sellable on our sites, not the whole master catalogue — is
+          checked against every enabled competitor by the nightly job. This page is for checking
+          something <em>now</em>.
+          <br />
+          <br />
+          A run can be scoped three ways. Putting a <strong>SKU, barcode or manufacturer
+          reference</strong> in the single-product box — or pasting the product's own page URL on our
+          site into the box beside it — scopes the run to that one product, which is how you test
+          whether something you know a competitor lists gets picked up. A URL that isn't in the last
+          imported feed says so rather than guessing. <strong>Uploading a list</strong> scopes it to
+          exactly that batch instead. The file can be a plain list (one per line, or comma or tab
+          separated) of SKUs, barcodes or references in any mix, or a spreadsheet export with a
+          header row — in which case only the columns named like an identifier (id, SKU, GTIN, EAN,
+          barcode, MPN, reference) are read and titles and prices are ignored, so a Google feed file
+          can be uploaded as it is. Anything in the file that doesn't match a product we hold is
+          reported once the run starts rather than silently dropped, so a typo doesn't just quietly
+          vanish from the batch. The products must already be in the app — from a feed or added by
+          hand — because there is nothing to compare a competitor's price with until we hold ours.
+          <br />
+          <br />
+          A list of more than 50 products is handled like the nightly job: each competitor's
+          catalogue is read (as far as it has not been already) and the listed products are matched
+          against it by barcode. That is far quicker than looking for several thousand products one
+          at a time. A shorter list, or a single product, is looked for directly, so a quick check
+          gets a quick answer. All three
           scoped modes look at their product(s) whether or not they already have candidates, so you
           can re-check the same ones as often as you like. Only enabled competitors are ever scanned.
           <br />
@@ -377,8 +396,10 @@ export function GuidePage() {
           <br />
           <br />
           <strong>Add a test product</strong>, at the top of the page, puts a single product in by
-          hand without waiting on a feed — give it a SKU, brand, name and ideally a barcode, and it
-          can scan straight away. A product added this way survives feed imports that do not mention
+          hand without waiting on a feed — give it a SKU, brand, name and ideally a barcode or
+          manufacturer reference, and it can scan straight away. Those two are what let it be matched
+          to a competitor's page with certainty; without either it can only be matched on its name,
+          which always goes to the review queue. A product added this way survives feed imports that do not mention
           it, unlike everything else, because it is a fixture rather than something the feed owns.
           Delete it from Price comparison when you have finished with it.
         </Term>
