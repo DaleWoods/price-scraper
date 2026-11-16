@@ -13,15 +13,21 @@
 -- through the same function, so it can only ever widen a match, and a match
 -- on a reference still requires the listing to show our brand.
 -- Mirrored by refKey() in server/src/matching/identifiers.ts.
+-- Written with built-in functions only, never ident_key(): Postgres 17 builds
+-- an index with the search path cut down to pg_catalog, so a call to another
+-- of our functions by its short name fails there ("function ident_key(text)
+-- does not exist") even though it works everywhere else. The first deploy of
+-- this migration failed on exactly that.
 CREATE OR REPLACE FUNCTION ref_key(value TEXT) RETURNS TEXT
   LANGUAGE sql IMMUTABLE PARALLEL SAFE AS
 $$
   SELECT CASE
-    WHEN ident_key(value) ~ '^[a-z]{1,2}[0-9]'
-     AND length(regexp_replace(ident_key(value), '^[a-z]{1,2}', '')) >= 8
-      THEN regexp_replace(ident_key(value), '^[a-z]{1,2}', '')
-    ELSE ident_key(value)
+    WHEN k ~ '^[a-z]{1,2}[0-9]'
+     AND length(regexp_replace(k, '^[a-z]{1,2}', '')) >= 8
+      THEN regexp_replace(k, '^[a-z]{1,2}', '')
+    ELSE k
   END
+  FROM (SELECT regexp_replace(lower(coalesce(value, '')), '[^a-z0-9]', '', 'g') AS k) AS normalised
 $$;
 
 CREATE INDEX IF NOT EXISTS competitor_products_mpn_ref_idx

@@ -174,6 +174,12 @@ for problems that have actually happened, with the real numbers.
   taken from a competitor matched by reference (`adoptBarcode`), and the run
   re-checks barcode-only competitors once with it. `own_site_urls` indexes our
   ~300,000 product addresses so a bare reference finds our SKU.
+- **SQL functions used in an index may call built-ins only.** Render's
+  Postgres (17) builds indexes with the search path cut to `pg_catalog`, so a
+  function calling another of ours by short name (`ref_key` calling
+  `ident_key`) fails there — it stopped a deploy on 16 November 2026 — while
+  working everywhere else, including local Postgres 16. `sqlFunctions.test.ts`
+  reproduces the restriction; add any new index function to it.
 - **Check a product runs alongside the nightly job** (`exclusive: false`), so a
   lookup never waits hours. The browser is closed only when no run is in flight.
 - **GTIN and MPN are different things and are never compared with each other.**
