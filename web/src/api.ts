@@ -712,6 +712,7 @@ export type LookupStatus = 'found' | 'checking' | 'not_found' | 'blocked' | 'err
 export interface LookupCompetitor {
   slug: string;
   name: string;
+  hasLogo?: boolean;
   status: LookupStatus;
   price: number | null;
   wasPrice: number | null;
@@ -750,6 +751,7 @@ export interface RecentLookup {
   brand: string;
   lookedUpAt: string;
   found: number;
+  imageUrl?: string | null;
 }
 
 export interface BatchResult {

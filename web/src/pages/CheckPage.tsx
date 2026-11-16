@@ -14,7 +14,7 @@ import {
   type RecentBatch,
   type RecentLookup,
 } from '../api';
-import { CompetitorLabel } from '../components/CompetitorLogo';
+import { CompetitorLabel, CompetitorLogo } from '../components/CompetitorLogo';
 import { Alert, Card, EmptyState, useToast } from '../components/ui';
 import { parseSkuList } from '../skuList';
 
@@ -101,9 +101,15 @@ export function CheckPage() {
 
   return (
     <div className="page">
-      <div className="check-grid">
-        <Card title="One product" subtitle="A product URL from our site, or a SKU, manufacturer reference or barcode">
-          <form className="check-form" onSubmit={submit}>
+      <section className="hero">
+        <div className="hero__text">
+          <h2 className="hero__title">Is anyone selling it for less?</h2>
+          <p className="hero__lead">
+            Paste a product link from Goldsmiths, Mappin &amp; Webb or Watches of Switzerland — or a SKU, manufacturer
+            reference or barcode. We'll find the exact same product at every competitor.
+          </p>
+        </div>
+        <form className="check-form hero__form" onSubmit={submit}>
             <input
               className="input check-form__input"
               value={input}
@@ -112,21 +118,14 @@ export function CheckPage() {
               aria-label="Product to check"
               autoFocus
             />
-            <button type="submit" className="btn btn--primary" disabled={submitting || !input.trim()}>
+            <button type="submit" className="btn btn--primary btn--lg" disabled={submitting || !input.trim()}>
               {submitting ? 'Starting…' : 'Check prices'}
             </button>
-          </form>
-        </Card>
-
-        <ListCard onStarted={(id) => setParams({ list: String(id) })} />
-      </div>
-
-      <FeedsCard />
-
-      <p className="small muted" style={{ margin: 0 }}>
-        We read each product from our own website, then look for the exact same product at each
-        competitor — same barcode or same manufacturer reference. Anything less certain is left out.
-      </p>
+        </form>
+        <p className="hero__note xs">
+          Exact matches only — the same barcode or the same manufacturer reference. Anything less certain is left out.
+        </p>
+      </section>
 
       {error && (
         <Alert tone="warn" title="Couldn't check that">
@@ -139,6 +138,11 @@ export function CheckPage() {
       {batchId && <BatchCard batchId={batchId} />}
 
       {!result && !productId && !batchId && <RecentCard recent={recent} onOpen={setParams} />}
+
+      <div className="check-grid">
+        <ListCard onStarted={(id) => setParams({ list: String(id) })} />
+        <FeedsCard />
+      </div>
     </div>
   );
 }
@@ -226,6 +230,8 @@ function ListCard({ onStarted }: { onStarted: (batchId: number) => void }) {
 function BatchCard({ batchId }: { batchId: number }) {
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'dearer' | 'cheapest' | 'none'>('all');
+  const [sortByGap, setSortByGap] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -250,13 +256,34 @@ function BatchCard({ batchId }: { batchId: number }) {
   if (error) return <Alert tone="danger">{error}</Alert>;
   if (!batch) return null;
 
-  const competitors = batch.products[0]?.competitors.map((c) => ({ slug: c.slug, name: c.name })) ?? [];
-  const cheaperSomewhere = batch.products.filter((product) =>
-    product.competitors.some(
-      (c) => c.status === 'found' && c.price != null && product.product.price != null && c.price < product.product.price - 0.005,
-    ),
-  ).length;
-  const foundSomewhere = batch.products.filter((product) => product.competitors.some((c) => c.status === 'found')).length;
+  const competitors =
+    batch.products[0]?.competitors.map((c) => ({ slug: c.slug, name: c.name, hasLogo: c.hasLogo })) ?? [];
+  // The biggest saving a competitor offers on each product: negative when
+  // someone is cheaper than us, as a share of our price.
+  const worstGap = (product: LookupResult): number | null => {
+    const ours = product.product.price;
+    const prices = product.competitors.filter((c) => c.status === 'found' && c.price != null).map((c) => c.price!);
+    if (ours == null || ours <= 0 || prices.length === 0) return null;
+    return (Math.min(...prices) - ours) / ours;
+  };
+  const isDearer = (product: LookupResult) => (worstGap(product) ?? 0) < -0.00001;
+  const isFound = (product: LookupResult) => product.competitors.some((c) => c.status === 'found');
+  const cheaperSomewhere = batch.products.filter(isDearer).length;
+  const foundSomewhere = batch.products.filter(isFound).length;
+  const weAreCheapest = batch.products.filter((product) => isFound(product) && !isDearer(product)).length;
+  const notFound = batch.products.length - foundSomewhere;
+
+  let shown = batch.products.filter((product) =>
+    filter === 'dearer'
+      ? isDearer(product)
+      : filter === 'cheapest'
+        ? isFound(product) && !isDearer(product)
+        : filter === 'none'
+          ? !isFound(product)
+          : true,
+  );
+  if (sortByGap) shown = [...shown].sort((a, b) => (worstGap(a) ?? Infinity) - (worstGap(b) ?? Infinity));
+  const done = batch.status === 'done';
 
   const download = () => {
     const header = ['SKU', 'Brand', 'Product', 'Reference', 'Our price', ...competitors.flatMap((c) => [`${c.name} price`, `${c.name} link`])];
@@ -297,10 +324,7 @@ function BatchCard({ batchId }: { batchId: number }) {
         ) : batch.status === 'failed' ? (
           <span className="text-higher">The check failed: {batch.message}</span>
         ) : (
-          <span>
-            {batch.products.length} products checked · found at a competitor: <strong>{foundSomewhere}</strong> ·
-            cheaper somewhere else: <strong className={cheaperSomewhere > 0 ? 'text-higher' : ''}>{cheaperSomewhere}</strong>
-          </span>
+          <span className="muted">Checked {relativeTime(batch.createdAt)}</span>
         )}
         <span className="grow" />
         {batch.products.length > 0 && (
@@ -309,6 +333,30 @@ function BatchCard({ batchId }: { batchId: number }) {
           </button>
         )}
       </div>
+
+      {batch.products.length > 0 && (
+        <div className="tallies">
+          {(
+            [
+              ['all', 'Products checked', batch.products.length, ''],
+              ['dearer', 'Cheaper elsewhere', cheaperSomewhere, 'higher'],
+              ['cheapest', 'We are cheapest or level', weAreCheapest, 'lower'],
+              ['none', 'Not found at any competitor', notFound, ''],
+            ] as const
+          ).map(([key, label, count, tone]) => (
+            <button
+              key={key}
+              type="button"
+              className={`tally${filter === key ? ' tally--active' : ''}${tone ? ` tally--${tone}` : ''}`}
+              onClick={() => setFilter(key)}
+              aria-pressed={filter === key}
+            >
+              <span className="tally__value">{count.toLocaleString('en-GB')}</span>
+              <span className="tally__label">{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {batch.unresolved.length > 0 && (
         <div style={{ padding: 'var(--sp-4) var(--sp-6) 0' }}>
@@ -320,29 +368,60 @@ function BatchCard({ batchId }: { batchId: number }) {
       )}
 
       {batch.products.length > 0 && (
+        <div className="list-tools">
+          <span className="small muted">
+            Showing {shown.length.toLocaleString('en-GB')} of {batch.products.length.toLocaleString('en-GB')}
+            {!done && ' — prices appear as they arrive'}
+          </span>
+          <span className="grow" />
+          <label className="small list-tools__toggle">
+            <input type="checkbox" checked={sortByGap} onChange={(event) => setSortByGap(event.target.checked)} /> Biggest
+            gap first
+          </label>
+        </div>
+      )}
+
+      {batch.products.length > 0 && (
         <div className="table-wrap">
-          <table className="table">
+          <table className="table table--list">
             <thead>
               <tr>
                 <th>Product</th>
                 <th className="num">Our price</th>
                 {competitors.map((c) => (
                   <th key={c.slug} className="num">
-                    {c.name}
+                    <span className="th-competitor">
+                      <CompetitorLogo slug={c.slug} displayName={c.name} hasLogo={c.hasLogo} size="sm" />
+                      {c.name}
+                    </span>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {batch.products.map((product) => (
+              {shown.map((product) => (
                 <tr key={product.product.id}>
                   <td>
-                    <a className="cell-primary" href={`/check?product=${product.product.id}`}>
-                      {product.product.brand} {product.product.name}
-                    </a>
-                    <div className="cell-secondary mono xs">{product.product.sku}</div>
+                    <div className="list-product">
+                      {product.product.imageUrl ? (
+                        <img className="thumb" src={product.product.imageUrl} alt="" loading="lazy" />
+                      ) : (
+                        <span className="thumb thumb--empty" aria-hidden>
+                          ◇
+                        </span>
+                      )}
+                      <div>
+                        <div className="xs list-product__brand">{product.product.brand}</div>
+                        <a className="cell-primary" href={`/check?product=${product.product.id}`}>
+                          {product.product.name}
+                        </a>
+                        <div className="cell-secondary mono xs">{product.product.sku}</div>
+                      </div>
+                    </div>
                   </td>
-                  <td className="num">{formatMoney(product.product.price)}</td>
+                  <td className="num">
+                    <strong>{formatMoney(product.product.price)}</strong>
+                  </td>
                   {competitors.map((c) => (
                     <td key={c.slug} className="num nowrap">
                       <PriceCell entry={product.competitors.find((row) => row.slug === c.slug)} ours={product.product.price} />
@@ -368,9 +447,12 @@ function PriceCell({ entry, ours }: { entry: LookupCompetitor | undefined; ours:
   const tone =
     ours == null ? '' : entry.price < ours - 0.005 ? 'price--higher' : entry.price > ours + 0.005 ? 'price--lower' : '';
   return (
-    <a className={`price price--link ${tone}`} href={entry.url ?? undefined} target="_blank" rel="noreferrer">
-      {formatMoney(entry.price)} ↗
-    </a>
+    <span className="price-cell">
+      <a className={`price price--link ${tone}`} href={entry.url ?? undefined} target="_blank" rel="noreferrer">
+        {formatMoney(entry.price)} ↗
+      </a>
+      <GapPill price={entry.price} ours={ours} compact />
+    </span>
   );
 }
 
@@ -613,8 +695,15 @@ function RecentCard({
             {batches.map((row) => (
               <tr key={`list-${row.id}`} className="table__row--clickable" onClick={() => onOpen({ list: String(row.id) })}>
                 <td>
-                  <div className="cell-primary">{row.fileName ?? `List #${row.id}`}</div>
-                  <div className="cell-secondary xs">List of {row.total.toLocaleString('en-GB')}</div>
+                  <div className="list-product">
+                    <span className="thumb thumb--sm thumb--empty" aria-hidden>
+                      ☰
+                    </span>
+                    <div>
+                      <div className="cell-primary">{row.fileName ?? `List #${row.id}`}</div>
+                      <div className="cell-secondary xs">List of {row.total.toLocaleString('en-GB')}</div>
+                    </div>
+                  </div>
                 </td>
                 <td className="num">
                   <span className="badge badge--neutral">{row.products.toLocaleString('en-GB')} products</span>
@@ -625,10 +714,21 @@ function RecentCard({
             {recent.map((row) => (
               <tr key={row.productId} className="table__row--clickable" onClick={() => onOpen({ product: String(row.productId) })}>
                 <td>
-                  <div className="cell-primary">
-                    {row.brand} {row.name}
+                  <div className="list-product">
+                    {row.imageUrl ? (
+                      <img className="thumb thumb--sm" src={row.imageUrl} alt="" loading="lazy" />
+                    ) : (
+                      <span className="thumb thumb--sm thumb--empty" aria-hidden>
+                        ◇
+                      </span>
+                    )}
+                    <div>
+                      <div className="cell-primary">
+                        {row.brand} {row.name}
+                      </div>
+                      <div className="cell-secondary mono xs">{row.sku}</div>
+                    </div>
                   </div>
-                  <div className="cell-secondary mono xs">{row.sku}</div>
                 </td>
                 <td className="num">
                   {row.found > 0 ? (
@@ -649,179 +749,270 @@ function RecentCard({
   );
 }
 
+/* ---------- One product's result ------------------------------------------------- */
+
+/** How a competitor's price sits against ours: what the colour and words say. */
+function gapOf(price: number | null, ours: number | null) {
+  if (price == null || ours == null || ours <= 0) return null;
+  const diff = Math.round((price - ours) * 100) / 100;
+  const pct = (diff / ours) * 100;
+  if (Math.abs(diff) < 0.01) return { tone: 'equal' as const, diff: 0, pct: 0, text: 'Same price as us' };
+  return diff < 0
+    ? { tone: 'higher' as const, diff, pct, text: `${formatMoney(-diff)} cheaper than us` }
+    : { tone: 'lower' as const, diff, pct, text: `${formatMoney(diff)} dearer than us` };
+}
+
+const signedPct = (pct: number) => `${pct > 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%`;
+
+function GapPill({ price, ours, compact = false }: { price: number | null; ours: number | null; compact?: boolean }) {
+  const gap = gapOf(price, ours);
+  if (!gap) return null;
+  if (gap.tone === 'equal') return <span className="gap gap--equal">{compact ? 'Same' : gap.text}</span>;
+  return (
+    <span className={`gap gap--${gap.tone}`}>
+      {compact ? signedPct(gap.pct) : `${gap.text} · ${signedPct(gap.pct)}`}
+    </span>
+  );
+}
+
+function Verdict({ result }: { result: LookupResult }) {
+  const ours = result.product.price;
+  const found = result.competitors.filter((row) => row.status === 'found' && row.price != null);
+  if (result.running && found.length === 0) {
+    return (
+      <div className="verdict verdict--neutral">
+        <span className="spinner" /> Checking every competitor for this exact product…
+      </div>
+    );
+  }
+  if (found.length === 0) {
+    return (
+      <div className="verdict verdict--neutral">
+        No competitor we can read sells this exact product — nothing to compare against.
+      </div>
+    );
+  }
+  if (ours == null) {
+    return <div className="verdict verdict--neutral">Found at {found.length}, but our own price couldn't be read.</div>;
+  }
+  const cheaper = found.filter((row) => row.price! < ours - 0.005).sort((a, b) => a.price! - b.price!);
+  const same = found.filter((row) => Math.abs(row.price! - ours) < 0.005);
+  const of = `${found.length} competitor${found.length === 1 ? '' : 's'}`;
+
+  if (cheaper.length > 0) {
+    const best = cheaper[0]!;
+    const gap = gapOf(best.price, ours)!;
+    return (
+      <div className="verdict verdict--higher">
+        <span className="verdict__icon" aria-hidden>
+          ↓
+        </span>
+        <div>
+          <strong>
+            {best.name} is {formatMoney(ours - best.price!)} cheaper than us ({signedPct(gap.pct)})
+          </strong>
+          <div className="small">
+            {cheaper.length === 1
+              ? `The only one of ${of} below our price.`
+              : `${cheaper.length} of ${of} are below our price.`}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className={`verdict ${same.length > 0 ? 'verdict--equal' : 'verdict--lower'}`}>
+      <span className="verdict__icon" aria-hidden>
+        {same.length > 0 ? '=' : '✓'}
+      </span>
+      <div>
+        <strong>{same.length > 0 ? 'Nobody is cheaper than us' : 'We are the cheapest'}</strong>
+        <div className="small">
+          {same.length > 0
+            ? `${same.map((row) => row.name).join(', ')} match${same.length === 1 ? 'es' : ''} our price; checked against ${of}.`
+            : `Every one of ${of} that sells it charges more.`}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Every price found on one line, with ours marked: where we sit is seen at a
+ * glance, before reading a single number.
+ */
+function PriceLadder({ result }: { result: LookupResult }) {
+  const ours = result.product.price;
+  const found = result.competitors.filter((row) => row.status === 'found' && row.price != null);
+  if (ours == null || found.length === 0) return null;
+  const prices = [ours, ...found.map((row) => row.price!)];
+  const low = Math.min(...prices);
+  const high = Math.max(...prices);
+  const span = high - low;
+  const at = (price: number) => (span === 0 ? 50 : 4 + ((price - low) / span) * 92);
+
+  return (
+    <div className="ladder" aria-label="Prices from lowest to highest">
+      <div className="ladder__track">
+        {found.map((row) => (
+          <span
+            key={row.slug}
+            className={`ladder__dot ladder__dot--${gapOf(row.price, ours)?.tone ?? 'equal'}`}
+            style={{ left: `${at(row.price!)}%` }}
+            title={`${row.name}: ${formatMoney(row.price)}`}
+          >
+            <CompetitorLogo slug={row.slug} displayName={row.name} hasLogo={row.hasLogo} size="sm" />
+          </span>
+        ))}
+        <span className="ladder__us" style={{ left: `${at(ours)}%` }} title={`Us: ${formatMoney(ours)}`}>
+          Us
+        </span>
+      </div>
+      <div className="ladder__ends xs muted">
+        <span>Lowest {formatMoney(low)}</span>
+        <span>Highest {formatMoney(high)}</span>
+      </div>
+    </div>
+  );
+}
+
+function CompetitorTile({ row, ours }: { row: LookupCompetitor; ours: number | null }) {
+  const tone = gapOf(row.price, ours)?.tone ?? 'equal';
+  return (
+    <article className={`ctile ctile--${tone}`}>
+      <header className="ctile__head">
+        <CompetitorLabel slug={row.slug} displayName={row.name} hasLogo={row.hasLogo} className="ctile__name" />
+        {row.inStock === false ? (
+          <span className="badge badge--neutral">Out of stock</span>
+        ) : row.inStock ? (
+          <span className="ctile__stock">In stock</span>
+        ) : null}
+      </header>
+      <div className="ctile__price">
+        {formatMoney(row.price)}
+        {row.onSale && row.wasPrice != null && <span className="ctile__was">was {formatMoney(row.wasPrice)}</span>}
+      </div>
+      <GapPill price={row.price} ours={ours} />
+      <div className="ctile__meta xs muted">
+        Same {row.matchedOn === 'reference' ? 'manufacturer reference' : 'barcode'}
+        {row.seenAt && <> · seen {relativeTime(row.seenAt)}</>}
+      </div>
+      {row.url && (
+        <a className="btn btn--sm ctile__link" href={row.url} target="_blank" rel="noreferrer">
+          View at {row.name} ↗
+        </a>
+      )}
+    </article>
+  );
+}
+
 function ResultCard({ result, onRecheck }: { result: LookupResult; onRecheck: () => void }) {
   const { product } = result;
   const ours = product.price;
 
-  const order: Record<string, number> = { found: 0, checking: 1, error: 2, blocked: 3, not_found: 4, not_checked: 5 };
-  const rows = [...result.competitors].sort(
-    (a, b) => order[a.status]! - order[b.status]! || (a.price ?? 0) - (b.price ?? 0),
+  const found = result.competitors
+    .filter((row) => row.status === 'found' && row.price != null)
+    .sort((a, b) => a.price! - b.price!);
+  const checking = result.competitors.filter((row) => row.status === 'checking');
+  const notSold = result.competitors.filter((row) => row.status === 'not_found');
+  const couldNot = result.competitors.filter(
+    (row) => row.status === 'blocked' || row.status === 'error' || (row.status === 'found' && row.price == null),
   );
-  const found = rows.filter((row) => row.status === 'found');
-  const cheapest = found.reduce<LookupCompetitor | null>(
-    (best, row) => (row.price != null && (!best || row.price < (best.price ?? Infinity)) ? row : best),
-    null,
-  );
+  const notChecked = result.competitors.filter((row) => row.status === 'not_checked');
 
   return (
     <Card bodyless>
-      <div className="check-product">
-        {product.imageUrl ? (
-          <img className="check-product__image" src={product.imageUrl} alt="" />
-        ) : (
-          <div className="check-product__image check-product__image--empty" aria-hidden>
-            ◇
-          </div>
-        )}
-        <div className="grow">
-          <div className="topbar__eyebrow">{product.brand}</div>
-          <h2 className="check-product__name">{product.name}</h2>
-          <div className="mono xs muted">
-            SKU {product.sku}
-            {product.mpn && <> · Ref {product.mpn}</>}
-            {product.gtin && <> · Barcode {product.gtin}</>}
-          </div>
-          {product.url && (
-            <a className="small" href={product.url} target="_blank" rel="noreferrer">
-              View on {product.siteName ?? 'our site'} ↗
-            </a>
+      <div className="result">
+        <div className="result__media">
+          {product.imageUrl ? (
+            <img className="result__image" src={product.imageUrl} alt={product.name} />
+          ) : (
+            <div className="result__image result__image--empty" aria-hidden>
+              ◇
+            </div>
           )}
         </div>
-        <div className="check-product__price">
-          <div className="xs muted">Our price{product.siteName ? ` · ${product.siteName}` : ''}</div>
-          <div className="check-product__amount">{formatMoney(ours)}</div>
-          {product.wasPrice != null && <div className="xs muted">was {formatMoney(product.wasPrice)}</div>}
+        <div className="result__info">
+          <div className="result__brand">{product.brand}</div>
+          <h2 className="result__name">{product.name}</h2>
+          <div className="result__ids">
+            <span className="chip">SKU {product.sku}</span>
+            {product.mpn && <span className="chip">Ref {product.mpn}</span>}
+            {product.gtin && <span className="chip">Barcode {product.gtin}</span>}
+          </div>
+          <div className="result__ours">
+            <div>
+              <div className="xs muted">Our price{product.siteName ? ` at ${product.siteName}` : ''}</div>
+              <div className="result__amount">{formatMoney(ours)}</div>
+              {product.wasPrice != null && product.wasPrice !== ours && (
+                <div className="xs muted">was {formatMoney(product.wasPrice)}</div>
+              )}
+            </div>
+            {product.url && (
+              <a className="btn btn--sm" href={product.url} target="_blank" rel="noreferrer">
+                View on {product.siteName ?? 'our site'} ↗
+              </a>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="check-summary">
-        {result.running ? (
-          <span>
-            <span className="spinner" /> Checking competitors…
-          </span>
-        ) : found.length === 0 ? (
-          <span>No competitor we can read sells this exact product.</span>
-        ) : (
-          <span>
-            Found at <strong>{found.length}</strong> competitor{found.length === 1 ? '' : 's'}.
-            {cheapest && ours != null && cheapest.price != null && (
-              <>
-                {' '}
-                {cheapest.price < ours ? (
-                  <strong className="text-higher">
-                    {cheapest.name} is {formatMoney(ours - cheapest.price)} cheaper than us.
-                  </strong>
-                ) : cheapest.price === ours ? (
-                  <>Nobody is cheaper than us.</>
-                ) : (
-                  <strong className="text-lower">We are the cheapest.</strong>
-                )}
-              </>
-            )}
-          </span>
-        )}
-        <span className="grow" />
-        {!result.running && (
-          <>
-            <span className="xs muted">Checked {relativeTime(result.checkedAt)}</span>
-            <button type="button" className="btn btn--sm" onClick={onRecheck}>
-              Check again
-            </button>
-          </>
-        )}
-      </div>
+      <div className="result__body">
+        <Verdict result={result} />
+        <PriceLadder result={result} />
 
-      <div className="table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Competitor</th>
-              <th className="num">Their price</th>
-              <th>Compared with ours</th>
-              <th>Stock</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.slug}>
-                <td>
-                  <CompetitorLabel slug={row.slug} displayName={row.name} hasLogo={false} className="cell-primary" />
-                  {row.title && <div className="cell-secondary xs truncate">{row.title}</div>}
-                </td>
-                <td className="num">
-                  {row.price != null ? (
-                    <>
-                      <strong>{formatMoney(row.price)}</strong>
-                      {row.onSale && row.wasPrice != null && (
-                        <div className="xs muted">was {formatMoney(row.wasPrice)}</div>
-                      )}
-                    </>
-                  ) : (
-                    <span className="muted">—</span>
-                  )}
-                </td>
-                <td>
-                  <Comparison row={row} ours={ours} />
-                </td>
-                <td className="small">
-                  {row.status === 'found'
-                    ? row.inStock === false
-                      ? 'Out of stock'
-                      : row.inStock
-                        ? 'In stock'
-                        : '—'
-                    : ''}
-                </td>
-                <td className="num">
-                  {row.url && (
-                    <a className="btn btn--sm" href={row.url} target="_blank" rel="noreferrer">
-                      View ↗
-                    </a>
-                  )}
-                </td>
-              </tr>
+        {(found.length > 0 || checking.length > 0) && (
+          <div className="ctiles">
+            {found.map((row) => (
+              <CompetitorTile key={row.slug} row={row} ours={ours} />
             ))}
-          </tbody>
-        </table>
+            {checking.map((row) => (
+              <article key={row.slug} className="ctile ctile--pending">
+                <header className="ctile__head">
+                  <CompetitorLabel slug={row.slug} displayName={row.name} hasLogo={row.hasLogo} className="ctile__name" />
+                </header>
+                <div className="small muted">
+                  <span className="spinner" /> Checking…
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+
+        <div className="result__foot">
+          <div className="result__elsewhere small">
+            {notSold.length > 0 && (
+              <span>
+                <span className="muted">Not sold at </span>
+                {notSold.map((row) => row.name).join(', ')}
+              </span>
+            )}
+            {couldNot.length > 0 && (
+              <span>
+                <span className="muted">Couldn't check </span>
+                {couldNot.map((row) => row.name).join(', ')}
+              </span>
+            )}
+            {notChecked.length > 0 && (
+              <span>
+                <span className="muted">Not checked yet </span>
+                {notChecked.map((row) => row.name).join(', ')}
+              </span>
+            )}
+          </div>
+          {!result.running && (
+            <div className="result__again">
+              <span className="xs muted">Checked {relativeTime(result.checkedAt)}</span>
+              <button type="button" className="btn btn--sm" onClick={onRecheck}>
+                Check again
+              </button>
+            </div>
+          )}
+        </div>
+        {result.competitors.length === 0 && (
+          <EmptyState title="No competitors switched on" body="Turn some on in Admin → Competitors." />
+        )}
       </div>
-      {rows.length === 0 && (
-        <EmptyState title="No competitors switched on" body="Turn some on in Admin → Competitors." />
-      )}
     </Card>
   );
-}
-
-function Comparison({ row, ours }: { row: LookupCompetitor; ours: number | null }) {
-  switch (row.status) {
-    case 'checking':
-      return (
-        <span className="small muted">
-          <span className="spinner" /> Checking…
-        </span>
-      );
-    case 'not_found':
-      return <span className="small muted">Not sold there</span>;
-    case 'not_checked':
-      return <span className="small muted">Not checked yet</span>;
-    case 'blocked':
-      return <span className="badge badge--warn">Couldn't check — site turned us away</span>;
-    case 'error':
-      return <span className="badge badge--warn">{row.note ?? "Couldn't check this time"}</span>;
-    case 'found': {
-      if (row.price == null || ours == null) return <span className="muted">—</span>;
-      const diff = Math.round((row.price - ours) * 100) / 100;
-      if (Math.abs(diff) < 0.01) return <span className="badge badge--equal">Same price</span>;
-      const pct = Math.abs((diff / ours) * 100).toFixed(1);
-      return diff < 0 ? (
-        <span className="badge badge--higher">
-          {formatMoney(-diff)} cheaper than us ({pct}%)
-        </span>
-      ) : (
-        <span className="badge badge--lower">
-          {formatMoney(diff)} dearer than us ({pct}%)
-        </span>
-      );
-    }
-  }
 }

@@ -128,6 +128,8 @@ export type CompetitorStatus = 'found' | 'checking' | 'not_found' | 'blocked' | 
 export interface LookupCompetitor {
   slug: string;
   name: string;
+  /** Whether a logo is saved for this retailer; otherwise initials are shown. */
+  hasLogo: boolean;
   status: CompetitorStatus;
   price: number | null;
   wasPrice: number | null;
@@ -238,6 +240,7 @@ export async function getLookup(productId: number, runId?: number | null): Promi
     const base: LookupCompetitor = {
       slug: competitor.slug,
       name: competitor.display_name,
+      hasLogo: Boolean(competitor.has_logo),
       status: 'not_checked',
       price: null,
       wasPrice: null,
@@ -309,8 +312,9 @@ export async function recentLookups(limit = 12): Promise<
     brand: string;
     looked_up_at: string;
     found: number;
+    image_url: string | null;
   }>(
-    `SELECT p.id, p.internal_sku, p.product_name, p.brand, p.looked_up_at,
+    `SELECT p.id, p.internal_sku, p.product_name, p.brand, p.looked_up_at, p.image_url,
             (SELECT count(*)::int FROM product_matches m
               WHERE m.product_id = p.id AND m.status = 'confirmed' AND m.flagged_at IS NULL) AS found
      FROM products p WHERE p.looked_up_at IS NOT NULL
@@ -324,5 +328,6 @@ export async function recentLookups(limit = 12): Promise<
     brand: row.brand,
     lookedUpAt: row.looked_up_at,
     found: row.found,
+    imageUrl: row.image_url,
   }));
 }
