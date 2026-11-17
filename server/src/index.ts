@@ -20,6 +20,7 @@ import { runsRouter } from './routes/runs.js';
 import { lookupRouter } from './routes/lookup.js';
 import { closeBrowser, warnIfBrowsersPathMisconfigured } from './scraping/browser.js';
 import { syncCompetitorsToDatabase } from './scraping/competitorRegistry.js';
+import { fetchMissingLogos } from './competitors/logos.js';
 
 const app = express();
 
@@ -71,6 +72,9 @@ async function start(): Promise<void> {
   // separate release step; it is a no-op once the schema is current.
   await runMigrations();
   await syncCompetitorsToDatabase();
+  // Logos for any competitor without one, in the background: a slow or
+  // refusing site must not hold up the app starting.
+  void fetchMissingLogos().catch((err) => logger.warn('logos', `logo fetch failed: ${(err as Error).message}`));
 
   const server = app.listen(env.port, () => {
     logger.info('server', `listening on port ${env.port} (${env.nodeEnv})`);

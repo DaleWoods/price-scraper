@@ -1,4 +1,7 @@
+import { env } from '../config/env.js';
+import { logger } from '../lib/logger.js';
 import { query } from '../db/pool.js';
+import { siteFetch } from '../scraping/httpClient.js';
 
 /** Logos are small; anything larger is not a favicon and is refused. */
 const MAX_LOGO_BYTES = 512 * 1024;
@@ -86,13 +89,14 @@ async function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    return await fetch(url, {
+    // The same client and name as the price checks: Beaverbrooks' oversized
+    // response headers defeat the built-in fetch, logos included.
+    return await siteFetch(url, {
       signal: controller.signal,
       redirect: 'follow',
       headers: {
-        // Identify honestly rather than impersonating a browser.
-        'user-agent': 'PriceMonitor/0.1 (+logo fetch)',
-        accept: 'image/avif,image/webp,image/png,image/svg+xml,image/*,*/*;q=0.5',
+        'user-agent': env.scraperUserAgent,
+        accept: 'text/html,image/avif,image/webp,image/png,image/svg+xml,image/*,*/*;q=0.5',
       },
     });
   } finally {
@@ -149,6 +153,49 @@ export function isRenderableImage(
   return sniffImageType(bytes) !== null;
 }
 
+/**
+ * Width in pixels of a PNG, GIF or ICO (its largest image), or null for a
+ * format whose size is not read here (SVG scales; JPEG, WebP, AVIF are taken
+ * as they come).
+ */
+export function imageWidth(bytes: Buffer): number | null {
+  if (bytes.length >= 24 && bytes.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) {
+    return bytes.readUInt32BE(16);
+  }
+  if (bytes.length >= 10 && bytes.subarray(0, 3).toString('latin1') === 'GIF') return bytes.readUInt16LE(6);
+  if (bytes.length >= 6 && bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 1 && bytes[3] === 0) {
+    const count = bytes.readUInt16LE(4);
+    let widest = 0;
+    for (let i = 0; i < count && 6 + i * 16 < bytes.length; i += 1) {
+      widest = Math.max(widest, bytes[6 + i * 16] || 256);
+    }
+    return widest || null;
+  }
+  if (bytes.length >= 30 && bytes.subarray(0, 4).toString('latin1') === 'RIFF' && bytes.subarray(8, 12).toString('latin1') === 'WEBP') {
+    const chunk = bytes.subarray(12, 16).toString('latin1');
+    if (chunk === 'VP8X') return 1 + bytes.readUIntLE(24, 3);
+    if (chunk === 'VP8 ') return bytes.readUInt16LE(26) & 0x3fff;
+    if (chunk === 'VP8L') return 1 + (bytes.readUInt16LE(21) & 0x3fff);
+  }
+  return null;
+}
+
+/** Below this an icon looks soft next to text at the sizes the app uses. */
+const SHARP_WIDTH = 64;
+
+/**
+ * A second source for when a site's own icon is small or the site turns the
+ * request away: Google's public favicon service, which keeps a 128px copy of
+ * most sites' icons. Only the competitor's domain is sent.
+ */
+function iconServiceUrl(baseUrl: string): string | null {
+  try {
+    return `https://www.google.com/s2/favicons?domain=${new URL(baseUrl).hostname}&sz=128`;
+  } catch {
+    return null;
+  }
+}
+
 export function contentTypeFor(declared: string | null, bytes: Buffer): string {
   const sniffed = sniffImageType(bytes);
   if (sniffed) return sniffed;
@@ -172,26 +219,30 @@ export async function refreshCompetitorLogo(competitor: {
   const base = { slug: competitor.slug, displayName: competitor.display_name };
   const candidates: string[] = [];
 
-  if (competitor.logo_url) {
-    candidates.push(competitor.logo_url);
-  } else {
+  // A source named in the competitor's definition, or the one that worked
+  // last time, first; then whatever the home page declares; /favicon.ico last.
+  if (competitor.logo_url) candidates.push(competitor.logo_url);
+  try {
+    const page = await fetchWithTimeout(competitor.base_url);
+    const html = page.ok ? await page.text() : '';
+    candidates.push(...discoverIconUrls(html, competitor.base_url));
+  } catch {
+    // Unreachable home page: still worth trying the conventional path directly.
     try {
-      const page = await fetchWithTimeout(competitor.base_url);
-      const html = page.ok ? await page.text() : '';
-      candidates.push(...discoverIconUrls(html, competitor.base_url));
+      candidates.push(new URL('/favicon.ico', competitor.base_url).toString());
     } catch {
-      // Unreachable site: still worth trying the conventional path directly.
-      try {
-        candidates.push(new URL('/favicon.ico', competitor.base_url).toString());
-      } catch {
-        /* handled by the empty-candidates check below */
-      }
+      /* handled by the empty-candidates check below */
     }
   }
+  const service = iconServiceUrl(competitor.base_url);
+  if (service) candidates.push(service);
 
   let lastError = 'no icon candidates found';
+  // The best image so far. A sharp one ends the search; a small one is kept
+  // in case nothing better turns up.
+  let best: { url: string; bytes: Buffer; type: string; width: number } | null = null;
 
-  for (const url of candidates) {
+  for (const url of [...new Set(candidates)]) {
     try {
       const response = await fetchWithTimeout(url);
       if (!response.ok) {
@@ -206,26 +257,53 @@ export async function refreshCompetitorLogo(competitor: {
         continue;
       }
 
-      await query(
-        `UPDATE competitors
-         SET logo_data = $2, logo_content_type = $3, logo_url = $4,
-             logo_fetched_at = now(), logo_error = NULL, updated_at = now()
-         WHERE slug = $1`,
-        [competitor.slug, bytes, contentTypeFor(declared, bytes), url],
-      );
-
-      return { ...base, status: 'fetched', source: url, bytes: bytes.length };
+      const width = imageWidth(bytes) ?? SHARP_WIDTH;
+      if (!best || width > best.width) best = { url, bytes, type: contentTypeFor(declared, bytes), width };
+      if (width >= SHARP_WIDTH) break;
     } catch (err) {
       lastError = `${url}: ${(err as Error).message}`;
     }
   }
 
-  await query('UPDATE competitors SET logo_error = $2, updated_at = now() WHERE slug = $1', [
-    competitor.slug,
-    lastError,
-  ]);
+  if (best) {
+    await query(
+      `UPDATE competitors
+       SET logo_data = $2, logo_content_type = $3, logo_url = $4,
+           logo_fetched_at = now(), logo_attempted_at = now(), logo_error = NULL, updated_at = now()
+       WHERE slug = $1`,
+      [competitor.slug, best.bytes, best.type, best.url],
+    );
+    return { ...base, status: 'fetched', source: best.url, bytes: best.bytes.length };
+  }
+
+  await query(
+    'UPDATE competitors SET logo_error = $2, logo_attempted_at = now(), updated_at = now() WHERE slug = $1',
+    [competitor.slug, lastError],
+  );
 
   return { ...base, status: 'failed', error: lastError };
+}
+
+/**
+ * Fetch a logo for every competitor that has none, on its own: run at
+ * start-up, so a competitor added to the list gets its logo without anyone
+ * asking. A site that refused is tried again a day later, not on every restart.
+ */
+export async function fetchMissingLogos(): Promise<LogoRefreshResult[]> {
+  const { rows } = await query<{ slug: string; display_name: string; base_url: string; logo_url: string | null }>(
+    `SELECT slug, display_name, base_url, logo_url FROM competitors
+     WHERE logo_data IS NULL
+       AND (logo_attempted_at IS NULL OR logo_attempted_at < now() - interval '1 day')
+     ORDER BY display_name`,
+  );
+  const results: LogoRefreshResult[] = [];
+  for (const row of rows) {
+    const result = await refreshCompetitorLogo(row);
+    results.push(result);
+    if (result.status === 'fetched') logger.info('logos', `fetched ${row.display_name}'s logo from ${result.source}`);
+    else logger.warn('logos', `no logo for ${row.display_name}: ${result.error}`);
+  }
+  return results;
 }
 
 /** Refresh every competitor's logo, sequentially so we stay polite. */
