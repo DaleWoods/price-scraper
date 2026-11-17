@@ -1,3 +1,4 @@
+import { capacity } from '../lib/capacity.js';
 import { query } from '../db/pool.js';
 import type { Competitor, Product, ScrapeRun } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
@@ -414,7 +415,8 @@ const SCOPED_SEARCH_MAX = 500;
 /**
  * How many competitors run concurrently within one scrape run.
  *
- * Every enabled one. Each competitor is a different website, read one page at
+ * Every enabled one on a server with the memory for it, three on a small one
+ * (see lib/capacity.ts). Each competitor is a different website, read one page at
  * a time with its own pause between pages, so reading all of them at once adds
  * nothing to any one retailer's load. It only stops some of them waiting
  * hours for a turn. Pages are read over plain HTTP almost everywhere; the
@@ -422,7 +424,7 @@ const SCOPED_SEARCH_MAX = 500;
  * fetcher.ts, so this is mostly waiting, and waiting on twelve sites costs the
  * same as waiting on one.
  */
-const COMPETITOR_CONCURRENCY = 16;
+const COMPETITOR_CONCURRENCY = capacity.competitorsAtOnce;
 
 /** Run every array item through fn, never more than `limit` in flight at once. */
 async function mapWithConcurrency<T, R>(

@@ -22,6 +22,7 @@ import { closeBrowser, warnIfBrowsersPathMisconfigured } from './scraping/browse
 import { syncCompetitorsToDatabase } from './scraping/competitorRegistry.js';
 import { fetchMissingLogos } from './competitors/logos.js';
 import { markInterruptedRuns } from './scraping/runner.js';
+import { capacity } from './lib/capacity.js';
 import { resumeBatches } from './services/lookupBatch.js';
 
 const app = express();
@@ -74,6 +75,11 @@ async function start(): Promise<void> {
   // separate release step; it is a no-op once the schema is current.
   await runMigrations();
   await syncCompetitorsToDatabase();
+  logger.info(
+    'server',
+    `memory ${capacity.memoryMb} MB: reading ${capacity.competitorsAtOnce} competitor(s) at once, ` +
+      `${capacity.pagesPerSite} page(s) each, ${capacity.browserPages} browser page(s)`,
+  );
   // Runs and lists cut off by the last restart: the runs are marked stopped,
   // and lists are picked up again rather than left waiting for ever.
   const interrupted = await markInterruptedRuns();

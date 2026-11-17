@@ -1,3 +1,4 @@
+import { capacity } from '../lib/capacity.js';
 import { env } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 import type { Competitor } from '../domain/types.js';
@@ -183,7 +184,7 @@ async function httpFetch(url: string, userAgent: string): Promise<FetchedPage> {
  * few that do need a browser from all needing one in the same instant, which
  * is what once starved a small server into failing its own health check.
  */
-const MAX_BROWSER_PAGES = 2;
+const MAX_BROWSER_PAGES = capacity.browserPages;
 let browserPagesInUse = 0;
 const browserWaiters: (() => void)[] = [];
 

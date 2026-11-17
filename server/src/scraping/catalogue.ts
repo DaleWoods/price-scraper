@@ -1,3 +1,4 @@
+import { capacity } from '../lib/capacity.js';
 import { env } from '../config/env.js';
 import { query } from '../db/pool.js';
 import type { Competitor } from '../domain/types.js';
@@ -265,7 +266,8 @@ function classifyFailure(kind: string): Exclude<CatalogueStatus, 'ok'> {
  * a second page mostly overlaps the seconds a slow site takes to answer.
  */
 export function pagesAtOnce(competitor: Competitor): number {
-  return Math.max(1, Math.min(competitor.config.rateLimit?.maxConcurrent ?? 1, env.maxConcurrentScrapes));
+  // Never more than the server's memory allows (lib/capacity.ts).
+  return Math.max(1, Math.min(competitor.config.rateLimit?.maxConcurrent ?? 1, env.maxConcurrentScrapes, capacity.pagesPerSite));
 }
 
 export async function harvestCatalogue(
