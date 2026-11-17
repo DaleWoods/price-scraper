@@ -443,6 +443,22 @@ async function runCompetitor(
   let skipped = 0;
   const runStartedAt = new Date();
 
+  // On a check of every product, the price of everything already matched here
+  // is re-read first. That is the answer people come back for in the morning
+  // — has anyone changed a price overnight — and it takes minutes, where
+  // reading the catalogue for new products can take hours. Done first, it is
+  // done even if the night's reading is cut short by the time limit or a
+  // restart. Anything the catalogue reading then finds new is priced from the
+  // page it reads, and the pass at the end picks up whatever is left.
+  if (productIds == null && (mode === 'prices' || mode === 'both')) {
+    updateCompetitorProgress(runId, competitor.slug, { stage: 'repricing' });
+    const known = await scrapeConfirmedMatches(runId, competitor, limit, null, unblockerBudget, (done, total) =>
+      updateCompetitorProgress(runId, competitor.slug, { pricesChecked: done, pricesTotal: total }),
+    );
+    ok += known.ok;
+    errored += known.errored;
+  }
+
   // Discovery first, then prices. A match auto-confirmed by this run is then
   // priced by this run, so one scan answers "is it listed there, and for how
   // much" — which is the whole question. The other order left a freshly
@@ -618,6 +634,7 @@ async function scrapeConfirmedMatches(
   limit: number | null,
   productIds: number[] | null,
   unblockerBudget: UnblockerBudget,
+  onProgress?: (done: number, total: number) => void,
 ): Promise<{ ok: number; errored: number }> {
   const { rows: matches } = await query<MatchRow>(
     `SELECT m.id AS match_id, m.product_id, m.competitor_id, m.competitor_url,
@@ -646,7 +663,8 @@ async function scrapeConfirmedMatches(
   let ok = 0;
   let errored = 0;
 
-  for (const match of matches) {
+  for (const [index, match] of matches.entries()) {
+    onProgress?.(index, matches.length);
     const startedAt = Date.now();
     try {
       const { page, listing } = await fetchAndExtract(competitor, match.competitor_url, {
@@ -752,6 +770,7 @@ async function scrapeConfirmedMatches(
       errored += 1;
     }
   }
+  onProgress?.(matches.length, matches.length);
 
   return { ok, errored };
 }

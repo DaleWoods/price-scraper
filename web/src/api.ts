@@ -617,10 +617,12 @@ export interface LogoRefreshResult {
 export interface RunProgressCompetitor {
   slug: string;
   name: string;
-  stage: 'waiting' | 'reading' | 'matching' | 'pricing' | 'done' | 'failed';
+  stage: 'waiting' | 'repricing' | 'reading' | 'matching' | 'pricing' | 'done' | 'failed';
   pagesRead: number;
   pagesTotal: number;
   matched: number;
+  pricesChecked?: number;
+  pricesTotal?: number;
   note: string | null;
   readingSince?: string | null;
 }

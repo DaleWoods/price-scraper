@@ -9,16 +9,31 @@ import { api, type RunProgress, type RunProgressCompetitor } from '../api';
  * our products, then recording prices. Reading is shown page by page; the two
  * short stages after it make up the last part of each bar.
  */
+/**
+ * The work for one competitor, in pages: the prices of products already
+ * matched there, re-read first, then their catalogue.
+ */
+function workOf(entry: RunProgressCompetitor): number {
+  return (entry.pricesTotal ?? 0) + entry.pagesTotal;
+}
+
 function fractionOf(entry: RunProgressCompetitor): number {
   switch (entry.stage) {
     case 'waiting':
       return 0;
-    case 'reading':
-      return entry.pagesTotal > 0 ? 0.85 * Math.min(1, entry.pagesRead / entry.pagesTotal) : 0.02;
+    case 'repricing': {
+      const total = entry.pricesTotal ?? 0;
+      return total > 0 ? 0.15 * Math.min(1, (entry.pricesChecked ?? 0) / total) : 0.01;
+    }
+    case 'reading': {
+      const work = workOf(entry);
+      if (work <= 0 || entry.pagesTotal <= 0) return 0.02;
+      return 0.9 * Math.min(1, ((entry.pricesChecked ?? 0) + entry.pagesRead) / work);
+    }
     case 'matching':
-      return 0.88;
+      return 0.92;
     case 'pricing':
-      return 0.93;
+      return 0.96;
     default:
       return 1;
   }
@@ -38,6 +53,10 @@ function describe(entry: RunProgressCompetitor): string {
   switch (entry.stage) {
     case 'waiting':
       return 'Starting…';
+    case 'repricing':
+      return (entry.pricesTotal ?? 0) > 0
+        ? `Re-checking today's price of the ${(entry.pricesTotal ?? 0).toLocaleString('en-GB')} products already matched — ${(entry.pricesChecked ?? 0).toLocaleString('en-GB')} done`
+        : 'Re-checking prices of products already matched…';
     case 'reading': {
       if (entry.pagesTotal <= 0) return 'Finding their product pages…';
       const left = secondsLeft(entry);
@@ -49,11 +68,12 @@ function describe(entry: RunProgressCompetitor): string {
     case 'matching':
       return 'Matching against our products…';
     case 'pricing':
-      return `Recording prices — ${entry.matched.toLocaleString('en-GB')} of our products found here`;
+      return `Pricing what was newly found — ${entry.matched.toLocaleString('en-GB')} new matches here`;
     case 'done':
       return entry.pagesTotal === 0 && entry.matched === 0
         ? 'Nothing to read — no product pages could be listed for this site'
-        : `Done — ${entry.matched.toLocaleString('en-GB')} of our products found here`;
+        : `Done — ${((entry.pricesTotal ?? 0) + entry.matched).toLocaleString('en-GB')} of our products priced here` +
+          ((entry.pricesTotal ?? 0) > 0 && entry.matched > 0 ? ` (${entry.matched.toLocaleString('en-GB')} newly found)` : '');
     case 'failed':
       return 'Stopped before finishing';
   }
@@ -117,7 +137,11 @@ export function RunProgressPanel({
   const typical = known.length > 0 ? known.reduce((sum, entry) => sum + entry.pagesTotal, 0) / known.length : 1;
   // A competitor that finished with nothing to read was no work at all.
   const weight = (entry: RunProgressCompetitor) =>
-    entry.pagesTotal > 0 ? entry.pagesTotal : entry.stage === 'done' || entry.stage === 'failed' ? 0 : typical;
+    entry.pagesTotal > 0
+      ? workOf(entry)
+      : entry.stage === 'done' || entry.stage === 'failed'
+        ? (entry.pricesTotal ?? 0)
+        : typical + (entry.pricesTotal ?? 0);
   const totalWeight = entries.reduce((sum, entry) => sum + weight(entry), 0);
   const overall =
     totalWeight === 0 ? 0 : entries.reduce((sum, entry) => sum + weight(entry) * fractionOf(entry), 0) / totalWeight;
@@ -125,7 +149,9 @@ export function RunProgressPanel({
   // Every competitor reads at the same time, so the check ends when the
   // slowest one does: the time left is the longest of theirs, each from its
   // own pace. Shown once every one still reading has a pace to judge by.
-  const reading = entries.filter((entry) => entry.stage === 'reading' || entry.stage === 'waiting');
+  const reading = entries.filter(
+    (entry) => entry.stage === 'reading' || entry.stage === 'waiting' || entry.stage === 'repricing',
+  );
   const lefts = reading.map(secondsLeft);
   const remaining =
     running && reading.length > 0 && lefts.every((left) => left != null)
@@ -171,8 +197,9 @@ export function RunProgressPanel({
       {running && (
         <p className="xs muted" style={{ margin: 0 }}>
           Runs on the server — you can leave this page and come back. Prices appear in the table as each competitor
-          finishes. The first check is the slow one, because it reads every product page each competitor has; after
-          that, each check only reads their new pages and a seventh of the rest, so it takes a fraction of the time.
+          finishes. Each competitor starts by re-checking today's price of every product already matched there, so
+          overnight price changes come in first. Then it reads their range for products not yet found — slow the first
+          time, much quicker after, because only their new pages and a seventh of the rest need reading again.
         </p>
       )}
     </div>

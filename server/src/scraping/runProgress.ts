@@ -9,7 +9,7 @@
  * it is about what is happening now, so nothing needs storing, and a restart
  * (which ends the run anyway) starts it afresh.
  */
-export type CompetitorStage = 'waiting' | 'reading' | 'matching' | 'pricing' | 'done' | 'failed';
+export type CompetitorStage = 'waiting' | 'repricing' | 'reading' | 'matching' | 'pricing' | 'done' | 'failed';
 
 export interface CompetitorProgress {
   slug: string;
@@ -20,6 +20,9 @@ export interface CompetitorProgress {
   pagesTotal: number;
   /** Our products found at this competitor by this run. */
   matched: number;
+  /** Products already matched here whose price has been re-read, of how many. */
+  pricesChecked: number;
+  pricesTotal: number;
   /** Set when the run stopped short, e.g. at its time limit. */
   note: string | null;
   /** When reading began, so the page can work out this site's own pace. */
@@ -49,6 +52,8 @@ export function beginRunProgress(runId: number, competitors: { slug: string; dis
       pagesRead: 0,
       pagesTotal: 0,
       matched: 0,
+      pricesChecked: 0,
+      pricesTotal: 0,
       note: null,
       readingSince: null,
     })),
