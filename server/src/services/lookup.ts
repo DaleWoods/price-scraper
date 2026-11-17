@@ -113,12 +113,12 @@ export async function saveOwnProduct(own: OwnProduct, existingId: number | null)
   const id = existingId ?? rows[0]!.id;
 
   await query(
-    `INSERT INTO fascia_prices (product_id, fascia_id, price, regular_price, on_sale, currency, product_url)
-     SELECT $1, f.id, $3, $4, $5, 'GBP', $6 FROM fascias f WHERE f.code = $2
+    `INSERT INTO fascia_prices (product_id, fascia_id, price, regular_price, on_sale, currency, product_url, in_stock)
+     SELECT $1, f.id, $3, $4, $5, 'GBP', $6, $7 FROM fascias f WHERE f.code = $2
      ON CONFLICT (product_id, fascia_id) DO UPDATE SET
        price = EXCLUDED.price, regular_price = EXCLUDED.regular_price, on_sale = EXCLUDED.on_sale,
-       product_url = EXCLUDED.product_url, imported_at = now()`,
-    [id, own.fasciaCode, own.price, own.wasPrice, own.wasPrice != null, own.url],
+       product_url = EXCLUDED.product_url, in_stock = EXCLUDED.in_stock, imported_at = now()`,
+    [id, own.fasciaCode, own.price, own.wasPrice, own.wasPrice != null, own.url, own.inStock],
   );
   return id;
 }
@@ -158,6 +158,8 @@ export interface LookupResult {
     wasPrice: number | null;
     /** Our price is a reduction on this site. */
     onSale: boolean;
+    /** false: out of stock on our site. null: not known. */
+    inStock: boolean | null;
   };
   running: boolean;
   checkedAt: string | null;
@@ -204,13 +206,26 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
     regular_price: string | null;
     on_sale: boolean | null;
     product_url: string | null;
+    our_in_stock: boolean | null;
+    oos_price: string | null;
+    oos_url: string | null;
+    oos_site: string | null;
+    oos_known: boolean;
   }>(
-    `SELECT p.*, f.name AS site_name, fp.price, fp.regular_price, fp.on_sale, fp.product_url
+    `SELECT p.*, f.name AS site_name, fp.price, fp.regular_price, fp.on_sale, fp.product_url,
+            fp.in_stock AS our_in_stock,
+            oos.price AS oos_price, oos.product_url AS oos_url, oos.site_name AS oos_site,
+            (oos.product_id IS NOT NULL) AS oos_known
      FROM products p
      LEFT JOIN LATERAL (
        SELECT * FROM fascia_prices WHERE product_id = p.id ORDER BY imported_at DESC LIMIT 1
      ) fp ON TRUE
      LEFT JOIN fascias f ON f.id = fp.fascia_id
+     LEFT JOIN LATERAL (
+       SELECT o.product_id, o.price, o.product_url, ofa.name AS site_name
+       FROM fascia_out_of_stock o JOIN fascias ofa ON ofa.id = o.fascia_id
+       WHERE o.product_id = p.id ORDER BY o.recorded_at DESC LIMIT 1
+     ) oos ON TRUE
      WHERE p.id = ANY($1::bigint[])`,
     [productIds],
   );
@@ -322,7 +337,10 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
       return { ...base, status: running ? 'checking' : 'not_found' };
     });
 
-    const price = product.price != null ? Number(product.price) : null;
+    // No price to compare, but the feed says why: out of stock on our site.
+    const outOfStock = product.price == null && product.oos_known;
+    const price =
+      product.price != null ? Number(product.price) : product.oos_price != null ? Number(product.oos_price) : null;
     const regular = product.regular_price != null ? Number(product.regular_price) : null;
     results.push({
       product: {
@@ -332,9 +350,10 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
         brand: product.brand,
         mpn: product.mpn ?? (product.ean_mpn && !/^[0-9]{12,14}$/.test(product.ean_mpn) ? product.ean_mpn : null),
         gtin: product.gtin,
-        url: product.product_url ?? product.our_product_url,
+        url: product.product_url ?? product.oos_url ?? product.our_product_url,
         imageUrl: product.image_url,
-        siteName: product.site_name,
+        siteName: product.site_name ?? product.oos_site,
+        inStock: outOfStock ? false : product.price != null ? (product.our_in_stock ?? true) : null,
         price,
         // A "was" price is only a sale when it is above today's price.
         wasPrice: regular != null && price != null && regular > price ? regular : null,

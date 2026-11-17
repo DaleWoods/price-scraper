@@ -775,6 +775,8 @@ export interface LookupResult {
     price: number | null;
     wasPrice: number | null;
     onSale?: boolean;
+    /** false: out of stock on our site. null: not known. */
+    inStock?: boolean | null;
   };
   running: boolean;
   checkedAt: string | null;

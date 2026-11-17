@@ -498,6 +498,19 @@ export function ComparisonPage() {
                           <div className="cell-secondary">
                             <span className="mono">{row.product.internal_sku}</span>
                             {productDetail(row.product) && <span> · {productDetail(row.product)}</span>}
+                            {row.product.our_product_url && (
+                              <>
+                                {' · '}
+                                <a
+                                  href={row.product.our_product_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  Our page ↗
+                                </a>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>

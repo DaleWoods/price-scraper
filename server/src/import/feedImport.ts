@@ -210,6 +210,8 @@ export async function importFeed(
     image: string | null;
     specs: string;
     price: { amount: number; regular: number | null; onSale: boolean; currency: string } | null;
+    /** Set when the feed marks the product out of stock: the price it gave, if readable. */
+    outOfStock: { amount: number | null } | null;
   }
 
   const parsed: ParsedProduct[] = [];
@@ -325,10 +327,37 @@ export async function importFeed(
              on_sale        = EXCLUDED.on_sale,
              currency       = EXCLUDED.currency,
              imported_at    = now(),
+             in_stock       = NULL,
              product_url    = EXCLUDED.product_url`,
           values,
         );
         result.pricesWritten += tuples.length;
+      }
+
+      // Out of stock: no price to compare, but remembered as out of stock —
+      // with its price and page — so it is shown as that and not as a blank.
+      const unavailable = batch.filter((product) => product.outOfStock !== null);
+      for (const chunk of chunked(unavailable, WRITE_CHUNK)) {
+        const values: unknown[] = [];
+        const tuples: string[] = [];
+        const seen = new Set<number>();
+        for (const product of chunk) {
+          const productId = skuToId.get(product.sku);
+          if (productId === undefined || seen.has(productId)) continue;
+          seen.add(productId);
+          const base = values.length;
+          values.push(productId, fascia.id, product.outOfStock!.amount, product.link, feedImportId);
+          tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, now())`);
+        }
+        if (tuples.length === 0) continue;
+        await client.query(
+          `INSERT INTO fascia_out_of_stock (product_id, fascia_id, price, product_url, feed_import_id, recorded_at)
+           VALUES ${tuples.join(', ')}
+           ON CONFLICT (product_id, fascia_id) DO UPDATE SET
+             price = EXCLUDED.price, product_url = EXCLUDED.product_url,
+             feed_import_id = EXCLUDED.feed_import_id, recorded_at = now()`,
+          values,
+        );
       }
     };
 
@@ -383,6 +412,7 @@ export async function importFeed(
       if (groupId) specs.item_group_id = groupId;
 
       let price: ParsedProduct['price'] = null;
+      let outOfStock: ParsedProduct['outOfStock'] = null;
       if (get('price_visible').toUpperCase() === 'FALSE') {
         // Not shown to customers, so there is nothing to compare.
         result.priceHidden += 1;
@@ -392,6 +422,14 @@ export async function importFeed(
         // like any other product the feed has stopped pricing (Spec: the feed
         // is authoritative for what a fascia sells).
         result.outOfStock += 1;
+        const regular = parseFeedPrice(get('price'));
+        const sale = parseFeedPrice(get('sale_price'));
+        const useSale =
+          regular !== null &&
+          sale !== null &&
+          sale.amount < regular.amount &&
+          isSaleWindowOpen(get('sale_price_effective_date'));
+        outOfStock = { amount: useSale ? sale!.amount : (regular?.amount ?? null) };
       } else {
         const regular = parseFeedPrice(get('price'));
         if (!regular) {
@@ -438,6 +476,7 @@ export async function importFeed(
           : null,
         specs: JSON.stringify(specs),
         price,
+        outOfStock,
       });
       if (parsed.length >= WRITE_CHUNK) {
         await flush();
@@ -463,6 +502,16 @@ export async function importFeed(
       [fascia.id, feedImportId],
     );
     result.stalePricesRemoved = stale ?? 0;
+
+    // Back in stock, or gone from the feed: no longer "out of stock".
+    await client.query(
+      `DELETE FROM fascia_out_of_stock o
+       WHERE o.fascia_id = $1
+         AND (o.feed_import_id IS DISTINCT FROM $2
+              OR EXISTS (SELECT 1 FROM fascia_prices fp
+                         WHERE fp.product_id = o.product_id AND fp.fascia_id = o.fascia_id))`,
+      [fascia.id, feedImportId],
+    );
 
     // A product with no price at any fascia is not currently sold by us.
     const { rowCount: delisted } = await client.query(

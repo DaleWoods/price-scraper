@@ -201,6 +201,36 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
     assert.deepEqual(await listedSkus(), [skus[2]]);
   });
 
+  it('remembers an out-of-stock product as out of stock, with its price, until it is back', async () => {
+    await importFeed(
+      feed([row(skus[0]!, '100.0 GBP', { availability: 'out of stock' }), row(skus[1]!, '200.0 GBP')]),
+      'oos.tsv',
+      fasciaCode,
+    );
+    const held = async () =>
+      (
+        await query<{ internal_sku: string; price: string | null }>(
+          `SELECT p.internal_sku, o.price FROM fascia_out_of_stock o
+           JOIN products p ON p.id = o.product_id
+           WHERE p.internal_sku = ANY($1::text[]) ORDER BY p.internal_sku`,
+          [skus],
+        )
+      ).rows.map((r) => [r.internal_sku, r.price == null ? null : Number(r.price)]);
+    assert.deepEqual(await held(), [[skus[0], 100]]);
+
+    const { getLookups } = await import('../src/services/lookup.ts');
+    const { rows: ids } = await query<{ id: number }>('SELECT id FROM products WHERE internal_sku = $1', [skus[0]]);
+    const [shown] = await getLookups([Number(ids[0]!.id)], null);
+    assert.equal(shown!.product.inStock, false);
+    assert.equal(shown!.product.price, 100);
+
+    // Back in stock on the next feed: no longer out of stock.
+    await importFeed(feed([row(skus[0]!, '100.0 GBP'), row(skus[1]!, '200.0 GBP')]), 'back.tsv', fasciaCode);
+    assert.deepEqual(await held(), []);
+    const [again] = await getLookups([Number(ids[0]!.id)], null);
+    assert.equal(again!.product.inStock, true);
+  });
+
   it('is not thrown by an unfamiliar availability value — fails open rather than dropping the whole feed', async () => {
     const result = await importFeed(
       feed([row(skus[0]!, '100.0 GBP', { availability: 'special_order' })]),

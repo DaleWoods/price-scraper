@@ -481,15 +481,34 @@ function BatchCard({ batchId }: { batchId: number }) {
                         <a className="cell-primary" href={`/check?product=${product.product.id}`}>
                           {product.product.name}
                         </a>
-                        <div className="cell-secondary mono xs">{product.product.sku}</div>
+                        <div className="cell-secondary xs">
+                          <span className="mono">{product.product.sku}</span>
+                          {product.product.url && (
+                            <>
+                              {' · '}
+                              <a href={product.product.url} target="_blank" rel="noreferrer">
+                                View on {product.product.siteName ?? 'our site'} ↗
+                              </a>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </td>
                   <td className="num">
                     <span className="price-cell">
-                      <strong>{formatMoney(product.product.price)}</strong>
+                      {product.product.price != null && <strong>{formatMoney(product.product.price)}</strong>}
                       {(product.product.onSale || product.product.wasPrice != null) && (
                         <span className="tag tag--sale tag--sm">Our sale</span>
+                      )}
+                      {product.product.inStock === false && <span className="tag tag--oos tag--sm">Out of stock</span>}
+                      {product.product.price == null && product.product.inStock !== false && (
+                        <span
+                          className="xs muted"
+                          title="Our feed gives no price for this product: it is out of stock or its price is hidden. Update from the feeds to see which."
+                        >
+                          No price in our feed
+                        </span>
                       )}
                     </span>
                   </td>
@@ -512,9 +531,27 @@ function PriceCell({ entry, ours }: { entry: LookupCompetitor | undefined; ours:
   if (!entry) return <span className="muted">—</span>;
   if (entry.status === 'checking') return <span className="spinner" />;
   if (entry.status === 'blocked' || entry.status === 'error') {
-    return <span className="xs muted" title={entry.note ?? undefined}>couldn't check</span>;
+    // They do list it (there is a page), but its price could not be read.
+    if (entry.url) {
+      return (
+        <span className="price-cell">
+          <a className="xs" href={entry.url} target="_blank" rel="noreferrer" title={entry.note ?? undefined}>
+            Listed, no price read ↗
+          </a>
+          {entry.inStock === false && <span className="tag tag--oos tag--sm">Out of stock</span>}
+        </span>
+      );
+    }
+    return <span className="xs muted" title={entry.note ?? undefined}>Couldn't check</span>;
   }
-  if (entry.status !== 'found' || entry.price == null) return <span className="muted">—</span>;
+  if (entry.status === 'not_checked') return <span className="xs muted">Not checked yet</span>;
+  if (entry.status !== 'found' || entry.price == null) {
+    return (
+      <span className="xs muted" title="No product with the same barcode or reference was found on this site.">
+        Not sold here
+      </span>
+    );
+  }
   const tone =
     ours == null ? '' : entry.price < ours - 0.005 ? 'price--higher' : entry.price > ours + 0.005 ? 'price--lower' : '';
   return (
@@ -1043,6 +1080,7 @@ function ResultCard({ result, onRecheck }: { result: LookupResult; onRecheck: ()
               <div className="result__amount">
                 {formatMoney(ours)}
                 {(product.onSale || product.wasPrice != null) && <span className="tag tag--sale">On sale</span>}
+                {product.inStock === false && <span className="tag tag--oos">Out of stock</span>}
               </div>
               {product.wasPrice != null && ours != null && (
                 <div className="small muted">
