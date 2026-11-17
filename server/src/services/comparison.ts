@@ -169,7 +169,7 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
   params.push(fascia?.id ?? null);
 
   const { rows: products } = await query<Product & { total_count: number }>(
-    `SELECT p.id, p.internal_sku, p.brand, p.product_name, p.ean_mpn, p.category,
+    `SELECT p.id, p.internal_sku, p.brand, p.product_name, p.ean_mpn, p.category, p.image_url,
             -- Per-fascia when we have it — the same SKU can have a different
             -- page at each of our sites — falling back to the single shared
             -- column for a product with no fascia_prices row at all.

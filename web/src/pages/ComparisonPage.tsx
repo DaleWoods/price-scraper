@@ -27,6 +27,7 @@ import {
 } from '../components/ui';
 import { CompetitorLabel } from '../components/CompetitorLogo';
 import { PriceHistoryChart } from '../components/PriceHistoryChart';
+import { ProductImage } from '../components/ProductImage';
 
 type PositionFilter = PricePosition | 'unmatched' | 'awaiting_price' | '';
 
@@ -415,14 +416,22 @@ export function ComparisonPage() {
                     onClick={() => setSelected(row)}
                   >
                     <td>
-                      <div className="cell-primary truncate" style={{ maxWidth: 300 }}>
-                        {row.product.product_name}
-                      </div>
-                      <div className="cell-secondary">
-                        <span className="mono">{row.product.internal_sku}</span>
-                        {productDetail(row.product) && (
-                          <span> · {productDetail(row.product)}</span>
-                        )}
+                      <div className="list-product">
+                        <ProductImage
+                          className="thumb"
+                          imageUrl={row.product.image_url}
+                          sku={row.product.internal_sku}
+                          width={52}
+                        />
+                        <div style={{ minWidth: 0 }}>
+                          <div className="cell-primary truncate" style={{ maxWidth: 300 }}>
+                            {row.product.product_name}
+                          </div>
+                          <div className="cell-secondary">
+                            <span className="mono">{row.product.internal_sku}</span>
+                            {productDetail(row.product) && <span> · {productDetail(row.product)}</span>}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td className="nowrap">
@@ -605,6 +614,13 @@ function ProductDrawer({
       <div className="drawer-backdrop" onClick={onClose} />
       <aside className="drawer" role="dialog" aria-label={row.product.product_name}>
         <header className="drawer__header">
+          <ProductImage
+            className="drawer__image"
+            imageUrl={row.product.image_url}
+            sku={row.product.internal_sku}
+            width={112}
+            alt={row.product.product_name}
+          />
           <div className="grow">
             <div className="topbar__eyebrow">{row.product.brand}</div>
             <h2 style={{ fontSize: 'var(--text-lg)' }}>{row.product.product_name}</h2>
@@ -904,10 +920,21 @@ function CompetitorGrid({
                 onClick={() => onSelect(row)}
               >
                 <td>
-                  <div className="cell-primary truncate" style={{ maxWidth: 280 }}>
-                    {row.product.product_name}
+                  <div className="list-product">
+                    <ProductImage
+                      className="thumb"
+                      imageUrl={row.product.image_url}
+                      sku={row.product.internal_sku}
+                      width={52}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <div className="xs list-product__brand">{row.product.brand}</div>
+                      <div className="cell-primary truncate" style={{ maxWidth: 280 }}>
+                        {row.product.product_name}
+                      </div>
+                      <div className="cell-secondary mono">{row.product.internal_sku}</div>
+                    </div>
                   </div>
-                  <div className="cell-secondary mono">{row.product.internal_sku}</div>
                 </td>
                 <td className="num">
                   {row.product.our_price == null ? (

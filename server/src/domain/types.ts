@@ -15,6 +15,8 @@ export interface Product {
    */
   gtin?: string | null;
   mpn?: string | null;
+  /** The product's main photo on our site, from the feed or the product page. */
+  image_url?: string | null;
   /** Null until a price file supplies it — the catalogue export carries no prices. */
   our_price: number | null;
   /**

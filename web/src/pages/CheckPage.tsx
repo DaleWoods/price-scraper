@@ -15,6 +15,7 @@ import {
   type RecentLookup,
 } from '../api';
 import { CompetitorLabel, CompetitorLogo } from '../components/CompetitorLogo';
+import { ProductImage } from '../components/ProductImage';
 import { Alert, Card, EmptyState, useToast } from '../components/ui';
 import { parseSkuList } from '../skuList';
 
@@ -403,13 +404,7 @@ function BatchCard({ batchId }: { batchId: number }) {
                 <tr key={product.product.id}>
                   <td>
                     <div className="list-product">
-                      {product.product.imageUrl ? (
-                        <img className="thumb" src={product.product.imageUrl} alt="" loading="lazy" />
-                      ) : (
-                        <span className="thumb thumb--empty" aria-hidden>
-                          ◇
-                        </span>
-                      )}
+                      <ProductImage className="thumb" imageUrl={product.product.imageUrl} sku={product.product.sku} width={52} />
                       <div>
                         <div className="xs list-product__brand">{product.product.brand}</div>
                         <a className="cell-primary" href={`/check?product=${product.product.id}`}>
@@ -715,13 +710,7 @@ function RecentCard({
               <tr key={row.productId} className="table__row--clickable" onClick={() => onOpen({ product: String(row.productId) })}>
                 <td>
                   <div className="list-product">
-                    {row.imageUrl ? (
-                      <img className="thumb thumb--sm" src={row.imageUrl} alt="" loading="lazy" />
-                    ) : (
-                      <span className="thumb thumb--sm thumb--empty" aria-hidden>
-                        ◇
-                      </span>
-                    )}
+                    <ProductImage className="thumb thumb--sm" imageUrl={row.imageUrl} sku={row.sku} width={40} />
                     <div>
                       <div className="cell-primary">
                         {row.brand} {row.name}
@@ -924,13 +913,15 @@ function ResultCard({ result, onRecheck }: { result: LookupResult; onRecheck: ()
     <Card bodyless>
       <div className="result">
         <div className="result__media">
-          {product.imageUrl ? (
-            <img className="result__image" src={product.imageUrl} alt={product.name} />
-          ) : (
-            <div className="result__image result__image--empty" aria-hidden>
-              ◇
-            </div>
-          )}
+          <a href={product.url ?? undefined} target="_blank" rel="noreferrer" className="result__image-link">
+            <ProductImage
+              className="result__image"
+              imageUrl={product.imageUrl}
+              sku={product.sku}
+              width={220}
+              alt={product.name}
+            />
+          </a>
         </div>
         <div className="result__info">
           <div className="result__brand">{product.brand}</div>

@@ -1830,3 +1830,21 @@ code {
 .table.table--list td { padding-left: 10px; padding-right: 10px; }
 .table.table--list th:first-child,
 .table.table--list td:first-child { padding-left: var(--sp-6); }
+
+/* Product photos, from our own image server */
+.product-image--empty { display: grid; place-items: center; color: var(--text-faint); background: var(--surface-sunken); }
+.result__image-link { display: block; border-radius: var(--radius-lg); }
+.result__image-link .result__image { transition: transform 0.25s ease, box-shadow 0.25s ease; }
+.result__image-link:hover .result__image { transform: scale(1.03); box-shadow: 0 10px 28px rgba(22, 19, 43, 0.12); }
+.result__image.product-image--empty { font-size: 40px; }
+.thumb { transition: transform 0.2s ease; }
+tr:hover .thumb { transform: scale(1.08); }
+.drawer__image {
+  width: 112px;
+  height: 112px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+}

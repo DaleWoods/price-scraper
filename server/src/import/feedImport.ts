@@ -206,6 +206,8 @@ export async function importFeed(
     mpn: string | null;
     category: string | null;
     link: string | null;
+    /** The product's main photo, as the feed gives it. */
+    image: string | null;
     specs: string;
     price: { amount: number; regular: number | null; onSale: boolean; currency: string } | null;
   }
@@ -235,7 +237,7 @@ export async function importFeed(
       for (const chunk of chunked(batch, WRITE_CHUNK)) {
         const values: unknown[] = [];
         const tuples = chunk.map((product, index) => {
-          const base = index * 9;
+          const base = index * 10;
           values.push(
             product.sku,
             product.brand,
@@ -246,8 +248,9 @@ export async function importFeed(
             product.specs,
             product.gtin,
             product.mpn,
+            product.image,
           );
-          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}::jsonb, $${base + 8}, $${base + 9})`;
+          return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}::jsonb, $${base + 8}, $${base + 9}, $${base + 10})`;
         });
 
         const { rows: upserted } = await client.query<{
@@ -256,7 +259,7 @@ export async function importFeed(
           existed: boolean;
         }>(
           `INSERT INTO products
-             (internal_sku, brand, product_name, ean_mpn, category, our_product_url, specs, gtin, mpn)
+             (internal_sku, brand, product_name, ean_mpn, category, our_product_url, specs, gtin, mpn, image_url)
            VALUES ${tuples.join(', ')}
            ON CONFLICT (internal_sku) DO UPDATE SET
              brand           = EXCLUDED.brand,
@@ -264,6 +267,7 @@ export async function importFeed(
              ean_mpn         = COALESCE(EXCLUDED.ean_mpn, products.ean_mpn),
              gtin            = COALESCE(EXCLUDED.gtin, products.gtin),
              mpn             = COALESCE(EXCLUDED.mpn, products.mpn),
+             image_url       = COALESCE(EXCLUDED.image_url, products.image_url),
              category        = EXCLUDED.category,
              our_product_url = EXCLUDED.our_product_url,
              specs           = products.specs || EXCLUDED.specs,
@@ -428,6 +432,10 @@ export async function importFeed(
         mpn: rawMpn && !isDamagedIdentifier(rawMpn) ? rawMpn : null,
         category: get('product_type') || null,
         link: get('link') || null,
+        // Feeds spell it either way. Only a web address is kept.
+        image: /^https?:\/\//i.test(get('image_link') || get('imagelink'))
+          ? get('image_link') || get('imagelink')
+          : null,
         specs: JSON.stringify(specs),
         price,
       });

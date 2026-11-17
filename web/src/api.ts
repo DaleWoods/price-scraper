@@ -12,6 +12,8 @@ export interface Product {
   currency: string;
   category: string | null;
   our_product_url: string | null;
+  /** The product's main photo on our site, when one has been saved. */
+  image_url?: string | null;
   specs: Record<string, string>;
 }
 
