@@ -11,7 +11,7 @@
     "rateLimit": {
       "minDelayMs": 1000,
       "jitterMs": 500,
-      "maxConcurrent": 1
+      "maxConcurrent": 2
     },
     "retry": {
       "attempts": 3,

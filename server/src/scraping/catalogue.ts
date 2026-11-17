@@ -257,6 +257,17 @@ function classifyFailure(kind: string): Exclude<CatalogueStatus, 'ok'> {
   }
 }
 
+/**
+ * How many of a competitor's pages are read at the same time: its configured
+ * `rateLimit.maxConcurrent`, never more than SCRAPER_MAX_CONCURRENCY. Two by
+ * default, chosen 17 November 2026 to fit the first full read of the largest
+ * catalogues into one night. Requests are still spaced by the rate limiter;
+ * a second page mostly overlaps the seconds a slow site takes to answer.
+ */
+export function pagesAtOnce(competitor: Competitor): number {
+  return Math.max(1, Math.min(competitor.config.rateLimit?.maxConcurrent ?? 1, env.maxConcurrentScrapes));
+}
+
 export async function harvestCatalogue(
   competitor: Competitor,
   options: CatalogueHarvestOptions = {},
@@ -288,16 +299,13 @@ export async function harvestCatalogue(
   let browserSuccesses = 0;
   let unreadDone = 0;
 
-  for (const [index, url] of queue.entries()) {
-    if (options.maxPages != null && result.attempted >= options.maxPages) {
-      result.stopped = 'page_cap';
-      break;
-    }
-    if (options.deadline != null && Date.now() > options.deadline) {
-      result.stopped = 'deadline';
-      break;
-    }
+  // Pages are read by as many workers as this competitor allows at once (see
+  // pagesAtOnce). The rate limiter still spaces every request to the site, so
+  // two workers mostly overlap one slow response with the next request.
+  let next = 0;
+  let stop = false;
 
+  const readPage = async (index: number, url: string): Promise<void> => {
     result.attempted += 1;
     if (index < unread) unreadDone += 1;
     let status: CatalogueStatus;
@@ -333,14 +341,13 @@ export async function harvestCatalogue(
       // thousands more requests is how a temporary refusal becomes a ban.
       if (kind === 'blocked') {
         blockStreak += 1;
-        if (blockStreak >= BLOCK_STREAK_LIMIT) {
+        if (blockStreak >= BLOCK_STREAK_LIMIT && !stop) {
+          stop = true;
           result.stopped = 'blocked';
           result.detail =
             `${competitor.display_name} refused ${BLOCK_STREAK_LIMIT} pages in a row ` +
             `(${(err as Error).message}). Stopped reading their catalogue for this run.`;
           logger.warn('catalogue', `[${competitor.slug}] ${result.detail}`);
-          await options.onPage?.(status);
-          break;
         }
       } else {
         blockStreak = 0;
@@ -348,7 +355,28 @@ export async function harvestCatalogue(
     }
 
     await options.onPage?.(status);
-  }
+  };
+
+  const worker = async (): Promise<void> => {
+    while (!stop) {
+      if (options.maxPages != null && result.attempted >= options.maxPages) {
+        stop = true;
+        result.stopped ??= 'page_cap';
+        return;
+      }
+      if (options.deadline != null && Date.now() > options.deadline) {
+        stop = true;
+        result.stopped ??= 'deadline';
+        return;
+      }
+      const index = next;
+      next += 1;
+      if (index >= queue.length) return;
+      await readPage(index, queue[index]!);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(pagesAtOnce(competitor), queue.length) }, worker));
 
   result.remaining = Math.max(0, unread - unreadDone);
   logger.info(

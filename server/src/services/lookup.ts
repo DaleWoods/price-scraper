@@ -156,6 +156,8 @@ export interface LookupResult {
     siteName: string | null;
     price: number | null;
     wasPrice: number | null;
+    /** Our price is a reduction on this site. */
+    onSale: boolean;
   };
   running: boolean;
   checkedAt: string | null;
@@ -176,9 +178,10 @@ export async function getLookup(productId: number, runId?: number | null): Promi
     site_name: string | null;
     price: string | null;
     regular_price: string | null;
+    on_sale: boolean | null;
     product_url: string | null;
   }>(
-    `SELECT p.*, f.name AS site_name, fp.price, fp.regular_price, fp.product_url
+    `SELECT p.*, f.name AS site_name, fp.price, fp.regular_price, fp.on_sale, fp.product_url
      FROM products p
      LEFT JOIN LATERAL (
        SELECT * FROM fascia_prices WHERE product_id = p.id ORDER BY imported_at DESC LIMIT 1
@@ -294,7 +297,14 @@ export async function getLookup(productId: number, runId?: number | null): Promi
       imageUrl: product.image_url,
       siteName: product.site_name,
       price: product.price != null ? Number(product.price) : null,
-      wasPrice: product.regular_price != null ? Number(product.regular_price) : null,
+      // A "was" price is only a sale when it is above today's price.
+      wasPrice:
+        product.regular_price != null && product.price != null && Number(product.regular_price) > Number(product.price)
+          ? Number(product.regular_price)
+          : null,
+      onSale:
+        product.on_sale === true ||
+        (product.regular_price != null && product.price != null && Number(product.regular_price) > Number(product.price)),
     },
     running,
     checkedAt: run?.finished_at ?? run?.started_at ?? null,

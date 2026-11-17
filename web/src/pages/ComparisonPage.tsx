@@ -1008,11 +1008,8 @@ function CompetitorGrid({
                         {formatMoney(row.product.our_price, row.product.currency)}
                       </span>
                       {row.product.our_on_sale && (
-                        <div
-                          className="cell-secondary xs"
-                          title="Our price is a promotion, so any advantage here is temporary"
-                        >
-                          our sale
+                        <div title="Our price is a promotion, so any advantage here is temporary">
+                          <span className="tag tag--sale tag--sm">Our sale</span>
                         </div>
                       )}
                     </>
@@ -1059,7 +1056,9 @@ function CompetitorGrid({
                         {formatMoney(entry.price, row.product.currency)} ↗
                       </a>
                       {entry.inStock === false && (
-                        <div className="cell-secondary xs">out of stock</div>
+                        <div>
+                          <span className="tag tag--oos tag--sm">Out of stock</span>
+                        </div>
                       )}
                       {/* A price on promotion is a temporary position, not a
                           standing one. Marking it stops a sale week reading
@@ -1073,9 +1072,9 @@ function CompetitorGrid({
                               : 'They are presenting this as a reduction'
                           }
                         >
-                          on sale
+                          <span className="tag tag--sale tag--sm">Sale</span>
                           {entry.wasPrice != null && (
-                            <> from {formatMoney(entry.wasPrice, row.product.currency)}</>
+                            <> was <s>{formatMoney(entry.wasPrice, row.product.currency)}</s></>
                           )}
                         </div>
                       )}

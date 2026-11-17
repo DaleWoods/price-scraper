@@ -3,6 +3,7 @@ import type { Competitor, Product, ScrapeRun } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { env } from '../config/env.js';
 import { matchFromCatalogue } from '../matching/catalogueMatch.js';
+import { pagesAtOnce } from './catalogue.js';
 import { beginRunProgress, finishRunProgress, updateCompetitorProgress } from './runProgress.js';
 import { discoverMatchesForProduct } from '../matching/discovery.js';
 import {
@@ -663,8 +664,10 @@ async function scrapeConfirmedMatches(
   let ok = 0;
   let errored = 0;
 
-  for (const [index, match] of matches.entries()) {
-    onProgress?.(index, matches.length);
+  // As many at once as the competitor allows, like the catalogue reading.
+  let done = 0;
+  let nextMatch = 0;
+  const priceOne = async (match: MatchRow): Promise<void> => {
     const startedAt = Date.now();
     try {
       const { page, listing } = await fetchAndExtract(competitor, match.competitor_url, {
@@ -707,7 +710,7 @@ async function scrapeConfirmedMatches(
           'runner',
           `[${competitor.slug}] ${match.internal_sku} identity mismatch: ours ${identity.ours}, page ${identity.theirs}`,
         );
-        continue;
+        return;
       }
 
       await recordPriceObservation(
@@ -769,7 +772,18 @@ async function scrapeConfirmedMatches(
       });
       errored += 1;
     }
-  }
+  };
+  const priceWorker = async (): Promise<void> => {
+    for (;;) {
+      const index = nextMatch;
+      nextMatch += 1;
+      if (index >= matches.length) return;
+      onProgress?.(done, matches.length);
+      await priceOne(matches[index]!);
+      done += 1;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(pagesAtOnce(competitor), matches.length) }, priceWorker));
   onProgress?.(matches.length, matches.length);
 
   return { ok, errored };

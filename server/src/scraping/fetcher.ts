@@ -93,6 +93,8 @@ export async function fetchPage(
     ...competitor.config.rateLimit,
     // A site-declared Crawl-delay always wins if it's longer than ours.
     minDelayMs: Math.max(competitor.config.rateLimit?.minDelayMs ?? 0, decision.crawlDelayMs ?? 0),
+    // A site that asks for a crawl delay is asking for one request at a time.
+    ...(decision.crawlDelayMs ? { maxConcurrent: 1 } : {}),
   };
 
   const attempts = Math.max(1, options.maxAttempts ?? competitor.config.retry?.attempts ?? 3);

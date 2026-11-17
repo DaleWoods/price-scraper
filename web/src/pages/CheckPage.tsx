@@ -416,7 +416,12 @@ function BatchCard({ batchId }: { batchId: number }) {
                     </div>
                   </td>
                   <td className="num">
-                    <strong>{formatMoney(product.product.price)}</strong>
+                    <span className="price-cell">
+                      <strong>{formatMoney(product.product.price)}</strong>
+                      {(product.product.onSale || product.product.wasPrice != null) && (
+                        <span className="tag tag--sale tag--sm">Our sale</span>
+                      )}
+                    </span>
                   </td>
                   {competitors.map((c) => (
                     <td key={c.slug} className="num nowrap">
@@ -448,6 +453,8 @@ function PriceCell({ entry, ours }: { entry: LookupCompetitor | undefined; ours:
         {formatMoney(entry.price)} ↗
       </a>
       <GapPill price={entry.price} ours={ours} compact />
+      {entry.onSale && <span className="tag tag--sale tag--sm">Sale</span>}
+      {entry.inStock === false && <span className="tag tag--oos tag--sm">Out of stock</span>}
     </span>
   );
 }
@@ -795,7 +802,10 @@ function Verdict({ result }: { result: LookupResult }) {
   if (ours == null) {
     return <div className="verdict verdict--neutral">Found at {found.length}, but our own price couldn't be read.</div>;
   }
-  const cheaper = found.filter((row) => row.price! < ours - 0.005).sort((a, b) => a.price! - b.price!);
+  const cheaperAll = found.filter((row) => row.price! < ours - 0.005).sort((a, b) => a.price! - b.price!);
+  // Cheaper but out of stock is not someone a customer can buy from today.
+  const cheaper = cheaperAll.filter((row) => row.inStock !== false);
+  const cheaperButOut = cheaperAll.filter((row) => row.inStock === false);
   const same = found.filter((row) => Math.abs(row.price! - ours) < 0.005);
   const of = `${found.length} competitor${found.length === 1 ? '' : 's'}`;
 
@@ -813,8 +823,10 @@ function Verdict({ result }: { result: LookupResult }) {
           </strong>
           <div className="small">
             {cheaper.length === 1
-              ? `The only one of ${of} below our price.`
+              ? `The only one of ${of} below our price${best.onSale ? ' — and it is a sale price' : ''}.`
               : `${cheaper.length} of ${of} are below our price.`}
+            {cheaperButOut.length > 0 &&
+              ` ${cheaperButOut.map((row) => row.name).join(', ')} ${cheaperButOut.length === 1 ? 'is' : 'are'} cheaper too, but out of stock.`}
           </div>
         </div>
       </div>
@@ -826,11 +838,19 @@ function Verdict({ result }: { result: LookupResult }) {
         {same.length > 0 ? '=' : '✓'}
       </span>
       <div>
-        <strong>{same.length > 0 ? 'Nobody is cheaper than us' : 'We are the cheapest'}</strong>
+        <strong>
+          {cheaperButOut.length > 0
+            ? "We're the cheapest that's in stock"
+            : same.length > 0
+              ? 'Nobody is cheaper than us'
+              : 'We are the cheapest'}
+        </strong>
         <div className="small">
           {same.length > 0
             ? `${same.map((row) => row.name).join(', ')} match${same.length === 1 ? 'es' : ''} our price; checked against ${of}.`
             : `Every one of ${of} that sells it charges more.`}
+          {cheaperButOut.length > 0 &&
+            ` ${cheaperButOut.map((row) => row.name).join(', ')} ${cheaperButOut.length === 1 ? 'is' : 'are'} cheaper, but out of stock — a sale we can win.`}
         </div>
       </div>
     </div>
@@ -883,15 +903,20 @@ function CompetitorTile({ row, ours }: { row: LookupCompetitor; ours: number | n
       <header className="ctile__head">
         <CompetitorLabel slug={row.slug} displayName={row.name} hasLogo={row.hasLogo} className="ctile__name" />
         {row.inStock === false ? (
-          <span className="badge badge--neutral">Out of stock</span>
+          <span className="tag tag--oos">Out of stock</span>
         ) : row.inStock ? (
           <span className="ctile__stock">In stock</span>
         ) : null}
       </header>
       <div className="ctile__price">
         {formatMoney(row.price)}
-        {row.onSale && row.wasPrice != null && <span className="ctile__was">was {formatMoney(row.wasPrice)}</span>}
+        {row.onSale && <span className="tag tag--sale">On sale</span>}
       </div>
+      {row.onSale && row.wasPrice != null && row.price != null && (
+        <div className="small muted">
+          was <s>{formatMoney(row.wasPrice)}</s> · saving {formatMoney(row.wasPrice - row.price)}
+        </div>
+      )}
       <GapPill price={row.price} ours={ours} />
       <div className="ctile__meta xs muted">
         Same {row.matchedOn === 'reference' ? 'manufacturer reference' : 'barcode'}
@@ -945,9 +970,14 @@ function ResultCard({ result, onRecheck }: { result: LookupResult; onRecheck: ()
           <div className="result__ours">
             <div>
               <div className="xs muted">Our price{product.siteName ? ` at ${product.siteName}` : ''}</div>
-              <div className="result__amount">{formatMoney(ours)}</div>
-              {product.wasPrice != null && product.wasPrice !== ours && (
-                <div className="xs muted">was {formatMoney(product.wasPrice)}</div>
+              <div className="result__amount">
+                {formatMoney(ours)}
+                {(product.onSale || product.wasPrice != null) && <span className="tag tag--sale">On sale</span>}
+              </div>
+              {product.wasPrice != null && ours != null && (
+                <div className="small muted">
+                  was <s>{formatMoney(product.wasPrice)}</s> · saving {formatMoney(product.wasPrice - ours)}
+                </div>
               )}
             </div>
             {product.url && (

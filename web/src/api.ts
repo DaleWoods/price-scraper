@@ -773,6 +773,7 @@ export interface LookupResult {
     siteName: string | null;
     price: number | null;
     wasPrice: number | null;
+    onSale?: boolean;
   };
   running: boolean;
   checkedAt: string | null;

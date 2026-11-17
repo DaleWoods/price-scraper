@@ -1884,3 +1884,24 @@ tr:hover .thumb { transform: scale(1.08); }
 }
 .feed-progress__bar--failed > span { background: var(--pos-higher-solid); }
 .card .run-progress { box-shadow: none; margin-top: var(--sp-3); }
+
+/* Sale and stock, ours and theirs: the same two tags everywhere. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tag--sm { margin-left: 0; padding: 1px 6px; font-size: 10px; }
+.tag--sale { background: var(--brass-100); color: var(--brass-700); border: 1px solid var(--brass-200); }
+.tag--oos { background: var(--surface-sunken); color: var(--text-muted); border: 1px dashed var(--border-strong); }
+.result__amount .tag { font-size: var(--text-sm); letter-spacing: 0.04em; }
+.ctile__head { flex-wrap: wrap; row-gap: 6px; }
+.ctile__head .tag { margin-left: 0; }
