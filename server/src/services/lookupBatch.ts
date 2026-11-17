@@ -58,14 +58,10 @@ export async function startBatch(values: string[], fileName: string | null): Pro
 }
 
 async function processBatch(batchId: number, values: string[]): Promise<void> {
-  // Everything we already hold, in one query.
+  // Everything we already hold, in one query for the whole list.
   const productIds = new Set<number>();
-  const notHeld: string[] = [];
-  for (const value of values) {
-    const { productIds: found } = await resolveProducts([value]);
-    if (found.length > 0) found.forEach((id) => productIds.add(id));
-    else notHeld.push(value);
-  }
+  const { productIds: held, unresolved: notHeld } = await resolveProducts(values);
+  held.forEach((id) => productIds.add(id));
   await query(`UPDATE lookup_batches SET processed = $2 WHERE id = $1`, [batchId, values.length - notHeld.length]);
 
   // The rest from our own website: a SKU directly, a reference through the
@@ -135,6 +131,36 @@ export interface BatchResult {
   /** The check this list is being checked by, for its progress bar. */
   runId: number | null;
   products: LookupResult[];
+}
+
+/**
+ * Pick up lists the app was working on when it last stopped.
+ *
+ * Nothing about a list's check survives a restart in memory — a deploy, or
+ * the free hosting plan putting the app to sleep — so a list caught part-way
+ * would sit at "Finding our products" or "Checking" for ever. At start-up, a
+ * list still finding its products starts again, and one whose check was cut
+ * off is checked again. A check is harmless to repeat.
+ */
+export async function resumeBatches(): Promise<void> {
+  const { rows } = await query<{ id: number; status: string; input_values: string[]; product_ids: string[] }>(
+    `SELECT id, status, input_values, product_ids FROM lookup_batches
+     WHERE status IN ('finding', 'checking') AND created_at > now() - interval '2 days'`,
+  );
+  for (const batch of rows) {
+    const batchId = Number(batch.id);
+    logger.info('lookup', `resuming list ${batchId} (${batch.status}) after a restart`);
+    if (batch.status === 'finding' || batch.product_ids.length === 0) {
+      void processBatch(batchId, batch.input_values).catch((err) =>
+        logger.error('lookup', `resumed list ${batchId} failed: ${(err as Error).message}`),
+      );
+    } else {
+      const ids = batch.product_ids.map(Number);
+      void startRun({ mode: 'both', productIds: ids, trigger: 'list', exclusive: false })
+        .then((run) => query(`UPDATE lookup_batches SET run_id = $2 WHERE id = $1`, [batchId, run.id]))
+        .catch((err) => logger.error('lookup', `resumed list ${batchId} failed: ${(err as Error).message}`));
+    }
+  }
 }
 
 export async function getBatch(batchId: number): Promise<BatchResult | null> {

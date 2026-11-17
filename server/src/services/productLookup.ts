@@ -26,16 +26,26 @@ export async function resolveProducts(
   const gtinKeys = cleaned.map((value) => gtinKey(value));
   const refKeys = cleaned.map((value) => refKey(value));
 
+  // Four lookups joined by UNION rather than one join on four conditions: a
+  // join on "this OR that OR the other" can use no index, so every value
+  // scanned every product — minutes per value on a full catalogue. Each of
+  // these is served by its own index (migrations 021, 022, 027).
   const { rows } = await query<{ id: number; hit: number }>(
-    `SELECT p.id, v.ord::int AS hit
-     FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY AS v(sku, gk, rk, ord)
-     JOIN products p ON
-          lower(p.internal_sku) = v.sku
-       -- Eight digits or more before it counts as a barcode: a short number is
-       -- far more likely to be a SKU than a barcode, and is matched as one above.
-       OR (length(v.gk) >= 8 AND p.gtin IS NOT NULL AND gtin_key(p.gtin) = v.gk)
-       OR (length(v.gk) >= 8 AND p.ean_mpn IS NOT NULL AND gtin_key(p.ean_mpn) = v.gk)
-       OR (length(v.rk) >= 5 AND p.mpn IS NOT NULL AND ref_key(p.mpn) = v.rk)`,
+    `WITH v AS (
+       SELECT * FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY AS v(sku, gk, rk, ord)
+     )
+     SELECT p.id, v.ord::int AS hit FROM v JOIN products p ON lower(p.internal_sku) = v.sku
+     UNION
+     -- Eight digits or more before it counts as a barcode: a short number is
+     -- far more likely to be a SKU than a barcode, and is matched as one above.
+     SELECT p.id, v.ord::int FROM v JOIN products p ON p.gtin IS NOT NULL AND gtin_key(p.gtin) = v.gk
+     WHERE length(v.gk) >= 8
+     UNION
+     SELECT p.id, v.ord::int FROM v JOIN products p ON p.ean_mpn IS NOT NULL AND gtin_key(p.ean_mpn) = v.gk
+     WHERE length(v.gk) >= 8
+     UNION
+     SELECT p.id, v.ord::int FROM v JOIN products p ON p.mpn IS NOT NULL AND ref_key(p.mpn) = v.rk
+     WHERE length(v.rk) >= 5`,
     [lowered, gtinKeys, refKeys],
   );
 

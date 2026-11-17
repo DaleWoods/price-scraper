@@ -21,6 +21,8 @@ import { lookupRouter } from './routes/lookup.js';
 import { closeBrowser, warnIfBrowsersPathMisconfigured } from './scraping/browser.js';
 import { syncCompetitorsToDatabase } from './scraping/competitorRegistry.js';
 import { fetchMissingLogos } from './competitors/logos.js';
+import { markInterruptedRuns } from './scraping/runner.js';
+import { resumeBatches } from './services/lookupBatch.js';
 
 const app = express();
 
@@ -72,6 +74,11 @@ async function start(): Promise<void> {
   // separate release step; it is a no-op once the schema is current.
   await runMigrations();
   await syncCompetitorsToDatabase();
+  // Runs and lists cut off by the last restart: the runs are marked stopped,
+  // and lists are picked up again rather than left waiting for ever.
+  const interrupted = await markInterruptedRuns();
+  if (interrupted > 0) logger.warn('server', `${interrupted} run(s) were cut off by the last restart`);
+  void resumeBatches().catch((err) => logger.warn('lookup', `could not resume lists: ${(err as Error).message}`));
   // Logos for any competitor without one, in the background: a slow or
   // refusing site must not hold up the app starting.
   void fetchMissingLogos().catch((err) => logger.warn('logos', `logo fetch failed: ${(err as Error).message}`));

@@ -81,6 +81,20 @@ let activeRunId: number | null = null;
  */
 let runStarting = false;
 
+/**
+ * Mark runs the app was working on when it last stopped as stopped. A run
+ * lives in this process; after a restart nothing is running it, and one left
+ * saying "running" would read as working for ever.
+ */
+export async function markInterruptedRuns(): Promise<number> {
+  const { rowCount } = await query(
+    `UPDATE scrape_runs SET status = 'failed', finished_at = now(),
+            error = coalesce(error, 'Stopped when the app restarted.')
+     WHERE status = 'running'`,
+  );
+  return rowCount ?? 0;
+}
+
 /** True while any run, a full check or a single product's, is still working. */
 export function isAnyRunInFlight(): boolean {
   return runsInFlight > 0;
