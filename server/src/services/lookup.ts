@@ -179,6 +179,15 @@ export async function getLookup(productId: number, runId?: number | null): Promi
   return (await getLookups([productId], run))[0] ?? null;
 }
 
+/** Which of our sites an address belongs to, for a product with no price row to say. */
+export function siteFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (/goldsmiths\./i.test(url)) return 'Goldsmiths';
+  if (/mappinandwebb\./i.test(url)) return 'Mappin & Webb';
+  if (/watches-of-switzerland\./i.test(url)) return 'Watches of Switzerland';
+  return null;
+}
+
 /**
  * The results for many products at once, all from the same check.
  *
@@ -218,13 +227,20 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
             (oos.product_id IS NOT NULL) AS oos_known
      FROM products p
      LEFT JOIN LATERAL (
-       SELECT * FROM fascia_prices WHERE product_id = p.id ORDER BY imported_at DESC LIMIT 1
+       -- Goldsmiths first, then Mappin & Webb, then Watches of Switzerland:
+       -- the same site for every product that site sells.
+       SELECT x.* FROM fascia_prices x JOIN fascias xf ON xf.id = x.fascia_id
+       WHERE x.product_id = p.id
+       ORDER BY CASE xf.code WHEN '197' THEN 0 WHEN '439' THEN 1 WHEN '470' THEN 2 ELSE 3 END, x.imported_at DESC
+       LIMIT 1
      ) fp ON TRUE
      LEFT JOIN fascias f ON f.id = fp.fascia_id
      LEFT JOIN LATERAL (
        SELECT o.product_id, o.price, o.product_url, ofa.name AS site_name
        FROM fascia_out_of_stock o JOIN fascias ofa ON ofa.id = o.fascia_id
-       WHERE o.product_id = p.id ORDER BY o.recorded_at DESC LIMIT 1
+       WHERE o.product_id = p.id
+       ORDER BY CASE ofa.code WHEN '197' THEN 0 WHEN '439' THEN 1 WHEN '470' THEN 2 ELSE 3 END, o.recorded_at DESC
+       LIMIT 1
      ) oos ON TRUE
      WHERE p.id = ANY($1::bigint[])`,
     [productIds],
@@ -352,7 +368,8 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
         gtin: product.gtin,
         url: product.product_url ?? product.oos_url ?? product.our_product_url,
         imageUrl: product.image_url,
-        siteName: product.site_name ?? product.oos_site,
+        siteName:
+          product.site_name ?? product.oos_site ?? siteFromUrl(product.product_url ?? product.our_product_url),
         inStock: outOfStock ? false : product.price != null ? (product.our_in_stock ?? true) : null,
         price,
         // A "was" price is only a sale when it is above today's price.

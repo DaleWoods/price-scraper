@@ -231,6 +231,22 @@ describe('importFeed against a database', { skip: !DATABASE_URL && 'DATABASE_URL
     assert.equal(again!.product.inStock, true);
   });
 
+  it('links to Goldsmiths when a product is sold there, whichever feed came last', async (t) => {
+    const { rows: sites } = await query<{ code: string }>("SELECT code FROM fascias WHERE code IN ('197', '470')");
+    if (sites.length < 2) {
+      t.skip('needs both Goldsmiths and Watches of Switzerland in this database');
+      return;
+    }
+    await importFeed(feed([row(skus[0]!, '100.0 GBP')]), 'gs.tsv', '197');
+    await importFeed(feed([row(skus[0]!, '100.0 GBP')]), 'wos.tsv', '470');
+    const { getLookups, siteFromUrl } = await import('../src/services/lookup.ts');
+    const { rows: ids } = await query<{ id: number }>('SELECT id FROM products WHERE internal_sku = $1', [skus[0]]);
+    const [shown] = await getLookups([Number(ids[0]!.id)], null);
+    assert.equal(shown!.product.siteName, 'Goldsmiths');
+    assert.equal(siteFromUrl('https://www.watches-of-switzerland.co.uk/x'), 'Watches of Switzerland');
+    assert.equal(siteFromUrl('https://www.mappinandwebb.com/x'), 'Mappin & Webb');
+  });
+
   it('is not thrown by an unfamiliar availability value — fails open rather than dropping the whole feed', async () => {
     const result = await importFeed(
       feed([row(skus[0]!, '100.0 GBP', { availability: 'special_order' })]),
