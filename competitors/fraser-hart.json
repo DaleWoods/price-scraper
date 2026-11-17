@@ -3,7 +3,7 @@
   "displayName": "Fraser Hart",
   "baseUrl": "https://www.fraserhart.co.uk",
   "searchUrlPattern": "https://www.fraserhart.co.uk/search?q={query}",
-  "enabled": false,
+  "enabled": true,
   "scrapeFrequency": "daily",
   "brands": [],
   "config": {

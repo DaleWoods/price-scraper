@@ -65,8 +65,32 @@ const REFERENCE_KEYS = /"(?:watchModelNumber|modelNumber|manufacturerPartNumber|
 const REFERENCE_LABELS =
   /^(?:Model Number|Model No\.?|Manufacturer(?:'s)? (?:Part Number|Reference)|Reference Number|Ref\. No\.?|MPN|Product code|Code)\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9.\-/]{3,30})(?=\s|<|$)/;
 
+/** Text as it sits inside page data, with its escapes undone: "GS05750\u002F01" is GS05750/01. */
+export function unescapeData(value: string): string {
+  return value
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))
+    .replace(/\\\//g, '/');
+}
+
+/** A barcode a spreadsheet has turned into scientific notation ("5.01848E+12") is not one. */
+function usableCode(value: string | null | undefined): string | null {
+  const text = value?.trim();
+  return text && !/^\d(\.\d+)?E\+\d+$/i.test(text) ? text : null;
+}
+
+/**
+ * The product's brand as the page data gives it, for sites whose structured
+ * brand is their own name: Ernest Jones publishes brand "ernestjones" on every
+ * product, and the maker under `"key":"brand","value":"Gucci"`.
+ */
+function brandFromData(html: string): string | null {
+  const value = html.match(/"key"\s*:\s*"brand"\s*,\s*"value"\s*:\s*"([^"]{2,40})"/i)?.[1];
+  return value ? unescapeData(value).trim() : null;
+}
+
 export function labelledReference(html: string, $: cheerio.CheerioAPI): string | null {
-  const fromData = html.match(REFERENCE_KEYS)?.[1]?.trim();
+  const raw = html.match(REFERENCE_KEYS)?.[1]?.trim();
+  const fromData = raw ? unescapeData(raw) : null;
   if (fromData && /[0-9]/.test(fromData)) return fromData;
 
   // Visible text, tag by tag, so a label and its value split across two
@@ -268,6 +292,12 @@ function interpretAvailability(text: string | null): boolean | null {
  * page can't be understood, so a competitor layout change surfaces as a scrape
  * error rather than a silently wrong price (Spec §5.4).
  */
+function isRetailerName(brand: string, competitor: Competitor): boolean {
+  const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const value = plain(brand);
+  return value === plain(competitor.slug) || value === plain(competitor.display_name);
+}
+
 export function extractListing(competitor: Competitor, page: FetchedPage): ExtractedListing {
   const $ = cheerio.load(page.html);
   const config = competitor.config.product ?? {};
@@ -348,14 +378,19 @@ export function extractListing(competitor: Competitor, page: FetchedPage): Extra
     promo: Boolean(promoBadge) || (wasPrice != null && wasPrice > price),
     inStock: interpretAvailability(availabilityText),
     availabilityText,
-    ean: jsonLd?.ean ?? selectorEan,
+    ean: usableCode(jsonLd?.ean ?? selectorEan),
     // A configured selector is the fallback for a barcode only: it was written
     // to find one, and guessing which kind of code it found would be worse
     // than leaving the reference blank.
-    gtin: jsonLd?.gtin ?? (looksLikeGtin(selectorEan) ? selectorEan : null),
-    mpn,
+    gtin: usableCode(jsonLd?.gtin ?? (looksLikeGtin(selectorEan) ? selectorEan : null)),
+    mpn: mpn ? unescapeData(mpn) : mpn,
     sku: jsonLd?.sku ?? null,
-    brand: jsonLd?.brand ?? null,
+    // A structured brand that is just the retailer's own name says nothing
+    // about the product.
+    brand:
+      jsonLd?.brand && !isRetailerName(jsonLd.brand, competitor)
+        ? jsonLd.brand
+        : (brandFromData(page.html) ?? null),
     attributes,
     source,
   };

@@ -7,6 +7,7 @@ import { ScrapeError } from './errors.js';
 import type { ExtractedListing } from './extract.js';
 import { fetchAndExtract } from './fetchAndExtract.js';
 import type { FetchedPage } from './fetcher.js';
+import { slugWords } from './sitemap.js';
 
 /**
  * Reading a competitor's whole catalogue, one page each, and remembering it.
@@ -259,6 +260,52 @@ function classifyFailure(kind: string): Exclude<CatalogueStatus, 'ok'> {
 }
 
 /**
+ * Remember the product pages a page links to.
+ *
+ * A sitemap is not the whole shop. Beaverbrooks' lists the 42mm and 45mm
+ * Rotary Apex100 and leaves out a 41mm one; a product's other colours and
+ * sizes are often only linked from its siblings' pages. Every product page
+ * read is therefore also searched for links to product pages, and any not yet
+ * known join the list to be read. Only links to the same site that look like
+ * product pages are kept, and never more than 150 from one page.
+ */
+export async function rememberLinkedProducts(
+  competitor: Competitor,
+  page: Pick<FetchedPage, 'html' | 'finalUrl'>,
+): Promise<number> {
+  let host: string;
+  try {
+    host = new URL(page.finalUrl).host;
+  } catch {
+    return 0;
+  }
+  const found = new Set<string>();
+  for (const match of page.html.matchAll(/href\s*=\s*["']([^"'#\s]{2,300})["']/gi)) {
+    if (found.size >= 150) break;
+    try {
+      const url = new URL(match[1]!.replace(/&amp;/g, '&'), page.finalUrl);
+      if (url.host !== host) continue;
+      url.hash = '';
+      url.search = '';
+      const text = url.toString();
+      if (isProductUrl(competitor, text)) found.add(text);
+    } catch {
+      /* not a usable address */
+    }
+  }
+  if (found.size === 0) return 0;
+  const urls = [...found];
+  const { rowCount } = await query(
+    `INSERT INTO competitor_urls (competitor_id, url, slug)
+     SELECT $1, u.url, u.slug FROM unnest($2::text[], $3::text[]) AS u(url, slug)
+     ON CONFLICT (competitor_id, url) DO UPDATE SET last_seen_at = now()
+     WHERE competitor_urls.last_seen_at < now() - interval '1 day'`,
+    [competitor.id, urls, urls.map((url) => slugWords(url))],
+  );
+  return rowCount ?? 0;
+}
+
+/**
  * How many of a competitor's pages are read at the same time: its configured
  * `rateLimit.maxConcurrent`, never more than SCRAPER_MAX_CONCURRENCY. Two by
  * default, chosen 17 November 2026 to fit the first full read of the largest
@@ -324,6 +371,7 @@ export async function harvestCatalogue(
         escalate: !(httpSuccesses >= HTTP_PROVEN_AFTER && browserSuccesses === 0),
       });
       await recordCatalogueListing(competitor.id, url, page, listing);
+      await rememberLinkedProducts(competitor, page).catch(() => undefined);
       if (page.renderedWith === 'http') httpSuccesses += 1;
       else browserSuccesses += 1;
       blockStreak = 0;

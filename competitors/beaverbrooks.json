@@ -3,7 +3,7 @@
   "displayName": "Beaverbrooks",
   "baseUrl": "https://www.beaverbrooks.co.uk",
   "searchUrlPattern": "https://www.beaverbrooks.co.uk/search?q={query}",
-  "enabled": false,
+  "enabled": true,
   "scrapeFrequency": "daily",
   "brands": [],
   "config": {
