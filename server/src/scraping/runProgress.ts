@@ -9,13 +9,24 @@
  * it is about what is happening now, so nothing needs storing, and a restart
  * (which ends the run anyway) starts it afresh.
  */
-export type CompetitorStage = 'waiting' | 'repricing' | 'reading' | 'matching' | 'pricing' | 'done' | 'failed';
+export type CompetitorStage =
+  | 'waiting'
+  | 'repricing'
+  | 'reading'
+  | 'searching'
+  | 'matching'
+  | 'pricing'
+  | 'done'
+  | 'failed';
 
 export interface CompetitorProgress {
   slug: string;
   name: string;
   stage: CompetitorStage;
-  /** Catalogue pages read so far, and how many this run means to read. */
+  /**
+   * Catalogue pages read so far, and how many this run means to read. While
+   * searching for a list's products, products searched for and how many.
+   */
   pagesRead: number;
   pagesTotal: number;
   /** Our products found at this competitor by this run. */
@@ -31,6 +42,8 @@ export interface CompetitorProgress {
 
 export interface RunProgress {
   runId: number;
+  /** A check of every product, or of a list of products. */
+  kind: 'full' | 'list';
   startedAt: string;
   finishedAt: string | null;
   competitors: CompetitorProgress[];
@@ -40,9 +53,14 @@ const progressByRun = new Map<number, RunProgress>();
 /** Only the latest few are kept: older ones are history, held in scrape_runs. */
 const KEEP = 5;
 
-export function beginRunProgress(runId: number, competitors: { slug: string; display_name: string }[]): void {
+export function beginRunProgress(
+  runId: number,
+  competitors: { slug: string; display_name: string }[],
+  kind: 'full' | 'list' = 'full',
+): void {
   progressByRun.set(runId, {
     runId,
+    kind,
     startedAt: new Date().toISOString(),
     finishedAt: null,
     competitors: competitors.map((competitor) => ({
@@ -89,9 +107,9 @@ export function getRunProgress(runId: number): RunProgress | null {
   return progressByRun.get(runId) ?? null;
 }
 
-/** The most recent check of every product, running or just finished. */
-export function latestRunProgress(): RunProgress | null {
+/** The most recent check of that kind, running or just finished. */
+export function latestRunProgress(kind: 'full' | 'list' | null = null): RunProgress | null {
   let latest: RunProgress | null = null;
-  for (const progress of progressByRun.values()) latest = progress;
+  for (const progress of progressByRun.values()) if (kind == null || progress.kind === kind) latest = progress;
   return latest;
 }

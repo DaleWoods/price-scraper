@@ -294,9 +294,11 @@ describe('competitor catalogue', { skip: !DATABASE_URL && 'DATABASE_URL not set'
   });
 
   it('reads catalogues for a long uploaded list rather than searching product by product', async () => {
-    // Above the scoped-search limit a list behaves like a full run for
-    // reading, and matches only the products it names.
-    const named = [productIds.get('gtin')!, ...Array.from({ length: 60 }, (_, i) => -1 - i)];
+    // Above the scoped-search limit (500) a list behaves like a full run for
+    // reading, and matches only the products it names. Up to 500 — the
+    // uploaded list of a hundred someone wants answered in minutes — is
+    // searched product by product instead.
+    const named = [productIds.get('gtin')!, ...Array.from({ length: 510 }, (_, i) => -1 - i)];
     const run = await startRun({ trigger: 'tst-cat', mode: 'both', competitorId, productIds: named });
     for (let attempt = 0; attempt < 1200; attempt += 1) {
       const { rows } = await query<{ status: string }>('SELECT status FROM scrape_runs WHERE id = $1', [run.id]);

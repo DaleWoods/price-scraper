@@ -30,6 +30,8 @@ function fractionOf(entry: RunProgressCompetitor): number {
       if (work <= 0 || entry.pagesTotal <= 0) return 0.02;
       return 0.9 * Math.min(1, ((entry.pricesChecked ?? 0) + entry.pagesRead) / work);
     }
+    case 'searching':
+      return entry.pagesTotal > 0 ? 0.9 * Math.min(1, entry.pagesRead / entry.pagesTotal) : 0.02;
     case 'matching':
       return 0.92;
     case 'pricing':
@@ -44,7 +46,7 @@ function fractionOf(entry: RunProgressCompetitor): number {
  * far. Null until it has read enough pages to judge by.
  */
 function secondsLeft(entry: RunProgressCompetitor): number | null {
-  if (entry.stage !== 'reading' || !entry.readingSince || entry.pagesRead < 5 || entry.pagesTotal <= 0) return null;
+  if ((entry.stage !== 'reading' && entry.stage !== 'searching') || !entry.readingSince || entry.pagesRead < 5 || entry.pagesTotal <= 0) return null;
   const spent = (Date.now() - new Date(entry.readingSince).getTime()) / 1000;
   return (spent / entry.pagesRead) * Math.max(0, entry.pagesTotal - entry.pagesRead);
 }
@@ -62,6 +64,13 @@ function describe(entry: RunProgressCompetitor): string {
       const left = secondsLeft(entry);
       return (
         `Reading their range — ${entry.pagesRead.toLocaleString('en-GB')} of ${entry.pagesTotal.toLocaleString('en-GB')} pages` +
+        (left != null ? ` · about ${duration(left)} left` : '')
+      );
+    }
+    case 'searching': {
+      const left = secondsLeft(entry);
+      return (
+        `Looking for the list's products — ${entry.pagesRead.toLocaleString('en-GB')} of ${entry.pagesTotal.toLocaleString('en-GB')}` +
         (left != null ? ` · about ${duration(left)} left` : '')
       );
     }
@@ -88,7 +97,10 @@ function duration(seconds: number): string {
 export function RunProgressPanel({
   watch,
   onChange,
+  runId,
 }: {
+  /** A particular run, such as a list being checked; otherwise the latest check of every product. */
+  runId?: number | null;
   /** Bumped when a check has just been started, so the panel looks straight away. */
   watch?: number;
   /** Called every so often while it runs, and once when it finishes, to refresh results. */
@@ -104,7 +116,7 @@ export function RunProgressPanel({
     let timer: number | null = null;
     const look = async () => {
       try {
-        const next = await api.runProgress();
+        const next = await api.runProgress(runId);
         if (cancelled) return;
         setProgress(next.progress);
         setRunning(next.running);
@@ -123,7 +135,7 @@ export function RunProgressPanel({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [watch]);
+  }, [watch, runId]);
 
   if (!progress) return null;
   // A finished check stays on screen for a while, then gets out of the way.
@@ -150,7 +162,8 @@ export function RunProgressPanel({
   // slowest one does: the time left is the longest of theirs, each from its
   // own pace. Shown once every one still reading has a pace to judge by.
   const reading = entries.filter(
-    (entry) => entry.stage === 'reading' || entry.stage === 'waiting' || entry.stage === 'repricing',
+    (entry) =>
+      entry.stage === 'reading' || entry.stage === 'searching' || entry.stage === 'waiting' || entry.stage === 'repricing',
   );
   const lefts = reading.map(secondsLeft);
   const remaining =
@@ -166,10 +179,14 @@ export function RunProgressPanel({
       <div className="feed-progress__head">
         <strong>
           {running
-            ? `Checking every product — ${Math.round(overall * 100)}% done`
+            ? `${progress.kind === 'list' ? 'Checking your list' : 'Checking every product'} — ${Math.round(overall * 100)}% done`
             : progress.competitors.some((entry) => entry.stage === 'failed')
-              ? 'The last check of every product stopped before finishing'
-              : 'Check of every product finished'}
+              ? progress.kind === 'list'
+                ? 'The check of this list stopped before finishing'
+                : 'The last check of every product stopped before finishing'
+              : progress.kind === 'list'
+                ? 'Check of this list finished'
+                : 'Check of every product finished'}
         </strong>
         <span className="small muted">
           {running ? `${duration(elapsed)} so far` : `took ${duration((new Date(progress.finishedAt!).getTime() - new Date(progress.startedAt).getTime()) / 1000)}`}
@@ -194,7 +211,13 @@ export function RunProgressPanel({
           </li>
         ))}
       </ul>
-      {running && (
+      {running && progress.kind === 'list' && (
+        <p className="xs muted" style={{ margin: 0 }}>
+          Each competitor's site is searched for every product on the list, two pages at a time. Prices fill in below as
+          they are found; you can leave this page and come back.
+        </p>
+      )}
+      {running && progress.kind !== 'list' && (
         <p className="xs muted" style={{ margin: 0 }}>
           Runs on the server — you can leave this page and come back. Prices appear in the table as each competitor
           finishes. Each competitor starts by re-checking today's price of every product already matched there, so

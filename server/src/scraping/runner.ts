@@ -257,8 +257,10 @@ async function executeRun(
     return;
   }
 
-  // A check of every product is shown with a progress bar per competitor.
-  if (!productIds) beginRunProgress(runId, competitors);
+  // A check of every product, or of a list, is shown with a progress bar per
+  // competitor. A single product's check answers in a minute and needs none.
+  if (!productIds) beginRunProgress(runId, competitors, 'full');
+  else if (productIds.length > 1) beginRunProgress(runId, competitors, 'list');
   let failed = true;
 
   runsInFlight += 1;
@@ -393,7 +395,7 @@ async function competitorsWorthRetrying(
  * this, a scoped run reads catalogues like a full run and matches only the
  * named products against them.
  */
-const SCOPED_SEARCH_MAX = 50;
+const SCOPED_SEARCH_MAX = 500;
 
 /**
  * How many competitors run concurrently within one scrape run.
@@ -592,7 +594,18 @@ async function runCompetitor(
       const settled = new Set(matched.matchedProductIds);
       const remaining = productIds.filter((id) => !settled.has(id));
       if (remaining.length > 0) {
-        const result = await discoverUnmatchedProducts(runId, competitor, limit, remaining);
+        updateCompetitorProgress(runId, competitor.slug, {
+          stage: 'searching',
+          pagesRead: 0,
+          pagesTotal: remaining.length,
+          readingSince: new Date().toISOString(),
+        });
+        const result = await discoverUnmatchedProducts(runId, competitor, limit, remaining, (found) =>
+          updateCompetitorProgress(runId, competitor.slug, (entry) => {
+            entry.pagesRead += 1;
+            if (found) entry.matched += 1;
+          }),
+        );
         ok += result.ok;
         errored += result.errored;
         skipped += result.skipped;
@@ -795,6 +808,8 @@ async function discoverUnmatchedProducts(
   competitor: Competitor,
   limit: number | null,
   productIds: number[] | null,
+  /** Told after each product has been searched for, and whether it was found. */
+  onProduct?: (found: boolean) => void,
 ): Promise<{ ok: number; errored: number; skipped: number }> {
   const { rows: products } = await query<Product>(
     `SELECT p.* FROM products p
@@ -828,8 +843,17 @@ async function discoverUnmatchedProducts(
   let ok = 0;
   let errored = 0;
   let skipped = 0;
+  let confirmed = 0;
 
   for (const product of products) {
+    const confirmedBefore = confirmed;
+    await searchOne(product);
+    onProduct?.(confirmed > confirmedBefore);
+  }
+
+  return { ok, errored, skipped };
+
+  async function searchOne(product: Product): Promise<void> {
     // Only search competitors that stock the brand, when they've told us.
     if (
       competitor.brands.length > 0 &&
@@ -843,7 +867,7 @@ async function discoverUnmatchedProducts(
         error: `${competitor.display_name} is not configured as stocking ${product.brand}`,
       });
       skipped += 1;
-      continue;
+      return;
     }
 
     const startedAt = Date.now();
@@ -865,7 +889,7 @@ async function discoverUnmatchedProducts(
           durationMs: Date.now() - startedAt,
         });
         skipped += 1;
-        continue;
+        return;
       }
 
       logger.warn(
@@ -882,8 +906,10 @@ async function discoverUnmatchedProducts(
         durationMs: Date.now() - startedAt,
       });
       errored += 1;
-      continue;
+      return;
     }
+
+    if (outcome.autoConfirmed > 0) confirmed += 1;
 
     // A zero here is not necessarily "nothing found" — a page may have been
     // opened and rejected. Say which, so a test run explains itself instead
@@ -905,8 +931,6 @@ async function discoverUnmatchedProducts(
     });
     ok += 1;
   }
-
-  return { ok, errored, skipped };
 }
 
 interface RunItemInput {

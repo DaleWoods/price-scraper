@@ -124,6 +124,8 @@ export interface BatchResult {
   unresolved: string[];
   message: string | null;
   createdAt: string;
+  /** The check this list is being checked by, for its progress bar. */
+  runId: number | null;
   products: LookupResult[];
 }
 
@@ -169,6 +171,7 @@ export async function getBatch(batchId: number): Promise<BatchResult | null> {
     unresolved: batch.unresolved,
     message: batch.message,
     createdAt: batch.created_at,
+    runId: batch.run_id != null ? Number(batch.run_id) : null,
     products,
   };
 }

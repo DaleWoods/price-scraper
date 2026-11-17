@@ -320,8 +320,7 @@ function BatchCard({ batchId }: { batchId: number }) {
           </span>
         ) : batch.status === 'checking' ? (
           <span>
-            <span className="spinner" /> Checking {batch.products.length} products at every competitor… prices appear
-            as they arrive. A long list can take a while.
+            <span className="spinner" /> Checking {batch.products.length} products at every competitor — progress below.
           </span>
         ) : batch.status === 'failed' ? (
           <span className="text-higher">The check failed: {batch.message}</span>
@@ -336,6 +335,12 @@ function BatchCard({ batchId }: { batchId: number }) {
         )}
       </div>
 
+      {batch.runId != null && (batch.status === 'checking' || batch.status === 'done') && (
+        <div style={{ padding: 'var(--sp-5) var(--sp-6) 0' }}>
+          <RunProgressPanel runId={batch.runId} />
+        </div>
+      )}
+
       {batch.products.length > 0 && (
         <div className="tallies">
           {(
@@ -343,7 +348,7 @@ function BatchCard({ batchId }: { batchId: number }) {
               ['all', 'Products checked', batch.products.length, ''],
               ['dearer', 'Cheaper elsewhere', cheaperSomewhere, 'higher'],
               ['cheapest', 'We are cheapest or level', weAreCheapest, 'lower'],
-              ['none', 'Not found at any competitor', notFound, ''],
+              ['none', done ? 'Not found at any competitor' : 'Not found yet', notFound, ''],
             ] as const
           ).map(([key, label, count, tone]) => (
             <button
