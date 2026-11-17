@@ -29,6 +29,7 @@ import {
 import { CompetitorLabel } from '../components/CompetitorLogo';
 import { PriceHistoryChart } from '../components/PriceHistoryChart';
 import { ProductImage } from '../components/ProductImage';
+import { RunProgressPanel } from '../components/RunProgress';
 
 type PositionFilter = PricePosition | 'unmatched' | 'awaiting_price' | 'not_checked' | 'not_sold' | '';
 
@@ -89,7 +90,8 @@ export function ComparisonPage() {
   const [position, setPosition] = useState<PositionFilter>('');
   const [pageSize, setPageSize] = useState(100);
   const [checkingSku, setCheckingSku] = useState<string | null>(null);
-  const [fullRun, setFullRun] = useState<{ id: number; startedAt: string } | null>(null);
+  const [runWatch, setRunWatch] = useState(0);
+  const [fullRunning, setFullRunning] = useState(false);
   const navigate = useNavigate();
 
   const filters = useMemo(
@@ -130,25 +132,23 @@ export function ComparisonPage() {
   // A new search or filter starts again from the top.
   useEffect(() => setPageSize(100), [filters]);
 
-  // Is a check of every product running? Shown so nobody starts a second one.
+  // Is a check of every product running? The callout offering one is hidden while it is.
   useEffect(() => {
     let cancelled = false;
     const look = () =>
       api
-        .runs()
-        .then(({ runs, activeRunId }) => {
-          if (cancelled) return;
-          const run = runs.find((r) => r.id === activeRunId && !r.product_sku && !r.product_count && !r.competitor_name);
-          setFullRun(run ? { id: run.id, startedAt: run.started_at } : null);
+        .runProgress()
+        .then(({ running }) => {
+          if (!cancelled) setFullRunning(running);
         })
         .catch(() => undefined);
-    look();
-    const timer = window.setInterval(look, 30_000);
+    void look();
+    const timer = window.setInterval(look, 15_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [runWatch]);
 
   /** Check one product live at every competitor, then show its result. */
   const checkNow = async (row: ComparisonRow) => {
@@ -164,9 +164,9 @@ export function ComparisonPage() {
 
   const checkEverything = async () => {
     try {
-      const { run } = await api.startRun({ mode: 'both' });
-      setFullRun({ id: run.id, startedAt: run.started_at });
-      toast('Checking every product at every competitor. This takes a few hours; results appear here as they come in.', 'ok');
+      await api.startRun({ mode: 'both' });
+      setFullRunning(true);
+      setRunWatch((n) => n + 1);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not start the check', 'error');
     }
@@ -296,12 +296,9 @@ export function ComparisonPage() {
         ))}
       </div>
 
-      {fullRun ? (
-        <Alert tone="info" title="Checking every product at every competitor">
-          Started {relativeTime(fullRun.startedAt)}. This reads each competitor's whole range, so it takes a few hours;
-          prices appear here as they come in. You can leave this page.
-        </Alert>
-      ) : (summary?.notChecked ?? 0) > 0 ? (
+      <RunProgressPanel watch={runWatch} onChange={() => void load()} />
+
+      {!fullRunning && (summary?.notChecked ?? 0) > 0 && (
         <div className="callout">
           <div className="grow">
             <strong>
@@ -317,7 +314,7 @@ export function ComparisonPage() {
             Check every product now
           </button>
         </div>
-      ) : null}
+      )}
 
       {error && <Alert tone="danger" title="Could not load prices">{error}</Alert>}
 

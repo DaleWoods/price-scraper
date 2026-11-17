@@ -71,6 +71,8 @@ export function AdminPage() {
         </Alert>
       )}
 
+      <StartAfreshSection onDone={() => void load()} />
+
       <SystemStatusSection status={status} loading={loading} />
       <ScrapeHealthSection />
       <CataloguesSection />
@@ -1664,6 +1666,58 @@ function UrlTesterSection({ competitors }: { competitors: Competitor[] }) {
           </pre>
         </div>
       )}
+    </Card>
+  );
+}
+
+/**
+ * Clear every result of every check, to start again from nothing. Our products
+ * and prices stay: they come from the feeds.
+ */
+function StartAfreshSection({ onDone }: { onDone: () => void }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    if (
+      !window.confirm(
+        'Start afresh?\n\nThis deletes every competitor price, every match, every alert, every check and ' +
+          'every list checked so far. Our products and our own prices are kept.\n\nIt cannot be undone.',
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api.startAfresh();
+      toast(
+        `Cleared ${result.pricesRemoved.toLocaleString('en-GB')} prices, ${result.matchesRemoved.toLocaleString('en-GB')} matches and ` +
+          `${result.runsRemoved.toLocaleString('en-GB')} checks. Ready for a fresh start.`,
+        'ok',
+      );
+      onDone();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not clear the checks', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card
+      title="Start afresh"
+      subtitle="Clear every competitor price, match, alert, check and list so far, and begin again"
+      actions={
+        <button type="button" className="btn btn--danger" disabled={busy} onClick={() => void run()}>
+          {busy ? 'Clearing…' : 'Start afresh'}
+        </button>
+      }
+    >
+      <p className="small muted" style={{ margin: 0 }}>
+        Kept: our products and our own prices from the feeds, the competitors and their logos, your settings, and the
+        list of each competitor's product pages (so the next full check doesn't spend hours finding them again — no
+        price is ever taken from it without reading the page again). Not possible while a check is running.
+      </p>
     </Card>
   );
 }

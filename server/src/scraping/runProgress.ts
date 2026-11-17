@@ -1,0 +1,89 @@
+/**
+ * How far a check of every product has got, competitor by competitor, for the
+ * progress bars on All products and Check prices.
+ *
+ * A full check reads each competitor's whole catalogue — thousands of pages,
+ * a page every second or two — then matches it against our products and
+ * records the prices. That is hours of work, and a run that only says
+ * "running" for hours looks stuck. This keeps the live position in memory:
+ * it is about what is happening now, so nothing needs storing, and a restart
+ * (which ends the run anyway) starts it afresh.
+ */
+export type CompetitorStage = 'waiting' | 'reading' | 'matching' | 'pricing' | 'done' | 'failed';
+
+export interface CompetitorProgress {
+  slug: string;
+  name: string;
+  stage: CompetitorStage;
+  /** Catalogue pages read so far, and how many this run means to read. */
+  pagesRead: number;
+  pagesTotal: number;
+  /** Our products found at this competitor by this run. */
+  matched: number;
+  /** Set when the run stopped short, e.g. at its time limit. */
+  note: string | null;
+}
+
+export interface RunProgress {
+  runId: number;
+  startedAt: string;
+  finishedAt: string | null;
+  competitors: CompetitorProgress[];
+}
+
+const progressByRun = new Map<number, RunProgress>();
+/** Only the latest few are kept: older ones are history, held in scrape_runs. */
+const KEEP = 5;
+
+export function beginRunProgress(runId: number, competitors: { slug: string; display_name: string }[]): void {
+  progressByRun.set(runId, {
+    runId,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    competitors: competitors.map((competitor) => ({
+      slug: competitor.slug,
+      name: competitor.display_name,
+      stage: 'waiting',
+      pagesRead: 0,
+      pagesTotal: 0,
+      matched: 0,
+      note: null,
+    })),
+  });
+  while (progressByRun.size > KEEP) {
+    const oldest = progressByRun.keys().next().value;
+    if (oldest === undefined) break;
+    progressByRun.delete(oldest);
+  }
+}
+
+export function updateCompetitorProgress(
+  runId: number,
+  slug: string,
+  change: Partial<Omit<CompetitorProgress, 'slug' | 'name'>> | ((entry: CompetitorProgress) => void),
+): void {
+  const entry = progressByRun.get(runId)?.competitors.find((competitor) => competitor.slug === slug);
+  if (!entry) return;
+  if (typeof change === 'function') change(entry);
+  else Object.assign(entry, change);
+}
+
+export function finishRunProgress(runId: number, failed = false): void {
+  const progress = progressByRun.get(runId);
+  if (!progress) return;
+  progress.finishedAt = new Date().toISOString();
+  for (const entry of progress.competitors) {
+    if (entry.stage !== 'done') entry.stage = failed ? 'failed' : 'done';
+  }
+}
+
+export function getRunProgress(runId: number): RunProgress | null {
+  return progressByRun.get(runId) ?? null;
+}
+
+/** The most recent check of every product, running or just finished. */
+export function latestRunProgress(): RunProgress | null {
+  let latest: RunProgress | null = null;
+  for (const progress of progressByRun.values()) latest = progress;
+  return latest;
+}

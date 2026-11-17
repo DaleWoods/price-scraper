@@ -10,6 +10,8 @@ import { verifyCompetitor } from '../services/competitorVerification.js';
 import { feedJobStatus, ingestFeedsFromSource, startFeedJob } from '../import/feedIngest.js';
 import { isFeedSourceConfigured, listFeedDirectory } from '../import/feedSource.js';
 import { runNightlyJob, schedulerStatus } from '../scheduler.js';
+import { isAnyRunInFlight } from '../scraping/runner.js';
+import { startAfresh } from '../services/startAfresh.js';
 
 export const adminRouter: Router = Router();
 
@@ -272,6 +274,26 @@ adminRouter.get('/fetch-feeds', (_req, res) => {
  * Exists so a pattern that matches nothing can be diagnosed by looking, rather
  * than by guessing at why an import found no file.
  */
+/**
+ * Clear every result of every check, to start again from nothing. Refused
+ * while a check is running: it would go on writing into what was cleared.
+ */
+adminRouter.post('/start-afresh', async (req, res, next) => {
+  try {
+    if (req.query.confirm !== '1') {
+      res.status(400).json({ error: 'Add ?confirm=1 to clear every check.' });
+      return;
+    }
+    if (isAnyRunInFlight()) {
+      res.status(409).json({ error: 'A check is still running. Wait for it to finish, then start afresh.' });
+      return;
+    }
+    res.json(await startAfresh());
+  } catch (err) {
+    next(err);
+  }
+});
+
 adminRouter.get('/schedule', async (_req, res, next) => {
   try {
     res.json(await schedulerStatus());

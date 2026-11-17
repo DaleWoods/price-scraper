@@ -3,6 +3,7 @@ import type { Competitor, Product, ScrapeRun } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { env } from '../config/env.js';
 import { matchFromCatalogue } from '../matching/catalogueMatch.js';
+import { beginRunProgress, finishRunProgress, updateCompetitorProgress } from './runProgress.js';
 import { discoverMatchesForProduct } from '../matching/discovery.js';
 import {
   compareIdentifiers,
@@ -78,6 +79,11 @@ let activeRunId: number | null = null;
  * set happen in the same tick.
  */
 let runStarting = false;
+
+/** True while any run, a full check or a single product's, is still working. */
+export function isAnyRunInFlight(): boolean {
+  return runsInFlight > 0;
+}
 
 export function getActiveRunId(): number | null {
   return activeRunId;
@@ -250,6 +256,10 @@ async function executeRun(
     return;
   }
 
+  // A check of every product is shown with a progress bar per competitor.
+  if (!productIds) beginRunProgress(runId, competitors);
+  let failed = true;
+
   runsInFlight += 1;
   try {
     // Competitors are independent of each other — nothing about scanning
@@ -324,6 +334,7 @@ async function executeRun(
       [runId, ok, errored, skipped],
     );
     logger.info('runner', `run ${runId} completed: ${ok} ok, ${errored} error, ${skipped} skipped`);
+    failed = false;
 
     // Every product this run looked for at every competitor has now been
     // compared, found or not. A run over one competitor, or prices only, has
@@ -336,6 +347,7 @@ async function executeRun(
       );
     }
   } finally {
+    finishRunProgress(runId, failed);
     runsInFlight -= 1;
     // Free the Chromium process once nothing is using it. Another run may
     // still be in flight — a lookup during the nightly job — and closing the
@@ -481,6 +493,8 @@ async function runCompetitor(
         runId,
         maxPages: limit,
         deadline: Date.now() + env.catalogueHarvestMinutes * 60_000,
+        onQueue: (pages) =>
+          updateCompetitorProgress(runId, competitor.slug, { stage: 'reading', pagesTotal: pages, pagesRead: 0 }),
         // Counters move as pages are read, so a harvest of several thousand
         // pages shows progress rather than a run that looks stuck for hours.
         onPage: async (status) => {
@@ -489,9 +503,21 @@ async function runCompetitor(
           if (status === 'ok') ok += 1;
           else if (status === 'error') errored += 1;
           else skipped += 1;
+          updateCompetitorProgress(runId, competitor.slug, (entry) => {
+            entry.pagesRead += 1;
+          });
           await query(`UPDATE scrape_runs SET ${column} = ${column} + 1 WHERE id = $1`, [runId]);
         },
       });
+
+      if (harvest.stopped === 'deadline' || harvest.stopped === 'blocked') {
+        updateCompetitorProgress(runId, competitor.slug, {
+          note:
+            harvest.stopped === 'blocked'
+              ? 'The site started turning requests away, so reading stopped early.'
+              : `Stopped at the time limit; ${harvest.remaining} page(s) left for the next check.`,
+        });
+      }
 
       if (harvest.attempted > 0 || harvest.stopped) {
         const blocked = harvest.stopped === 'blocked';
@@ -513,10 +539,14 @@ async function runCompetitor(
     // Match against the catalogue we hold — a database lookup, no requests.
     // On a full run a new match is priced from the page just read, so the
     // price pass below does not fetch the same page a second time.
+    updateCompetitorProgress(runId, competitor.slug, { stage: 'matching' });
     const matched = await matchFromCatalogue(competitor, {
       runId,
       productIds,
       priceIfReadSince: smallList ? null : runStartedAt,
+    });
+    updateCompetitorProgress(runId, competitor.slug, (entry) => {
+      entry.matched += matched.byIdentifier;
     });
     if (matched.byIdentifier + matched.byTitle > 0) {
       await recordRunItem(runId, {
@@ -548,6 +578,7 @@ async function runCompetitor(
   }
 
   if (mode === 'prices' || mode === 'both') {
+    updateCompetitorProgress(runId, competitor.slug, { stage: 'pricing' });
     const result = await scrapeConfirmedMatches(
       runId,
       competitor,
@@ -559,6 +590,7 @@ async function runCompetitor(
     errored += result.errored;
   }
 
+  updateCompetitorProgress(runId, competitor.slug, { stage: 'done' });
   return { ok, errored, skipped };
 }
 

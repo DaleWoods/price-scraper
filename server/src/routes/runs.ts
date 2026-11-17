@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { query } from '../db/pool.js';
 import { resolveProducts } from '../services/productLookup.js';
 import { getActiveRunId, startRun, type RunMode } from '../scraping/runner.js';
+import { latestRunProgress } from '../scraping/runProgress.js';
 
 export const runsRouter: Router = Router();
 
@@ -20,6 +21,15 @@ runsRouter.get('/', async (_req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+/**
+ * How far the latest check of every product has got, competitor by
+ * competitor. Null when none has run since the app started.
+ */
+runsRouter.get('/progress', (_req, res) => {
+  const progress = latestRunProgress();
+  res.json({ progress, running: progress != null && progress.finishedAt == null });
 });
 
 /** Manual "run now" trigger — MVP has no scheduler. */

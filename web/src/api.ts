@@ -614,6 +614,32 @@ export interface LogoRefreshResult {
   error?: string;
 }
 
+export interface RunProgressCompetitor {
+  slug: string;
+  name: string;
+  stage: 'waiting' | 'reading' | 'matching' | 'pricing' | 'done' | 'failed';
+  pagesRead: number;
+  pagesTotal: number;
+  matched: number;
+  note: string | null;
+}
+
+export interface RunProgress {
+  runId: number;
+  startedAt: string;
+  finishedAt: string | null;
+  competitors: RunProgressCompetitor[];
+}
+
+export interface StartAfreshResult {
+  pricesRemoved: number;
+  matchesRemoved: number;
+  alertsRemoved: number;
+  runsRemoved: number;
+  listsRemoved: number;
+  productsReset: number;
+}
+
 export interface ScrapeRun {
   id: number;
   trigger: string;
@@ -1026,6 +1052,10 @@ export const api = {
     }),
 
   runs: () => request<{ runs: ScrapeRun[]; activeRunId: number | null }>('/api/runs'),
+  /** How far the latest check of every product has got. */
+  runProgress: () => request<{ progress: RunProgress | null; running: boolean }>('/api/runs/progress'),
+  /** Clear every result of every check; our products and prices are kept. */
+  startAfresh: () => request<StartAfreshResult>('/api/admin/start-afresh?confirm=1', { method: 'POST' }),
   run: (id: number) => request<{ run: ScrapeRun; items: RunItem[] }>(`/api/runs/${id}`),
   startRun: (body: {
     mode: string;

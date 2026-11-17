@@ -16,6 +16,7 @@ import {
 } from '../api';
 import { CompetitorLabel, CompetitorLogo } from '../components/CompetitorLogo';
 import { ProductImage } from '../components/ProductImage';
+import { RunProgressPanel } from '../components/RunProgress';
 import { Alert, Card, EmptyState, useToast } from '../components/ui';
 import { parseSkuList } from '../skuList';
 
@@ -552,6 +553,7 @@ function FeedsCard() {
   const [report, setReport] = useState<FeedIngestReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<FeedJob | null>(null);
+  const [runWatch, setRunWatch] = useState(0);
 
   const collect = async (resume = false) => {
     setCollecting(true);
@@ -586,8 +588,8 @@ function FeedsCard() {
 
   const checkAll = async () => {
     try {
-      const { run } = await api.startRun({ mode: 'both' });
-      toast(`Checking every product against every competitor (run #${run.id}). This takes a few hours.`, 'ok');
+      await api.startRun({ mode: 'both' });
+      setRunWatch((n) => n + 1);
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not start the check', 'error');
     }
@@ -609,6 +611,7 @@ function FeedsCard() {
       }
     >
       {collecting && job && <FeedProgress job={job} />}
+      <RunProgressPanel watch={runWatch} />
       {error && error !== 'not-configured' && <Alert tone="danger">{error}</Alert>}
       {(error === 'not-configured' || (report && !report.configured)) && (
         <Alert tone="warn" title="The FTP location isn't set up yet">

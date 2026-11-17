@@ -31,6 +31,8 @@ export interface CatalogueHarvestOptions {
   deadline?: number | null;
   /** Called after every page, so a run can show progress while it works. */
   onPage?: (status: CatalogueStatus) => void | Promise<void>;
+  /** Told how many pages this harvest means to read, before it starts. */
+  onQueue?: (pages: number) => void;
 }
 
 export interface CatalogueHarvestResult {
@@ -272,6 +274,8 @@ export async function harvestCatalogue(
 
   const { queue, unread } = await buildQueue(competitor);
   result.remaining = unread;
+  // A capped harvest means to read only up to its cap.
+  options.onQueue?.(options.maxPages != null ? Math.min(queue.length, options.maxPages) : queue.length);
   if (queue.length === 0) return result;
 
   logger.info(

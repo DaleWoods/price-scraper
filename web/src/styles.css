@@ -1872,3 +1872,15 @@ tr:hover .thumb { transform: scale(1.08); }
 .table--grid .gap { white-space: normal; font-size: var(--text-xs); }
 .table--grid .standing { white-space: normal; flex-wrap: wrap; gap: 6px; }
 .feeds-next { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); border-radius: var(--radius-md, 10px); background: var(--ok-bg); border: 1px solid var(--ok-border); color: var(--ok-fg); }
+
+.run-progress {
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-5) var(--sp-6);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--brand-200);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.feed-progress__bar--failed > span { background: var(--pos-higher-solid); }
+.card .run-progress { box-shadow: none; margin-top: var(--sp-3); }
