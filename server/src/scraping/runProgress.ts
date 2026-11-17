@@ -22,6 +22,8 @@ export interface CompetitorProgress {
   matched: number;
   /** Set when the run stopped short, e.g. at its time limit. */
   note: string | null;
+  /** When reading began, so the page can work out this site's own pace. */
+  readingSince: string | null;
 }
 
 export interface RunProgress {
@@ -48,6 +50,7 @@ export function beginRunProgress(runId: number, competitors: { slug: string; dis
       pagesTotal: 0,
       matched: 0,
       note: null,
+      readingSince: null,
     })),
   });
   while (progressByRun.size > KEEP) {

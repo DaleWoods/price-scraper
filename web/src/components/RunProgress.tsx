@@ -24,20 +24,36 @@ function fractionOf(entry: RunProgressCompetitor): number {
   }
 }
 
+/**
+ * Seconds this competitor still needs to finish reading, from its own pace so
+ * far. Null until it has read enough pages to judge by.
+ */
+function secondsLeft(entry: RunProgressCompetitor): number | null {
+  if (entry.stage !== 'reading' || !entry.readingSince || entry.pagesRead < 5 || entry.pagesTotal <= 0) return null;
+  const spent = (Date.now() - new Date(entry.readingSince).getTime()) / 1000;
+  return (spent / entry.pagesRead) * Math.max(0, entry.pagesTotal - entry.pagesRead);
+}
+
 function describe(entry: RunProgressCompetitor): string {
   switch (entry.stage) {
     case 'waiting':
-      return 'Waiting its turn';
-    case 'reading':
-      return entry.pagesTotal > 0
-        ? `Reading their range — ${entry.pagesRead.toLocaleString('en-GB')} of ${entry.pagesTotal.toLocaleString('en-GB')} pages`
-        : 'Finding their product pages…';
+      return 'Starting…';
+    case 'reading': {
+      if (entry.pagesTotal <= 0) return 'Finding their product pages…';
+      const left = secondsLeft(entry);
+      return (
+        `Reading their range — ${entry.pagesRead.toLocaleString('en-GB')} of ${entry.pagesTotal.toLocaleString('en-GB')} pages` +
+        (left != null ? ` · about ${duration(left)} left` : '')
+      );
+    }
     case 'matching':
       return 'Matching against our products…';
     case 'pricing':
       return `Recording prices — ${entry.matched.toLocaleString('en-GB')} of our products found here`;
     case 'done':
-      return `Done — ${entry.matched.toLocaleString('en-GB')} of our products found here`;
+      return entry.pagesTotal === 0 && entry.matched === 0
+        ? 'Nothing to read — no product pages could be listed for this site'
+        : `Done — ${entry.matched.toLocaleString('en-GB')} of our products found here`;
     case 'failed':
       return 'Stopped before finishing';
   }
@@ -99,12 +115,24 @@ export function RunProgressPanel({
   // One still finding its pages counts as an average-sized one meanwhile.
   const known = entries.filter((entry) => entry.pagesTotal > 0);
   const typical = known.length > 0 ? known.reduce((sum, entry) => sum + entry.pagesTotal, 0) / known.length : 1;
-  const weight = (entry: RunProgressCompetitor) => (entry.pagesTotal > 0 ? entry.pagesTotal : typical);
+  // A competitor that finished with nothing to read was no work at all.
+  const weight = (entry: RunProgressCompetitor) =>
+    entry.pagesTotal > 0 ? entry.pagesTotal : entry.stage === 'done' || entry.stage === 'failed' ? 0 : typical;
   const totalWeight = entries.reduce((sum, entry) => sum + weight(entry), 0);
   const overall =
     totalWeight === 0 ? 0 : entries.reduce((sum, entry) => sum + weight(entry) * fractionOf(entry), 0) / totalWeight;
   const elapsed = (Date.now() - new Date(progress.startedAt).getTime()) / 1000;
-  const remaining = running && overall > 0.03 && elapsed > 60 ? (elapsed / overall) * (1 - overall) : null;
+  // Every competitor reads at the same time, so the check ends when the
+  // slowest one does: the time left is the longest of theirs, each from its
+  // own pace. Shown once every one still reading has a pace to judge by.
+  const reading = entries.filter((entry) => entry.stage === 'reading' || entry.stage === 'waiting');
+  const lefts = reading.map(secondsLeft);
+  const remaining =
+    running && reading.length > 0 && lefts.every((left) => left != null)
+      ? Math.max(...(lefts as number[]))
+      : running && reading.length === 0
+        ? 60
+        : null;
   const found = entries.reduce((sum, entry) => sum + entry.matched, 0);
 
   return (
@@ -143,7 +171,8 @@ export function RunProgressPanel({
       {running && (
         <p className="xs muted" style={{ margin: 0 }}>
           Runs on the server — you can leave this page and come back. Prices appear in the table as each competitor
-          finishes.
+          finishes. The first check is the slow one, because it reads every product page each competitor has; after
+          that, each check only reads their new pages and a seventh of the rest, so it takes a fraction of the time.
         </p>
       )}
     </div>

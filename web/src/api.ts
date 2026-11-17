@@ -622,6 +622,7 @@ export interface RunProgressCompetitor {
   pagesTotal: number;
   matched: number;
   note: string | null;
+  readingSince?: string | null;
 }
 
 export interface RunProgress {

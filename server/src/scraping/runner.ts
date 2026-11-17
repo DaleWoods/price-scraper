@@ -397,14 +397,15 @@ const SCOPED_SEARCH_MAX = 50;
 /**
  * How many competitors run concurrently within one scrape run.
  *
- * Six, where it was three. The limit existed because every page used to be
- * rendered in Chromium, and three browsers at once was what a small server
- * could take. Pages are now read over plain HTTP wherever that works — which,
- * measured against the live sites, is nearly everywhere — and the browser has
- * its own much tighter limit in fetcher.ts. What this number bounds now is
- * mostly waiting, and waiting on six sites costs the same as waiting on one.
+ * Every enabled one. Each competitor is a different website, read one page at
+ * a time with its own pause between pages, so reading all of them at once adds
+ * nothing to any one retailer's load. It only stops some of them waiting
+ * hours for a turn. Pages are read over plain HTTP almost everywhere; the
+ * browser, when a page does need it, has its own much tighter limit in
+ * fetcher.ts, so this is mostly waiting, and waiting on twelve sites costs the
+ * same as waiting on one.
  */
-const COMPETITOR_CONCURRENCY = 6;
+const COMPETITOR_CONCURRENCY = 16;
 
 /** Run every array item through fn, never more than `limit` in flight at once. */
 async function mapWithConcurrency<T, R>(
@@ -494,7 +495,12 @@ async function runCompetitor(
         maxPages: limit,
         deadline: Date.now() + env.catalogueHarvestMinutes * 60_000,
         onQueue: (pages) =>
-          updateCompetitorProgress(runId, competitor.slug, { stage: 'reading', pagesTotal: pages, pagesRead: 0 }),
+          updateCompetitorProgress(runId, competitor.slug, {
+            stage: 'reading',
+            pagesTotal: pages,
+            pagesRead: 0,
+            readingSince: new Date().toISOString(),
+          }),
         // Counters move as pages are read, so a harvest of several thousand
         // pages shows progress rather than a run that looks stuck for hours.
         onPage: async (status) => {
