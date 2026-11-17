@@ -304,7 +304,7 @@ export function ComparisonPage() {
               <input
                 id="search"
                 className="input"
-                placeholder="SKU, brand, product name or EAN"
+                placeholder="SKU, brand, product name, manufacturer reference or barcode"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
