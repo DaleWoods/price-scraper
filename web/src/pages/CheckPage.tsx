@@ -248,28 +248,49 @@ function BatchCard({ batchId }: { batchId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'dearer' | 'cheapest' | 'none'>('all');
   const [sortByGap, setSortByGap] = useState(false);
+  // When the page last heard from the server, and whether it is struggling to.
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     let handle: number | null = null;
+    let loaded = false;
     const load = async () => {
       try {
         const next = await api.batch(batchId);
         if (cancelled) return;
+        loaded = true;
         setBatch(next);
+        setUpdatedAt(Date.now());
+        setRetrying(false);
+        setError(null);
         if (next.status === 'finding' || next.status === 'checking') handle = window.setTimeout(load, 3000);
       } catch (err) {
-        if (!cancelled) setError(err instanceof ApiError ? err.message : 'Could not load that list');
+        if (cancelled) return;
+        // A failed refresh is not the end of the check: the server may be
+        // restarting or busy. Keep what is on screen, say so, and try again.
+        if (loaded) {
+          setRetrying(true);
+          handle = window.setTimeout(load, 5000);
+        } else {
+          setError(err instanceof ApiError ? err.message : 'Could not load that list');
+          handle = window.setTimeout(load, 8000);
+        }
       }
     };
+    // The "updated … ago" line counts up between refreshes.
+    const ticker = window.setInterval(() => setTick((n) => n + 1), 1000);
     void load();
     return () => {
       cancelled = true;
       if (handle) window.clearTimeout(handle);
+      window.clearInterval(ticker);
     };
   }, [batchId]);
 
-  if (error) return <Alert tone="danger">{error}</Alert>;
+  if (error && !batch) return <Alert tone="danger">{error} Trying again…</Alert>;
   if (!batch) return null;
 
   const competitors =
@@ -342,6 +363,13 @@ function BatchCard({ batchId }: { batchId: number }) {
           <span className="muted">Checked {relativeTime(batch.createdAt)}</span>
         )}
         <span className="grow" />
+        {(batch.status === 'finding' || batch.status === 'checking') && updatedAt != null && (
+          <span className={`xs ${retrying ? 'text-higher' : 'muted'}`}>
+            {retrying
+              ? 'The server is slow to answer — still trying. The check carries on regardless.'
+              : `Updated ${Math.max(0, Math.round((Date.now() - updatedAt) / 1000))}s ago`}
+          </span>
+        )}
         {batch.products.length > 0 && (
           <button type="button" className="btn btn--sm" onClick={download}>
             Download CSV

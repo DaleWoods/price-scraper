@@ -3,7 +3,7 @@ import { logger } from '../lib/logger.js';
 import { skusForReference } from '../ownSite/ownIndex.js';
 import { readOwnProductBySku } from '../ownSite/readOwnProduct.js';
 import { startRun } from '../scraping/runner.js';
-import { getLookup, LookupError, saveOwnProduct, type LookupResult } from './lookup.js';
+import { getLookups, LookupError, saveOwnProduct, type LookupResult } from './lookup.js';
 import { resolveProducts } from './productLookup.js';
 import { looksLikeBinary } from './listFile.js';
 
@@ -205,11 +205,10 @@ export async function getBatch(batchId: number): Promise<BatchResult | null> {
     }
   }
 
-  const products: LookupResult[] = [];
-  for (const id of batch.product_ids.map(Number)) {
-    const result = await getLookup(id, batch.run_id);
-    if (result) products.push(result);
-  }
+  const products: LookupResult[] = await getLookups(
+    batch.product_ids.map(Number),
+    batch.run_id != null ? Number(batch.run_id) : null,
+  );
 
   return {
     id: Number(batch.id),

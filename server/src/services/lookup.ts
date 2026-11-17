@@ -165,6 +165,30 @@ export interface LookupResult {
 }
 
 export async function getLookup(productId: number, runId?: number | null): Promise<LookupResult | null> {
+  let run = runId ?? null;
+  if (run == null) {
+    // Not part of a list: the product's own most recent check.
+    const { rows } = await query<{ id: number }>(
+      'SELECT id FROM scrape_runs WHERE product_id = $1 ORDER BY id DESC LIMIT 1',
+      [productId],
+    );
+    run = rows[0] ? Number(rows[0].id) : null;
+  }
+  return (await getLookups([productId], run))[0] ?? null;
+}
+
+/**
+ * The results for many products at once, all from the same check.
+ *
+ * Five queries however long the list. Loading each product on its own took
+ * five queries apiece — about 1,200 for a list of 247, every three seconds
+ * while the page watched it — and on a small server the page never got its
+ * answer: it sat on "Finding our products — 248 of 249" while the check ran
+ * unseen behind it.
+ */
+export async function getLookups(productIds: number[], runId: number | null): Promise<LookupResult[]> {
+  if (productIds.length === 0) return [];
+
   const { rows: products } = await query<{
     id: number;
     internal_sku: string;
@@ -187,25 +211,22 @@ export async function getLookup(productId: number, runId?: number | null): Promi
        SELECT * FROM fascia_prices WHERE product_id = p.id ORDER BY imported_at DESC LIMIT 1
      ) fp ON TRUE
      LEFT JOIN fascias f ON f.id = fp.fascia_id
-     WHERE p.id = $1`,
-    [productId],
+     WHERE p.id = ANY($1::bigint[])`,
+    [productIds],
   );
-  const product = products[0];
-  if (!product) return null;
 
-  const { rows: runs } = await query<{ id: number; status: string; started_at: string; finished_at: string | null }>(
-    // A product checked as part of a list belongs to that list's run, which
-    // names no single product; otherwise its own most recent check.
+  const { rows: runs } =
     runId != null
-      ? `SELECT id, status, started_at, finished_at FROM scrape_runs WHERE id = $1`
-      : `SELECT id, status, started_at, finished_at FROM scrape_runs
-         WHERE product_id = $1 ORDER BY id DESC LIMIT 1`,
-    runId != null ? [runId] : [productId],
-  );
+      ? await query<{ id: number; status: string; started_at: string; finished_at: string | null }>(
+          'SELECT id, status, started_at, finished_at FROM scrape_runs WHERE id = $1',
+          [runId],
+        )
+      : { rows: [] };
   const run = runs[0] ?? null;
   const running = run?.status === 'running';
 
   const { rows: found } = await query<{
+    product_id: number;
     competitor_id: number;
     competitor_url: string;
     competitor_title: string | null;
@@ -217,99 +238,114 @@ export async function getLookup(productId: number, runId?: number | null): Promi
     observed_at: string | null;
     source_url: string | null;
   }>(
-    `SELECT m.competitor_id, m.competitor_url, m.competitor_title, m.evidence,
+    `SELECT m.product_id, m.competitor_id, m.competitor_url, m.competitor_title, m.evidence,
             po.price, po.was_price, po.promo, po.in_stock, po.observed_at, po.source_url
      FROM product_matches m
      LEFT JOIN LATERAL (
        SELECT * FROM price_observations WHERE match_id = m.id ORDER BY observed_at DESC LIMIT 1
      ) po ON TRUE
-     WHERE m.product_id = $1 AND m.status = 'confirmed' AND m.flagged_at IS NULL`,
-    [productId],
+     WHERE m.product_id = ANY($1::bigint[]) AND m.status = 'confirmed' AND m.flagged_at IS NULL`,
+    [productIds],
   );
-  const foundBy = new Map(found.map((row) => [Number(row.competitor_id), row]));
+  const key = (productId: number, competitorId: number) => `${productId}:${competitorId}`;
+  const foundBy = new Map(found.map((row) => [key(Number(row.product_id), Number(row.competitor_id)), row]));
 
   const { rows: items } = run
-    ? await query<{ competitor_id: number; status: string; error_kind: string | null; error: string | null }>(
-        `SELECT DISTINCT ON (competitor_id) competitor_id, status, error_kind, error
+    ? await query<{
+        product_id: number;
+        competitor_id: number;
+        status: string;
+        error_kind: string | null;
+        error: string | null;
+      }>(
+        `SELECT DISTINCT ON (product_id, competitor_id) product_id, competitor_id, status, error_kind, error
          FROM scrape_run_items
-         WHERE run_id = $1 AND product_id = $2
-         ORDER BY competitor_id, id DESC`,
-        [run.id, productId],
+         WHERE run_id = $1 AND product_id = ANY($2::bigint[])
+         ORDER BY product_id, competitor_id, id DESC`,
+        [run.id, productIds],
       )
     : { rows: [] };
-  const itemBy = new Map(items.map((row) => [Number(row.competitor_id), row]));
+  const itemBy = new Map(items.map((row) => [key(Number(row.product_id), Number(row.competitor_id)), row]));
 
-  const competitors = (await listCompetitors(true)).map((competitor): LookupCompetitor => {
-    const base: LookupCompetitor = {
-      slug: competitor.slug,
-      name: competitor.display_name,
-      hasLogo: Boolean(competitor.has_logo),
-      status: 'not_checked',
-      price: null,
-      wasPrice: null,
-      onSale: false,
-      inStock: null,
-      url: null,
-      title: null,
-      seenAt: null,
-      matchedOn: null,
-      note: null,
-    };
+  const enabled = await listCompetitors(true);
 
-    const match = foundBy.get(Number(competitor.id));
-    if (match) {
-      const viaReference = (match.evidence?.notes ?? []).some((note) => /reference/i.test(note));
-      return {
-        ...base,
-        status: match.price != null ? 'found' : running ? 'checking' : 'error',
-        price: match.price != null ? Number(match.price) : null,
-        wasPrice: match.was_price != null ? Number(match.was_price) : null,
-        onSale: Boolean(match.promo),
-        inStock: match.in_stock,
-        url: match.source_url ?? match.competitor_url,
-        title: match.competitor_title,
-        seenAt: match.observed_at,
-        matchedOn: viaReference ? 'reference' : 'barcode',
-        note: match.price == null && !running ? 'Matched, but the price could not be read this time.' : null,
+  const byId = new Map(products.map((product) => [Number(product.id), product]));
+  const results: LookupResult[] = [];
+  // In the order asked for.
+  for (const productId of productIds) {
+    const product = byId.get(Number(productId));
+    if (!product) continue;
+
+    const competitors = enabled.map((competitor): LookupCompetitor => {
+      const base: LookupCompetitor = {
+        slug: competitor.slug,
+        name: competitor.display_name,
+        hasLogo: Boolean(competitor.has_logo),
+        status: 'not_checked',
+        price: null,
+        wasPrice: null,
+        onSale: false,
+        inStock: null,
+        url: null,
+        title: null,
+        seenAt: null,
+        matchedOn: null,
+        note: null,
       };
-    }
 
-    const item = itemBy.get(Number(competitor.id));
-    if (!item) return { ...base, status: run ? (running ? 'checking' : 'not_found') : 'not_checked' };
-    if (item.error_kind === 'blocked' || item.error_kind === 'robots_disallowed') {
-      return { ...base, status: 'blocked', note: 'This retailer turned the check away.' };
-    }
-    if (item.status === 'error') {
-      return { ...base, status: running ? 'checking' : 'error', note: running ? null : 'The check failed this time.' };
-    }
-    return { ...base, status: running ? 'checking' : 'not_found' };
-  });
+      const match = foundBy.get(key(Number(product.id), Number(competitor.id)));
+      if (match) {
+        const viaReference = (match.evidence?.notes ?? []).some((note) => /reference/i.test(note));
+        return {
+          ...base,
+          status: match.price != null ? 'found' : running ? 'checking' : 'error',
+          price: match.price != null ? Number(match.price) : null,
+          wasPrice: match.was_price != null ? Number(match.was_price) : null,
+          onSale: Boolean(match.promo),
+          inStock: match.in_stock,
+          url: match.source_url ?? match.competitor_url,
+          title: match.competitor_title,
+          seenAt: match.observed_at,
+          matchedOn: viaReference ? 'reference' : 'barcode',
+          note: match.price == null && !running ? 'Matched, but the price could not be read this time.' : null,
+        };
+      }
 
-  return {
-    product: {
-      id: Number(product.id),
-      sku: product.internal_sku,
-      name: product.product_name,
-      brand: product.brand,
-      mpn: product.mpn ?? (product.ean_mpn && !/^[0-9]{12,14}$/.test(product.ean_mpn) ? product.ean_mpn : null),
-      gtin: product.gtin,
-      url: product.product_url ?? product.our_product_url,
-      imageUrl: product.image_url,
-      siteName: product.site_name,
-      price: product.price != null ? Number(product.price) : null,
-      // A "was" price is only a sale when it is above today's price.
-      wasPrice:
-        product.regular_price != null && product.price != null && Number(product.regular_price) > Number(product.price)
-          ? Number(product.regular_price)
-          : null,
-      onSale:
-        product.on_sale === true ||
-        (product.regular_price != null && product.price != null && Number(product.regular_price) > Number(product.price)),
-    },
-    running,
-    checkedAt: run?.finished_at ?? run?.started_at ?? null,
-    competitors,
-  };
+      const item = itemBy.get(key(Number(product.id), Number(competitor.id)));
+      if (!item) return { ...base, status: run ? (running ? 'checking' : 'not_found') : 'not_checked' };
+      if (item.error_kind === 'blocked' || item.error_kind === 'robots_disallowed') {
+        return { ...base, status: 'blocked', note: 'This retailer turned the check away.' };
+      }
+      if (item.status === 'error') {
+        return { ...base, status: running ? 'checking' : 'error', note: running ? null : 'The check failed this time.' };
+      }
+      return { ...base, status: running ? 'checking' : 'not_found' };
+    });
+
+    const price = product.price != null ? Number(product.price) : null;
+    const regular = product.regular_price != null ? Number(product.regular_price) : null;
+    results.push({
+      product: {
+        id: Number(product.id),
+        sku: product.internal_sku,
+        name: product.product_name,
+        brand: product.brand,
+        mpn: product.mpn ?? (product.ean_mpn && !/^[0-9]{12,14}$/.test(product.ean_mpn) ? product.ean_mpn : null),
+        gtin: product.gtin,
+        url: product.product_url ?? product.our_product_url,
+        imageUrl: product.image_url,
+        siteName: product.site_name,
+        price,
+        // A "was" price is only a sale when it is above today's price.
+        wasPrice: regular != null && price != null && regular > price ? regular : null,
+        onSale: product.on_sale === true || (regular != null && price != null && regular > price),
+      },
+      running,
+      checkedAt: run?.finished_at ?? run?.started_at ?? null,
+      competitors,
+    });
+  }
+  return results;
 }
 
 export async function recentLookups(limit = 12): Promise<
