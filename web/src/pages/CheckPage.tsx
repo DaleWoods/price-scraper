@@ -330,7 +330,7 @@ function BatchCard({ batchId }: { batchId: number }) {
         <strong>{batch.fileName ?? `List #${batch.id}`}</strong>
         {batch.status === 'finding' ? (
           <span>
-            <span className="spinner" /> Finding our products… {batch.processed} of {batch.total}
+            <span className="spinner" /> Finding our products — progress below
           </span>
         ) : batch.status === 'checking' ? (
           <span>
@@ -348,6 +348,29 @@ function BatchCard({ batchId }: { batchId: number }) {
           </button>
         )}
       </div>
+
+      {batch.status === 'finding' && (
+        <div style={{ padding: 'var(--sp-5) var(--sp-6) 0' }}>
+          <div className="run-progress">
+            <div className="feed-progress__head">
+              <strong>
+                Finding our products — {batch.processed.toLocaleString('en-GB')} of {batch.total.toLocaleString('en-GB')}
+              </strong>
+              <span className="small muted">
+                {batch.processed === 0
+                  ? 'Starting…'
+                  : 'Anything not already loaded from the feeds is read from our own website, one at a time'}
+              </span>
+            </div>
+            <div className="feed-progress__bar feed-progress__bar--main">
+              <span style={{ width: `${batch.total > 0 ? (batch.processed / batch.total) * 100 : 0}%` }} />
+            </div>
+            <p className="xs muted" style={{ margin: 0 }}>
+              Next, every competitor is checked for these products — that has its own progress bar.
+            </p>
+          </div>
+        </div>
+      )}
 
       {batch.runId != null && (batch.status === 'checking' || batch.status === 'done') && (
         <div style={{ padding: 'var(--sp-5) var(--sp-6) 0' }}>

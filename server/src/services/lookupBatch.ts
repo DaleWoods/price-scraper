@@ -91,12 +91,12 @@ async function processBatch(batchId: number, values: string[]): Promise<void> {
       }
     }
     if (!found) unresolved.push(value);
-    if (index % 10 === 9) {
-      await query(`UPDATE lookup_batches SET processed = $2 WHERE id = $1`, [
-        batchId,
-        values.length - notHeld.length + index + 1,
-      ]);
-    }
+    // After every value: each one here is a page read from our own site, a
+    // second or two apiece, so the progress bar moves with each.
+    await query(`UPDATE lookup_batches SET processed = $2 WHERE id = $1`, [
+      batchId,
+      values.length - notHeld.length + index + 1,
+    ]);
   }
 
   const ids = [...productIds];
