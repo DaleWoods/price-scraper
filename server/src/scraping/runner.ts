@@ -4,7 +4,7 @@ import type { Competitor, Product, ScrapeRun } from '../domain/types.js';
 import { logger } from '../lib/logger.js';
 import { env } from '../config/env.js';
 import { matchFromCatalogue } from '../matching/catalogueMatch.js';
-import { pagesAtOnce } from './catalogue.js';
+import { brandUrlPattern, pagesAtOnce } from './catalogue.js';
 import { beginRunProgress, finishRunProgress, updateCompetitorProgress } from './runProgress.js';
 import { discoverMatchesForProduct } from '../matching/discovery.js';
 import {
@@ -607,8 +607,29 @@ async function runCompetitor(
     // run does not need it: the harvest above reads those same pages, all of
     // them, and matches on what they say rather than on their address.
     if (smallList && productIds != null) {
-      const settled = new Set(matched.matchedProductIds);
-      const remaining = productIds.filter((id) => !settled.has(id));
+      // Only what this competitor has no confirmed match for: a product
+      // matched here before is priced below, not searched for again.
+      const { rows: settledRows } = await query<{ product_id: number }>(
+        `SELECT product_id FROM product_matches
+         WHERE competitor_id = $1 AND status = 'confirmed' AND product_id = ANY($2::bigint[])`,
+        [competitor.id, productIds],
+      );
+      const settled = new Set(settledRows.map((row) => Number(row.product_id)));
+      let remaining = productIds.filter((id) => !settled.has(id));
+
+      // A list is answered brand by brand: every page this competitor has for
+      // a brand on the list is read, then matched exactly by barcode or
+      // reference. Opening the few pages whose address resembles a product's
+      // name — the search below — misses a product the competitor names
+      // differently; reading the brand cannot. A brand's pages are read once
+      // and kept, so the next list with that brand is answered at once.
+      if (remaining.length >= BRAND_READ_MIN) {
+        const read = await readBrandsFor(runId, competitor, remaining, runStartedAt);
+        ok += read.ok;
+        errored += read.errored;
+        remaining = read.unanswered;
+      }
+
       if (remaining.length > 0) {
         updateCompetitorProgress(runId, competitor.slug, {
           stage: 'searching',
@@ -644,6 +665,99 @@ async function runCompetitor(
 
   updateCompetitorProgress(runId, competitor.slug, { stage: 'done' });
   return { ok, errored, skipped };
+}
+
+/** A list this long or longer is answered by reading its brands' pages. */
+const BRAND_READ_MIN = 5;
+
+/**
+ * Read every page a competitor has for the brands of these products, matching
+ * each brand as soon as its pages are in. Returns the products left
+ * unanswered: those with no usable brand, and those whose brand could not be
+ * read through (time ran out, or the site began refusing) — the address search
+ * is their fallback. A product whose brand was read through and still has no
+ * match is answered: the competitor does not list it.
+ */
+async function readBrandsFor(
+  runId: number,
+  competitor: Competitor,
+  productIds: number[],
+  runStartedAt: Date,
+): Promise<{ ok: number; errored: number; unanswered: number[] }> {
+  const { rows } = await query<{ id: number; brand: string | null }>(
+    'SELECT id, brand FROM products WHERE id = ANY($1::bigint[])',
+    [productIds],
+  );
+  const byBrand = new Map<string, { pattern: RegExp; ids: number[] }>();
+  const unanswered: number[] = [];
+  for (const row of rows) {
+    const pattern = brandUrlPattern(row.brand);
+    if (!pattern) {
+      unanswered.push(Number(row.id));
+      continue;
+    }
+    const entry = byBrand.get(pattern.source) ?? { pattern, ids: [] };
+    entry.ids.push(Number(row.id));
+    byBrand.set(pattern.source, entry);
+  }
+  // The brands with the most products on the list first.
+  const brands = [...byBrand.values()].sort((a, b) => b.ids.length - a.ids.length);
+
+  let ok = 0;
+  let errored = 0;
+  let stopped = false;
+  const deadline = Date.now() + env.catalogueHarvestMinutes * 60_000;
+  updateCompetitorProgress(runId, competitor.slug, {
+    stage: 'reading',
+    pagesRead: 0,
+    pagesTotal: 0,
+    readingSince: new Date().toISOString(),
+  });
+
+  for (const brand of brands) {
+    if (stopped) {
+      unanswered.push(...brand.ids);
+      continue;
+    }
+    const harvest = await harvestCatalogue(competitor, {
+      runId,
+      only: brand.pattern,
+      unreadOnly: true,
+      deadline,
+      onQueue: (pages) =>
+        updateCompetitorProgress(runId, competitor.slug, (entry) => {
+          entry.pagesTotal += pages;
+        }),
+      onPage: (status) => {
+        if (status === 'ok') ok += 1;
+        else if (status === 'error') errored += 1;
+        updateCompetitorProgress(runId, competitor.slug, (entry) => {
+          entry.pagesRead += 1;
+        });
+      },
+    });
+    // Whatever was read is matched, complete or not.
+    const matched = await matchFromCatalogue(competitor, {
+      runId,
+      productIds: brand.ids,
+      priceIfReadSince: runStartedAt,
+    });
+    updateCompetitorProgress(runId, competitor.slug, (entry) => {
+      entry.matched += matched.byIdentifier;
+    });
+    if (harvest.stopped === 'deadline' || harvest.stopped === 'blocked') {
+      stopped = true;
+      const found = new Set(matched.matchedProductIds);
+      unanswered.push(...brand.ids.filter((id) => !found.has(id)));
+      updateCompetitorProgress(runId, competitor.slug, {
+        note:
+          harvest.stopped === 'blocked'
+            ? 'The site started turning requests away, so reading stopped early.'
+            : 'Stopped at the time limit; the rest is read on the next check.',
+      });
+    }
+  }
+  return { ok, errored, unanswered };
 }
 
 /** Scrape the stored URL of every confirmed match (Spec §5.4 — direct-URL path). */

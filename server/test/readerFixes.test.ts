@@ -61,3 +61,41 @@ describe('reading a competitor product page', () => {
     assert.equal(extractListing(ernestJones, page(html)).gtin, null);
   });
 });
+
+describe('matching on a manufacturer reference', () => {
+  const ours = {
+    id: 1,
+    internal_sku: '18960009',
+    brand: 'Seiko 5 Sports',
+    product_name: "Flieger' Green 39mm Mens Watch",
+    mpn: 'SRPH29K1',
+    gtin: null,
+    ean_mpn: 'SRPH29K1',
+    category: 'Watches',
+    specs: {},
+  } as never;
+
+  it("accepts a listing that shortens our brand: 'Seiko Sports' for 'Seiko 5 Sports'", async () => {
+    const { scoreCandidate } = await import('../src/matching/score.ts');
+    const scored = scoreCandidate(ours, {
+      url: 'https://www.fraserhart.co.uk/srph29k1-seiko-sports-flieger/18-01-2-5383.html',
+      title: 'Seiko Sports "Flieger" 39.4mm Green Dial Nylon Strap Watch',
+      brand: 'Seiko',
+      mpn: 'SRPH29K1',
+      price: 180,
+    });
+    assert.equal(scored.tier, 'ean_mpn_exact');
+  });
+
+  it('still refuses the same reference under another brand', async () => {
+    const { scoreCandidate } = await import('../src/matching/score.ts');
+    const scored = scoreCandidate(ours, {
+      url: 'https://www.example.co.uk/casio-watch-srph29k1',
+      title: 'Casio Green Dial Watch',
+      brand: 'Casio',
+      mpn: 'SRPH29K1',
+      price: 180,
+    });
+    assert.notEqual(scored.tier, 'ean_mpn_exact');
+  });
+});

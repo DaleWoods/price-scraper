@@ -115,7 +115,15 @@ function brandVisible(product: Product, listing: CandidateListing): boolean {
   const haystack = normaliseText(
     [listing.title, listing.brand ?? '', path.replace(/[^A-Za-z0-9]+/g, ' ')].join(' '),
   );
-  return haystack.includes(brand);
+  if (haystack.includes(brand)) return true;
+  // Retailers shorten a brand: our "Seiko 5 Sports" is "Seiko Sports Flieger"
+  // at Fraser Hart, with the same reference, SRPH29K1. The brand's leading
+  // word is enough when it is distinctive ("seiko", "vivienne"); a short one
+  // needs the next word too ("tag heuer").
+  const words = brand.split(/[^a-z0-9]+/).filter((word) => word.length > 1);
+  if (words.length < 2) return false;
+  const key = words[0]!.length >= 4 ? words[0]! : `${words[0]} ${words[1]}`;
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(key)}([^a-z0-9]|$)`).test(haystack);
 }
 
 /**

@@ -35,6 +35,32 @@ export interface CatalogueHarvestOptions {
   onPage?: (status: CatalogueStatus) => void | Promise<void>;
   /** Told how many pages this harvest means to read, before it starts. */
   onQueue?: (pages: number) => void;
+  /** Read only pages whose address matches, e.g. one brand's (see brandUrlPattern). */
+  only?: RegExp;
+  /** Read only pages never read before (and last night's failures): no refreshing. */
+  unreadOnly?: boolean;
+}
+
+/**
+ * Matches the addresses of one brand's product pages. All three main
+ * competitors put the brand in a product's address ("/Rotary-Apex100-…",
+ * "rotary-apex100-…", "…-seiko-5-sports-…").
+ *
+ * The first word of the brand when it is distinctive enough alone ("seiko"
+ * for our "Seiko 5 Sports", "vivienne" for "Vivienne Westwood"), else the
+ * first two together ("tag heuer"). Erring wide only costs a few extra pages;
+ * erring narrow would miss the product.
+ */
+export function brandUrlPattern(brand: string | null | undefined): RegExp | null {
+  const words = (brand ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter((word) => word.length > 1);
+  if (words.length === 0 || words.join(' ') === 'unknown') return null;
+  const key = words[0]!.length >= 4 || words.length === 1 ? words[0]! : `${words[0]}[^a-z0-9]+${words[1]}`;
+  return new RegExp(`(^|[^a-z0-9])${key}([^a-z0-9]|$)`, 'i');
 }
 
 export interface CatalogueHarvestResult {
@@ -129,7 +155,11 @@ interface QueueRow {
  *   5. pages that were not products or had gone, once a month, in case that
  *      changed.
  */
-async function buildQueue(competitor: Competitor): Promise<{ queue: string[]; unread: number }> {
+async function buildQueue(
+  competitor: Competitor,
+  only: RegExp | null = null,
+  unreadOnly = false,
+): Promise<{ queue: string[]; unread: number }> {
   const { rows } = await query<QueueRow>(
     `SELECT u.url, cp.fetched_at, cp.status
      FROM competitor_urls u
@@ -143,7 +173,9 @@ async function buildQueue(competitor: Competitor): Promise<{ queue: string[]; un
     [competitor.id],
   );
 
-  const candidates = rows.filter((row) => isProductUrl(competitor, row.url));
+  const candidates = rows.filter(
+    (row) => isProductUrl(competitor, row.url) && (!only || only.test(new URL(row.url).pathname)),
+  );
   const brandPattern = await ourBrandPattern();
 
   const now = Date.now();
@@ -177,7 +209,9 @@ async function buildQueue(competitor: Competitor): Promise<{ queue: string[]; un
   const staleSlice = stale.slice(0, Math.ceil(okCount / refreshDays));
 
   return {
-    queue: [...unreadBranded, ...unreadOther, ...failed, ...staleSlice, ...dormant],
+    queue: unreadOnly
+      ? [...unreadBranded, ...unreadOther, ...failed]
+      : [...unreadBranded, ...unreadOther, ...failed, ...staleSlice, ...dormant],
     unread: unreadBranded.length + unreadOther.length,
   };
 }
@@ -332,7 +366,7 @@ export async function harvestCatalogue(
     detail: null,
   };
 
-  const { queue, unread } = await buildQueue(competitor);
+  const { queue, unread } = await buildQueue(competitor, options.only ?? null, options.unreadOnly ?? false);
   result.remaining = unread;
   // A capped harvest means to read only up to its cap.
   options.onQueue?.(options.maxPages != null ? Math.min(queue.length, options.maxPages) : queue.length);

@@ -51,7 +51,7 @@ function secondsLeft(entry: RunProgressCompetitor): number | null {
   return (spent / entry.pagesRead) * Math.max(0, entry.pagesTotal - entry.pagesRead);
 }
 
-function describe(entry: RunProgressCompetitor): string {
+function describe(entry: RunProgressCompetitor, list = false): string {
   switch (entry.stage) {
     case 'waiting':
       return 'Starting…';
@@ -60,10 +60,10 @@ function describe(entry: RunProgressCompetitor): string {
         ? `Re-checking today's price of the ${(entry.pricesTotal ?? 0).toLocaleString('en-GB')} products already matched — ${(entry.pricesChecked ?? 0).toLocaleString('en-GB')} done`
         : 'Re-checking prices of products already matched…';
     case 'reading': {
-      if (entry.pagesTotal <= 0) return 'Finding their product pages…';
+      if (entry.pagesTotal <= 0) return list ? 'Nothing new to read for these brands…' : 'Finding their product pages…';
       const left = secondsLeft(entry);
       return (
-        `Reading their range — ${entry.pagesRead.toLocaleString('en-GB')} of ${entry.pagesTotal.toLocaleString('en-GB')} pages` +
+        `${list ? "Reading every page of the list's brands" : 'Reading their range'} — ${entry.pagesRead.toLocaleString('en-GB')} of ${entry.pagesTotal.toLocaleString('en-GB')} pages` +
         (left != null ? ` · about ${duration(left)} left` : '')
       );
     }
@@ -205,7 +205,7 @@ export function RunProgressPanel({
               <span style={{ width: `${fractionOf(entry) * 100}%` }} />
             </div>
             <span className="small muted">
-              {describe(entry)}
+              {describe(entry, progress.kind === 'list')}
               {entry.note && <> · {entry.note}</>}
             </span>
           </li>
@@ -213,8 +213,9 @@ export function RunProgressPanel({
       </ul>
       {running && progress.kind === 'list' && (
         <p className="xs muted" style={{ margin: 0 }}>
-          Each competitor's site is searched for every product on the list, two pages at a time. Prices fill in below as
-          they are found; you can leave this page and come back.
+          For each brand on your list, every page the competitor has for that brand is read, then matched exactly by
+          barcode or reference. Pages are kept, so the next list with the same brands is much quicker. Prices fill in
+          below as each brand finishes; you can leave this page and come back.
         </p>
       )}
       {running && progress.kind !== 'list' && (
