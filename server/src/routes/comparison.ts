@@ -106,7 +106,7 @@ comparisonRouter.delete('/observations', async (_req, res) => {
 
 function parseFilters(queryParams: Record<string, unknown>): ComparisonFilters {
   const position = typeof queryParams.position === 'string' ? queryParams.position : null;
-  const validPositions = ['lower', 'equal', 'higher', 'unmatched', 'awaiting_price'];
+  const validPositions = ['lower', 'equal', 'higher', 'unmatched', 'awaiting_price', 'not_checked', 'not_sold'];
 
   return {
     fasciaCode:
@@ -117,7 +117,7 @@ function parseFilters(queryParams: Record<string, unknown>): ComparisonFilters {
     competitorId: queryParams.competitorId ? Number(queryParams.competitorId) : null,
     position:
       position && validPositions.includes(position)
-        ? (position as PricePosition | 'unmatched' | 'awaiting_price')
+        ? (position as PricePosition | 'unmatched' | 'awaiting_price' | 'not_checked' | 'not_sold')
         : null,
     search: typeof queryParams.search === 'string' && queryParams.search ? queryParams.search : null,
     limit: queryParams.limit ? Number(queryParams.limit) : 100,

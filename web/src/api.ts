@@ -55,6 +55,8 @@ export interface ComparisonRow {
   /** Every competitor carrying a price for this product, not just the cheapest. */
   competitors: RowCompetitorPrice[];
   matchStatus: { confirmed: number; pending: number };
+  /** Priced by a competitor; looked for everywhere and sold by none; or not looked for yet. */
+  compareStatus?: 'priced' | 'not_sold' | 'not_checked';
 }
 
 export interface ComparisonResponse {
@@ -67,6 +69,8 @@ export interface ComparisonResponse {
     equal: number;
     higher: number;
     unmatched: number;
+    notSold?: number;
+    notChecked?: number;
     awaitingOurPrice: number;
     matchCoveragePct: number;
   };

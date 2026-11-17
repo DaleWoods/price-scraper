@@ -626,6 +626,14 @@ function FeedsCard() {
           <span className="mono xs">goldsmiths_*.csv</span>.
         </Alert>
       )}
+      {report?.configured && report.outcomes.some((o) => o.status === 'imported' || o.status === 'unchanged') && (
+        <div className="feeds-next">
+          <span className="small">Everything we sell is loaded.</span>
+          <a className="btn btn--sm btn--primary" href="/comparison">
+            See all products and prices →
+          </a>
+        </div>
+      )}
       {report?.configured && (
         <ul className="check-feeds">
           {report.outcomes.map((outcome) => (

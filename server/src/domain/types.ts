@@ -233,6 +233,11 @@ export interface ComparisonRow {
     confirmed: number;
     pending: number;
   };
+  /**
+   * Where this product stands: priced by at least one competitor; looked for
+   * everywhere and sold by none; or not looked for yet.
+   */
+  compareStatus: 'priced' | 'not_sold' | 'not_checked';
 }
 
 export interface ScrapeRun {

@@ -324,6 +324,17 @@ async function executeRun(
       [runId, ok, errored, skipped],
     );
     logger.info('runner', `run ${runId} completed: ${ok} ok, ${errored} error, ${skipped} skipped`);
+
+    // Every product this run looked for at every competitor has now been
+    // compared, found or not. A run over one competitor, or prices only, has
+    // not looked everywhere, so it does not count.
+    if (mode !== 'prices' && !options.competitorId) {
+      await query(
+        `UPDATE products SET compared_at = now()
+         WHERE delisted_at IS NULL AND ($1::bigint[] IS NULL OR id = ANY($1::bigint[]))`,
+        [productIds],
+      );
+    }
   } finally {
     runsInFlight -= 1;
     // Free the Chromium process once nothing is using it. Another run may

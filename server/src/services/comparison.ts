@@ -50,7 +50,7 @@ export interface ComparisonFilters {
   brand?: string | null;
   category?: string | null;
   competitorId?: number | null;
-  position?: PricePosition | 'unmatched' | 'awaiting_price' | null;
+  position?: PricePosition | 'unmatched' | 'awaiting_price' | 'not_checked' | 'not_sold' | null;
   search?: string | null;
   limit?: number;
   offset?: number;
@@ -86,6 +86,10 @@ export interface ComparisonPage {
     equal: number;
     higher: number;
     unmatched: number;
+    /** Looked for at every competitor; none sells it. */
+    notSold: number;
+    /** Not looked for at competitors yet. */
+    notChecked: number;
     /** Products we cannot compare because no price file has supplied ours yet. */
     awaitingOurPrice: number;
     matchCoveragePct: number;
@@ -99,7 +103,7 @@ export interface ComparisonPage {
  * seen (three UK sites' worth of watches and jewellery); bump it if that
  * changes.
  */
-const PRODUCT_SAFETY_CAP = 5000;
+const PRODUCT_SAFETY_CAP = 50_000;
 
 /**
  * Comparison view (Spec §5.5): our price vs each competitor's latest price,
@@ -168,8 +172,9 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
   const fasciaParam = params.length + 1;
   params.push(fascia?.id ?? null);
 
-  const { rows: products } = await query<Product & { total_count: number }>(
-    `SELECT p.id, p.internal_sku, p.brand, p.product_name, p.ean_mpn, p.category, p.image_url,
+  // Every column a row needs. has_price and compared say which of the three
+  // states the product is in; neither is part of the product itself.
+  const columns = `p.id, p.internal_sku, p.brand, p.product_name, p.ean_mpn, p.category, p.image_url,
             -- Per-fascia when we have it — the same SKU can have a different
             -- page at each of our sites — falling back to the single shared
             -- column for a product with no fascia_prices row at all.
@@ -179,21 +184,109 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
             fp.regular_price  AS our_was_price,
             fp.on_sale        AS our_on_sale,
             COALESCE(fp.currency, p.currency) AS currency,
-            count(*) OVER () AS total_count
-     FROM products p
+            EXISTS (SELECT 1 FROM price_observations o WHERE o.product_id = p.id) AS has_price,
+            (p.compared_at IS NOT NULL) AS compared`;
+  const from = `FROM products p
      LEFT JOIN fascia_prices fp
        ON fp.product_id = p.id AND fp.fascia_id = $${fasciaParam}
-     ${where}
+     ${where}`;
+  const priced = `EXISTS (SELECT 1 FROM price_observations o WHERE o.product_id = p.id)`;
+
+  // 1. The counts, over everything the filters select — every product, not
+  //    one page of them, however large the feeds are.
+  const { rows: countRows } = await query<{
+    products: number;
+    priced: number;
+    not_sold: number;
+    not_checked: number;
+    awaiting: number;
+  }>(
+    `SELECT count(*)::int AS products,
+            count(*) FILTER (WHERE x.has_price)::int AS priced,
+            count(*) FILTER (WHERE NOT x.has_price AND x.compared)::int AS not_sold,
+            count(*) FILTER (WHERE NOT x.has_price AND NOT x.compared)::int AS not_checked,
+            count(*) FILTER (WHERE x.our_price IS NULL)::int AS awaiting
+     FROM (SELECT ${columns} ${from}) x`,
+    params,
+  );
+  const counts = countRows[0]!;
+
+  // 2. Every product a competitor has priced, compared in full: the positions
+  //    and the price tiles come from these.
+  const { rows: pricedProducts } = await query<ProductRow>(
+    `SELECT ${columns} ${from} AND ${priced}
      ORDER BY p.brand, p.product_name
      LIMIT ${PRODUCT_SAFETY_CAP}`,
     params,
   );
+  const pricedRows = await buildRows(pricedProducts, filters.competitorId ?? null);
 
-  const total = products[0]?.total_count ?? 0;
-  if (products.length === 0) {
-    return { rows: [], total: 0, summary: emptySummary() };
+  const summary = summarise(pricedRows);
+  summary.products = counts.products;
+  summary.withCompetitorPrice = counts.priced;
+  summary.unmatched = counts.not_sold + counts.not_checked;
+  summary.notSold = counts.not_sold;
+  summary.notChecked = counts.not_checked;
+  summary.awaitingOurPrice = counts.awaiting;
+  summary.matchCoveragePct = counts.products === 0 ? 0 : round2((counts.priced / counts.products) * 100);
+
+  // Biggest undercut first: that is the one to act on.
+  const severity = (row: ComparisonRow) =>
+    row.position === 'higher' ? 0 : row.position === 'equal' ? 1 : row.position === 'lower' ? 2 : 3;
+  const byUrgency = (x: ComparisonRow, y: ComparisonRow) =>
+    severity(x) - severity(y) ||
+    (x.position === 'lower' ? (x.deltaPct ?? 0) - (y.deltaPct ?? 0) : (y.deltaPct ?? 0) - (x.deltaPct ?? 0));
+
+  // 3. A page of products with no competitor price, straight from SQL.
+  const unpricedPage = async (condition: string, skip: number, take: number | null) => {
+    const { rows: found } = await query<ProductRow>(
+      `SELECT ${columns} ${from} AND NOT ${priced} ${condition}
+       ORDER BY p.brand, p.product_name
+       OFFSET ${Math.max(skip, 0)} ${take != null ? `LIMIT ${Math.max(take, 0)}` : `LIMIT ${PRODUCT_SAFETY_CAP}`}`,
+      params,
+    );
+    return buildRows(found, filters.competitorId ?? null);
+  };
+
+  const position = filters.position ?? null;
+  if (position === 'lower' || position === 'equal' || position === 'higher') {
+    const matching = pricedRows.filter((row) => row.position === position).sort(byUrgency);
+    const paged = pageLimit != null ? matching.slice(offset, offset + pageLimit) : matching;
+    return { rows: paged, total: matching.length, summary };
+  }
+  if (position === 'not_checked' || position === 'not_sold' || position === 'unmatched') {
+    const condition =
+      position === 'not_checked' ? 'AND p.compared_at IS NULL' : position === 'not_sold' ? 'AND p.compared_at IS NOT NULL' : '';
+    const total =
+      position === 'not_checked' ? counts.not_checked : position === 'not_sold' ? counts.not_sold : summary.unmatched;
+    return { rows: await unpricedPage(condition, offset, pageLimit), total, summary };
+  }
+  if (position === 'awaiting_price') {
+    const { rows: found } = await query<ProductRow>(
+      `SELECT ${columns} ${from} AND fp.price IS NULL
+       ORDER BY p.brand, p.product_name
+       OFFSET ${offset} LIMIT ${pageLimit ?? PRODUCT_SAFETY_CAP}`,
+      params,
+    );
+    return { rows: await buildRows(found, filters.competitorId ?? null), total: counts.awaiting, summary };
   }
 
+  // Everything: priced products first, most urgent at the top, then the rest.
+  const ordered = [...pricedRows].sort(byUrgency);
+  const fromPriced = pageLimit != null ? ordered.slice(offset, offset + pageLimit) : ordered.slice(offset);
+  const stillWanted = pageLimit != null ? pageLimit - fromPriced.length : null;
+  const rest =
+    stillWanted == null || stillWanted > 0
+      ? await unpricedPage('', Math.max(offset - ordered.length, 0), stillWanted)
+      : [];
+  return { rows: [...fromPriced, ...rest], total: counts.products, summary };
+}
+
+type ProductRow = Product & { has_price: boolean; compared: boolean };
+
+/** Turn products into rows: every competitor's latest price and our position against the cheapest. */
+async function buildRows(products: ProductRow[], competitorId: number | null): Promise<ComparisonRow[]> {
+  if (products.length === 0) return [];
   const productIds = products.map((product) => product.id);
 
   // Latest observation per (product, competitor).
@@ -207,7 +300,7 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
      WHERE o.product_id = ANY($1::bigint[])
        AND ($2::bigint IS NULL OR o.competitor_id = $2::bigint)
      ORDER BY o.product_id, o.competitor_id, o.observed_at DESC`,
-    [productIds, filters.competitorId ?? null],
+    [productIds, competitorId],
   );
 
   const { rows: matchCounts } = await query<MatchCountRow>(
@@ -230,7 +323,7 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
   const countsByProduct = new Map(matchCounts.map((row) => [row.product_id, row]));
 
   const rows: ComparisonRow[] = products.map((product) => {
-    const { total_count: _ignored, ...productFields } = product;
+    const { has_price: hasPrice, compared, ...productFields } = product;
     const productObservations = observationsByProduct.get(product.id) ?? [];
 
     // Without a price of our own there is nothing to compare against. The
@@ -303,23 +396,14 @@ export async function getComparison(filters: ComparisonFilters = {}): Promise<Co
         confirmed: counts?.confirmed ?? 0,
         pending: counts?.pending ?? 0,
       },
+      compareStatus: hasPrice ? 'priced' : compared ? 'not_sold' : 'not_checked',
     };
   });
-
-  const filtered = filters.position
-    ? rows.filter((row) => {
-        if (filters.position === 'unmatched') return row.bestCompetitorPrice == null;
-        if (filters.position === 'awaiting_price') return row.ourPriceMissing;
-        return row.position === filters.position;
-      })
-    : rows;
-
-  // Summary and the position filter above both already saw every matching
-  // product; only the rows actually handed back are paged, right at the end.
-  const paged = pageLimit != null ? filtered.slice(offset, offset + pageLimit) : filtered;
-
-  return { rows: paged, total, summary: summarise(rows) };
+  return rows;
 }
+
+
+
 
 function summarise(rows: ComparisonRow[]): ComparisonPage['summary'] {
   const summary = { ...emptySummary(), products: rows.length };
@@ -345,6 +429,8 @@ function emptySummary(): ComparisonPage['summary'] {
     equal: 0,
     higher: 0,
     unmatched: 0,
+    notSold: 0,
+    notChecked: 0,
     awaitingOurPrice: 0,
     matchCoveragePct: 0,
   };

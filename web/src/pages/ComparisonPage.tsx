@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   api,
   ApiError,
@@ -29,7 +30,7 @@ import { CompetitorLabel } from '../components/CompetitorLogo';
 import { PriceHistoryChart } from '../components/PriceHistoryChart';
 import { ProductImage } from '../components/ProductImage';
 
-type PositionFilter = PricePosition | 'unmatched' | 'awaiting_price' | '';
+type PositionFilter = PricePosition | 'unmatched' | 'awaiting_price' | 'not_checked' | 'not_sold' | '';
 
 /**
  * The distinguishing detail of a catalogue row — size, metal, reference — which
@@ -86,6 +87,10 @@ export function ComparisonPage() {
   const [scanningProductId, setScanningProductId] = useState<number | null>(null);
   const [category, setCategory] = useState('');
   const [position, setPosition] = useState<PositionFilter>('');
+  const [pageSize, setPageSize] = useState(100);
+  const [checkingSku, setCheckingSku] = useState<string | null>(null);
+  const [fullRun, setFullRun] = useState<{ id: number; startedAt: string } | null>(null);
+  const navigate = useNavigate();
 
   const filters = useMemo(
     () => ({
@@ -114,13 +119,58 @@ export function ComparisonPage() {
     setLoading(true);
     setError(null);
     try {
-      setData(await api.comparison({ ...filters, limit: 200 }));
+      setData(await api.comparison({ ...filters, limit: pageSize }));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load the comparison view');
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, pageSize]);
+
+  // A new search or filter starts again from the top.
+  useEffect(() => setPageSize(100), [filters]);
+
+  // Is a check of every product running? Shown so nobody starts a second one.
+  useEffect(() => {
+    let cancelled = false;
+    const look = () =>
+      api
+        .runs()
+        .then(({ runs, activeRunId }) => {
+          if (cancelled) return;
+          const run = runs.find((r) => r.id === activeRunId && !r.product_sku && !r.product_count && !r.competitor_name);
+          setFullRun(run ? { id: run.id, startedAt: run.started_at } : null);
+        })
+        .catch(() => undefined);
+    look();
+    const timer = window.setInterval(look, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  /** Check one product live at every competitor, then show its result. */
+  const checkNow = async (row: ComparisonRow) => {
+    setCheckingSku(row.product.internal_sku);
+    try {
+      const { productId } = await api.lookup(row.product.internal_sku);
+      navigate(`/check?product=${productId}&t=${Date.now()}`);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not start the check', 'error');
+      setCheckingSku(null);
+    }
+  };
+
+  const checkEverything = async () => {
+    try {
+      const { run } = await api.startRun({ mode: 'both' });
+      setFullRun({ id: run.id, startedAt: run.started_at });
+      toast('Checking every product at every competitor. This takes a few hours; results appear here as they come in.', 'ok');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not start the check', 'error');
+    }
+  };
 
   useEffect(() => {
     // Debounced so typing in the search box doesn't fire a request per keystroke.
@@ -137,14 +187,14 @@ export function ComparisonPage() {
    * there is nothing left to show and it closes.
    */
   const reloadKeepingSelection = useCallback(async () => {
-    const response = await api.comparison({ ...filters, limit: 200 });
+    const response = await api.comparison({ ...filters, limit: pageSize });
     setData(response);
     setSelected((current) =>
       current
         ? (response.rows.find((row) => row.product.id === current.product.id) ?? null)
         : null,
     );
-  }, [filters]);
+  }, [filters, pageSize]);
 
   /**
    * Delete a product outright, with its prices, matches and observations.
@@ -219,46 +269,55 @@ export function ComparisonPage() {
     return `/api/comparison/export.csv${query ? `?${query}` : ''}`;
   }, [filters]);
 
-  const togglePosition = (next: PositionFilter) => setPosition((current) => (current === next ? '' : next));
 
   return (
     <div className="page">
-      <div className="stat-grid">
-        <Stat
-          label="Products"
-          value={summary?.products ?? '—'}
-          meta={`${summary?.withCompetitorPrice ?? 0} with a competitor price`}
-          tone="accent"
-          icon="◆"
-        />
-        <Stat
-          label="We're cheaper"
-          value={summary?.lower ?? '—'}
-          meta="We undercut the market"
-          tone="lower"
-          icon="▼"
-          active={position === 'lower'}
-          onClick={() => togglePosition('lower')}
-        />
-        <Stat
-          label="Same price"
-          value={summary?.equal ?? '—'}
-          meta="Matched on price"
-          tone="equal"
-          icon="="
-          active={position === 'equal'}
-          onClick={() => togglePosition('equal')}
-        />
-        <Stat
-          label="They're cheaper"
-          value={summary?.higher ?? '—'}
-          meta="Undercut by a competitor"
-          tone="higher"
-          icon="▲"
-          active={position === 'higher'}
-          onClick={() => togglePosition('higher')}
-        />
+      <div className="tallies tallies--page">
+        {(
+          [
+            ['', 'All products', summary?.products, ''],
+            ['higher', "They're cheaper", summary?.higher, 'higher'],
+            ['equal', 'Same price', summary?.equal, ''],
+            ['lower', "We're cheaper", summary?.lower, 'lower'],
+            ['not_sold', 'No competitor sells it', summary?.notSold, ''],
+            ['not_checked', 'Not checked yet', summary?.notChecked, 'pending'],
+          ] as const
+        ).map(([key, label, count, tone]) => (
+          <button
+            key={key || 'all'}
+            type="button"
+            className={`tally${position === key ? ' tally--active' : ''}${tone ? ` tally--${tone}` : ''}`}
+            onClick={() => setPosition(key)}
+            aria-pressed={position === key}
+          >
+            <span className="tally__value">{count != null ? count.toLocaleString('en-GB') : '—'}</span>
+            <span className="tally__label">{label}</span>
+          </button>
+        ))}
       </div>
+
+      {fullRun ? (
+        <Alert tone="info" title="Checking every product at every competitor">
+          Started {relativeTime(fullRun.startedAt)}. This reads each competitor's whole range, so it takes a few hours;
+          prices appear here as they come in. You can leave this page.
+        </Alert>
+      ) : (summary?.notChecked ?? 0) > 0 ? (
+        <div className="callout">
+          <div className="grow">
+            <strong>
+              {(summary?.notChecked ?? 0).toLocaleString('en-GB')} of {(summary?.products ?? 0).toLocaleString('en-GB')}{' '}
+              products haven't been compared with competitors yet.
+            </strong>
+            <div className="small muted">
+              Check them all at once (a few hours, runs in the background), or press <em>Check now</em> on any one
+              product for an answer in about a minute.
+            </div>
+          </div>
+          <button type="button" className="btn btn--primary" onClick={() => void checkEverything()}>
+            Check every product now
+          </button>
+        </div>
+      ) : null}
 
       {error && <Alert tone="danger" title="Could not load prices">{error}</Alert>}
 
@@ -266,7 +325,7 @@ export function ComparisonPage() {
         title="Our products against every competitor"
         subtitle={
           data
-            ? `${rows.length} of ${data.total} products · click a price to open that competitor's page, or a product for its detail`
+            ? `${data.total.toLocaleString('en-GB')} product${data.total === 1 ? '' : 's'} · click a price to open that competitor's page, or a product for its detail`
             : undefined
         }
         actions={
@@ -343,7 +402,7 @@ export function ComparisonPage() {
             </div>
             <div className="field">
               <label className="label" htmlFor="position">
-                Position
+                Showing
               </label>
               <select
                 id="position"
@@ -351,12 +410,13 @@ export function ComparisonPage() {
                 value={position}
                 onChange={(event) => setPosition(event.target.value as PositionFilter)}
               >
-                <option value="">Any position</option>
-                <option value="lower">We are cheaper</option>
-                <option value="equal">Level</option>
-                <option value="higher">They are cheaper</option>
-                <option value="unmatched">No competitor price</option>
-                <option value="awaiting_price">Awaiting our price</option>
+                <option value="">All products</option>
+                <option value="higher">They're cheaper</option>
+                <option value="equal">Same price</option>
+                <option value="lower">We're cheaper</option>
+                <option value="not_sold">No competitor sells it</option>
+                <option value="not_checked">Not checked yet</option>
+                <option value="awaiting_price">Our price not loaded</option>
               </select>
             </div>
             {(search || brand || category || position) && (
@@ -380,16 +440,27 @@ export function ComparisonPage() {
           <TableSkeleton />
         ) : rows.length === 0 ? (
           <EmptyState
-            title="Nothing to compare yet"
+            title={search ? `Nothing matches "${search}"` : 'No products here'}
             body={
-              <>
-                Import your catalogue, confirm some matches in the review queue, then trigger a run.
-                Prices appear here once a confirmed match has been scraped.
-              </>
+              search
+                ? 'Try the SKU, the manufacturer reference or part of the name — or choose another of our sites above.'
+                : 'Choose another tile above, or collect the feeds on Check prices to load everything we sell.'
             }
           />
         ) : view === 'grid' ? (
-          <CompetitorGrid rows={rows} onSelect={setSelected} />
+          <>
+            <CompetitorGrid rows={rows} onSelect={setSelected} onCheck={checkNow} checkingSku={checkingSku} />
+            {data && rows.length < data.total && (
+              <div className="show-more">
+                <span className="small muted">
+                  Showing {rows.length.toLocaleString('en-GB')} of {data.total.toLocaleString('en-GB')}
+                </span>
+                <button type="button" className="btn btn--sm" onClick={() => setPageSize((size) => size + 100)}>
+                  Show 100 more
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="table-wrap">
             <table className="table">
@@ -872,9 +943,13 @@ function ProductDrawer({
 function CompetitorGrid({
   rows,
   onSelect,
+  onCheck,
+  checkingSku,
 }: {
   rows: ComparisonRow[];
   onSelect: (row: ComparisonRow) => void;
+  onCheck: (row: ComparisonRow) => void;
+  checkingSku: string | null;
 }) {
   const competitors = [
     ...new Map(
@@ -886,25 +961,16 @@ function CompetitorGrid({
     ).entries(),
   ].sort((a, b) => a[1].localeCompare(b[1]));
 
-  if (competitors.length === 0) {
-    return (
-      <EmptyState
-        mark="—"
-        title="No competitor prices yet"
-        body="Confirm some matches in the review queue, then run a scan. Prices appear here as they are recorded."
-      />
-    );
-  }
-
   return (
     <div className="table-wrap">
-      <table className="table">
+      <table className="table table--list table--grid">
         <thead>
           <tr>
             <th>Product</th>
             <th className="num">Our price</th>
+            <th>Where we stand</th>
             {competitors.map(([id, name]) => (
-              <th key={id} className="num nowrap">
+              <th key={id} className="num">
                 {name}
               </th>
             ))}
@@ -954,6 +1020,9 @@ function CompetitorGrid({
                       )}
                     </>
                   )}
+                </td>
+                <td onClick={(event) => event.stopPropagation()}>
+                  <Standing row={row} onCheck={onCheck} checking={checkingSku === row.product.internal_sku} />
                 </td>
                 {competitors.map(([id]) => {
                   const entry = byId.get(id);
@@ -1013,10 +1082,12 @@ function CompetitorGrid({
                           )}
                         </div>
                       )}
+                      {/* Their price against ours: minus when they are cheaper. */}
                       {entry.deltaPct != null && (
                         <div className="cell-secondary xs">
-                          {entry.deltaPct > 0 ? '+' : ''}
-                          {entry.deltaPct.toFixed(1)}%
+                          {Math.abs(entry.deltaPct) < 0.05
+                            ? 'same'
+                            : `${entry.deltaPct > 0 ? '−' : '+'}${Math.abs(entry.deltaPct).toFixed(1)}%`}
                         </div>
                       )}
                     </td>
@@ -1028,5 +1099,46 @@ function CompetitorGrid({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** One line on where a product stands, in words, with a way to check it now. */
+function Standing({
+  row,
+  onCheck,
+  checking,
+}: {
+  row: ComparisonRow;
+  onCheck: (row: ComparisonRow) => void;
+  checking: boolean;
+}) {
+  const status = row.compareStatus ?? (row.bestCompetitorPrice != null ? 'priced' : 'not_checked');
+  if (status === 'priced' && row.position && row.deltaAbs != null && row.deltaPct != null) {
+    const gap = Math.abs(row.deltaAbs);
+    const pct = Math.abs(row.deltaPct).toFixed(1);
+    if (row.position === 'higher') {
+      return (
+        <span className="gap gap--higher" title={`Cheapest: ${row.bestCompetitorName}`}>
+          {formatMoney(gap, row.product.currency)} cheaper at {row.bestCompetitorName} · −{pct}%
+        </span>
+      );
+    }
+    if (row.position === 'lower') {
+      return (
+        <span className="gap gap--lower">
+          We're {formatMoney(gap, row.product.currency)} cheaper · +{pct}%
+        </span>
+      );
+    }
+    return <span className="gap gap--equal">Same price as the cheapest</span>;
+  }
+  if (status === 'priced') return <span className="small muted">Competitor price found</span>;
+  return (
+    <span className="standing">
+      <span className="small muted">{status === 'not_sold' ? 'No competitor sells it' : 'Not checked yet'}</span>
+      <button type="button" className="btn btn--sm" disabled={checking} onClick={() => onCheck(row)}>
+        {checking ? 'Starting…' : status === 'not_sold' ? 'Check again' : 'Check now'}
+      </button>
+    </span>
   );
 }

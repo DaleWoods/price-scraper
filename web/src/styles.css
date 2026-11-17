@@ -1848,3 +1848,27 @@ tr:hover .thumb { transform: scale(1.08); }
   background: #fff;
   border: 1px solid var(--border);
 }
+
+/* All products: the filter tiles, the "not compared yet" callout, paging */
+.tallies--page { grid-template-columns: repeat(6, minmax(0, 1fr)); padding: 0; }
+@media (max-width: 1200px) { .tallies--page { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.tally--pending .tally__value { color: var(--brass-700); }
+.callout {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  flex-wrap: wrap;
+  padding: var(--sp-5) var(--sp-6);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--brass-200);
+  background: var(--brass-100);
+  color: var(--text);
+}
+.show-more { display: flex; align-items: center; justify-content: center; gap: var(--sp-4); padding: var(--sp-5); border-top: 1px solid var(--border); }
+.standing { display: inline-flex; align-items: center; gap: var(--sp-3); white-space: nowrap; }
+.table--grid .list-product { min-width: 240px; }
+.table--grid .cell-primary.truncate { max-width: 230px !important; }
+.table--grid th.num { max-width: 120px; }
+.table--grid .gap { white-space: normal; font-size: var(--text-xs); }
+.table--grid .standing { white-space: normal; flex-wrap: wrap; gap: 6px; }
+.feeds-next { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3); border-radius: var(--radius-md, 10px); background: var(--ok-bg); border: 1px solid var(--ok-border); color: var(--ok-fg); }
