@@ -5,6 +5,7 @@ import { readOwnProductBySku } from '../ownSite/readOwnProduct.js';
 import { startRun } from '../scraping/runner.js';
 import { getLookup, LookupError, saveOwnProduct, type LookupResult } from './lookup.js';
 import { resolveProducts } from './productLookup.js';
+import { looksLikeBinary } from './listFile.js';
 
 /**
  * Checking a list of products at once: an uploaded file of SKUs, references
@@ -24,7 +25,14 @@ export const MAX_BATCH = 5000;
 const MAX_OWN_READS = 1000;
 
 export async function startBatch(values: string[], fileName: string | null): Promise<{ batchId: number }> {
-  const cleaned = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  if (looksLikeBinary(values)) {
+    throw new LookupError(
+      "That file couldn't be read as a list. If it's a spreadsheet, save it as .xlsx or .csv and choose it again.",
+    );
+  }
+  // A SKU, reference or barcode is short; anything long is a sentence or a
+  // stray cell, not something to look up.
+  const cleaned = [...new Set(values.map((value) => value.trim()).filter((value) => value && value.length <= 64))];
   if (cleaned.length === 0) throw new LookupError('That file has no SKUs, references or barcodes in it.');
   if (cleaned.length > MAX_BATCH) {
     throw new LookupError(

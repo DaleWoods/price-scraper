@@ -158,6 +158,20 @@ function ListCard({ onStarted }: { onStarted: (batchId: number) => void }) {
   const [error, setError] = useState<string | null>(null);
 
   const load = (file: File) => {
+    // An Excel file is binary: the server reads it. Text files are read here.
+    if (/\.(xlsx|xlsm|xls|xltx)$/i.test(file.name)) {
+      setError(null);
+      setFileName(file.name);
+      setValues([]);
+      api
+        .readListFile(file)
+        .then(({ values: read }) => setValues(read))
+        .catch((err) => {
+          setFileName(null);
+          setError(err instanceof ApiError ? err.message : 'Could not read that file');
+        });
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       setValues(parseSkuList(String(reader.result ?? '')));
@@ -183,7 +197,7 @@ function ListCard({ onStarted }: { onStarted: (batchId: number) => void }) {
   };
 
   return (
-    <Card title="A list of products" subtitle="A CSV or text file of SKUs, references or barcodes — any mix">
+    <Card title="A list of products" subtitle="An Excel or CSV file of SKUs, references or barcodes — any mix">
       {fileName ? (
         <div className="check-form">
           <span className="badge badge--info" style={{ alignSelf: 'center' }}>
@@ -206,7 +220,7 @@ function ListCard({ onStarted }: { onStarted: (batchId: number) => void }) {
         <label className="check-drop">
           <input
             type="file"
-            accept=".csv,.txt,.tsv"
+            accept=".xlsx,.xls,.csv,.txt,.tsv"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) load(file);
@@ -215,8 +229,8 @@ function ListCard({ onStarted }: { onStarted: (batchId: number) => void }) {
           />
           <span>Choose a file</span>
           <span className="xs muted">
-            One per line, or a spreadsheet saved as CSV — only columns headed SKU, ID, GTIN, EAN, barcode,
-            MPN or reference are read.
+            Excel (.xlsx) or CSV, one per row — columns headed SKU, ID, GTIN, EAN, barcode, MPN or reference are
+            read, or the first column if none is. Up to 500 products are checked in minutes.
           </span>
         </label>
       )}

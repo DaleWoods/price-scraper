@@ -814,6 +814,12 @@ export interface RecentBatch {
 }
 
 export const api = {
+  /** Read the values out of a spreadsheet the browser cannot read itself (Excel). */
+  readListFile: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<{ values: string[] }>('/api/lookup/read-list', { method: 'POST', body: form });
+  },
   lookupBatch: (values: string[], fileName: string | null) =>
     request<{ batchId: number }>('/api/lookup/batch', {
       method: 'POST',

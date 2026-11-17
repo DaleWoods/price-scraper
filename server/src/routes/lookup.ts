@@ -1,8 +1,30 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { getLookup, LookupError, recentLookups, startLookup } from '../services/lookup.js';
 import { getBatch, recentBatches, startBatch } from '../services/lookupBatch.js';
+import { valuesFromFile } from '../services/listFile.js';
 
 export const lookupRouter: Router = Router();
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+/**
+ * Read the values out of an uploaded spreadsheet, for the page to show and
+ * then check. Excel files come here: they are binary, and the browser can only
+ * read text.
+ */
+lookupRouter.post('/read-list', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'No file was uploaded.' });
+      return;
+    }
+    const values = await valuesFromFile(req.file.buffer, req.file.originalname);
+    res.json({ values });
+  } catch (err) {
+    res.status(400).json({ error: `Could not read that file: ${(err as Error).message}` });
+  }
+});
 
 /** Start checking one product against every enabled competitor. */
 lookupRouter.post('/', async (req, res, next) => {
