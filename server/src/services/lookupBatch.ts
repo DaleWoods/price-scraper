@@ -143,10 +143,25 @@ export interface BatchResult {
  * off is checked again. A check is harmless to repeat.
  */
 export async function resumeBatches(): Promise<void> {
-  const { rows } = await query<{ id: number; status: string; input_values: string[]; product_ids: string[] }>(
+  const { rows: unfinished } = await query<{ id: number; status: string; input_values: string[]; product_ids: string[] }>(
     `SELECT id, status, input_values, product_ids FROM lookup_batches
-     WHERE status IN ('finding', 'checking') AND created_at > now() - interval '2 days'`,
+     WHERE status IN ('finding', 'checking') AND created_at > now() - interval '2 days'
+     ORDER BY id DESC`,
   );
+  // Only the newest. Uploading the same file again after a restart left
+  // several unfinished lists, and resuming them all ran the same check
+  // several times side by side — twice the work on a small server for one
+  // answer. The older ones are closed; what they found is kept and shows in
+  // the newest list and on All products.
+  const rows = unfinished.slice(0, 1);
+  if (unfinished.length > 1) {
+    await query(
+      `UPDATE lookup_batches SET status = 'failed',
+              message = 'Stopped when the app restarted. A newer list was picked up instead.'
+       WHERE id = ANY($1::bigint[])`,
+      [unfinished.slice(1).map((batch) => Number(batch.id))],
+    );
+  }
   for (const batch of rows) {
     const batchId = Number(batch.id);
     logger.info('lookup', `resuming list ${batchId} (${batch.status}) after a restart`);
