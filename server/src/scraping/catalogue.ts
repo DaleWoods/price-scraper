@@ -226,14 +226,17 @@ export async function recordCatalogueListing(
   await query(
     `INSERT INTO competitor_products
        (competitor_id, url, status, title, brand, gtin, mpn, sku, price, was_price, currency,
-        promo, in_stock, availability_text, attributes, rendered_with, error_kind, error)
-     VALUES ($1, $2, 'ok', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, NULL, NULL)
+        promo, in_stock, availability_text, attributes, rendered_with, error_kind, error,
+        lead_text, lead_days)
+     VALUES ($1, $2, 'ok', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, NULL, NULL,
+             $16, $17)
      ON CONFLICT (competitor_id, url) DO UPDATE SET
        status = 'ok', title = EXCLUDED.title, brand = EXCLUDED.brand, gtin = EXCLUDED.gtin,
        mpn = EXCLUDED.mpn, sku = EXCLUDED.sku, price = EXCLUDED.price,
        was_price = EXCLUDED.was_price, currency = EXCLUDED.currency, promo = EXCLUDED.promo,
        in_stock = EXCLUDED.in_stock, availability_text = EXCLUDED.availability_text,
        attributes = EXCLUDED.attributes, rendered_with = EXCLUDED.rendered_with,
+       lead_text = EXCLUDED.lead_text, lead_days = EXCLUDED.lead_days,
        error_kind = NULL, error = NULL, fetched_at = now()`,
     [
       competitorId,
@@ -251,6 +254,8 @@ export async function recordCatalogueListing(
       listing.availabilityText,
       JSON.stringify(listing.attributes ?? {}),
       page.renderedWith,
+      listing.leadText ?? null,
+      listing.leadDays ?? null,
     ],
   );
 }

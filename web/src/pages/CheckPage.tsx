@@ -323,16 +323,35 @@ function BatchCard({ batchId }: { batchId: number }) {
   const done = batch.status === 'done';
 
   const download = () => {
-    const header = ['SKU', 'Brand', 'Product', 'Reference', 'Our price', ...competitors.flatMap((c) => [`${c.name} price`, `${c.name} link`])];
+    const header = [
+      'SKU',
+      'Brand',
+      'Product',
+      'Reference',
+      'Our price',
+      'Our stock',
+      'Our lead time',
+      'Our link',
+      ...competitors.flatMap((c) => [`${c.name} price`, `${c.name} stock`, `${c.name} lead time`, `${c.name} link`]),
+    ];
     const lines = batch.products.map((product) => [
       product.product.sku,
       product.product.brand,
       product.product.name,
       product.product.mpn ?? '',
       product.product.price ?? '',
+      product.product.inStock === false ? 'Out of stock' : product.product.inStock ? 'In stock' : '',
+      product.product.leadText ?? '',
+      product.product.url ?? '',
       ...competitors.flatMap((c) => {
         const entry = product.competitors.find((row) => row.slug === c.slug);
-        return entry?.status === 'found' ? [entry.price ?? '', entry.url ?? ''] : ['', ''];
+        if (entry?.status !== 'found') return [entry?.status === 'not_found' ? 'Not sold here' : '', '', '', entry?.url ?? ''];
+        return [
+          entry.price ?? '',
+          entry.inStock === false ? 'Out of stock' : entry.inStock ? 'In stock' : '',
+          entry.leadText ?? '',
+          entry.url ?? '',
+        ];
       }),
     ]);
     const csv = [header, ...lines]
@@ -502,6 +521,7 @@ function BatchCard({ batchId }: { batchId: number }) {
                         <span className="tag tag--sale tag--sm">Our sale</span>
                       )}
                       {product.product.inStock === false && <span className="tag tag--oos tag--sm">Out of stock</span>}
+                      <LeadTime text={product.product.leadText} />
                       {product.product.price == null && product.product.inStock !== false && (
                         <span
                           className="xs muted"
@@ -514,7 +534,11 @@ function BatchCard({ batchId }: { batchId: number }) {
                   </td>
                   {competitors.map((c) => (
                     <td key={c.slug} className="num nowrap">
-                      <PriceCell entry={product.competitors.find((row) => row.slug === c.slug)} ours={product.product.price} />
+                      <PriceCell
+                        entry={product.competitors.find((row) => row.slug === c.slug)}
+                        ours={product.product.price}
+                        ourLeadDays={product.product.leadDays ?? null}
+                      />
                     </td>
                   ))}
                 </tr>
@@ -527,7 +551,44 @@ function BatchCard({ batchId }: { batchId: number }) {
   );
 }
 
-function PriceCell({ entry, ours }: { entry: LookupCompetitor | undefined; ours: number | null }) {
+/**
+ * How soon a product arrives. Against ours, a competitor's is marked slower or
+ * quicker: a cheaper price that takes weeks longer is not the same offer.
+ */
+function LeadTime({
+  text,
+  days,
+  ourDays,
+}: {
+  text: string | null | undefined;
+  days?: number | null;
+  ourDays?: number | null;
+}) {
+  if (!text) return null;
+  const tone =
+    days == null || ourDays == null ? '' : days > ourDays ? 'lead--slower' : days < ourDays ? 'lead--quicker' : '';
+  const title =
+    tone === 'lead--slower'
+      ? 'Slower than ours'
+      : tone === 'lead--quicker'
+        ? 'Quicker than ours'
+        : 'Delivery, as the product page states it';
+  return (
+    <span className={`lead ${tone}`} title={title}>
+      {text}
+    </span>
+  );
+}
+
+function PriceCell({
+  entry,
+  ours,
+  ourLeadDays,
+}: {
+  entry: LookupCompetitor | undefined;
+  ours: number | null;
+  ourLeadDays?: number | null;
+}) {
   if (!entry) return <span className="muted">—</span>;
   if (entry.status === 'checking') return <span className="spinner" />;
   if (entry.status === 'blocked' || entry.status === 'error') {
@@ -562,6 +623,7 @@ function PriceCell({ entry, ours }: { entry: LookupCompetitor | undefined; ours:
       <GapPill price={entry.price} ours={ours} compact />
       {entry.onSale && <span className="tag tag--sale tag--sm">Sale</span>}
       {entry.inStock === false && <span className="tag tag--oos tag--sm">Out of stock</span>}
+      <LeadTime text={entry.leadText} days={entry.leadDays} ourDays={ourLeadDays} />
     </span>
   );
 }
@@ -1003,7 +1065,15 @@ function PriceLadder({ result }: { result: LookupResult }) {
   );
 }
 
-function CompetitorTile({ row, ours }: { row: LookupCompetitor; ours: number | null }) {
+function CompetitorTile({
+  row,
+  ours,
+  ourLeadDays,
+}: {
+  row: LookupCompetitor;
+  ours: number | null;
+  ourLeadDays?: number | null;
+}) {
   const tone = gapOf(row.price, ours)?.tone ?? 'equal';
   return (
     <article className={`ctile ctile--${tone}`}>
@@ -1014,6 +1084,7 @@ function CompetitorTile({ row, ours }: { row: LookupCompetitor; ours: number | n
         ) : row.inStock ? (
           <span className="ctile__stock">In stock</span>
         ) : null}
+        <LeadTime text={row.leadText} days={row.leadDays} ourDays={ourLeadDays} />
       </header>
       <div className="ctile__price">
         {formatMoney(row.price)}
@@ -1081,6 +1152,7 @@ function ResultCard({ result, onRecheck }: { result: LookupResult; onRecheck: ()
                 {formatMoney(ours)}
                 {(product.onSale || product.wasPrice != null) && <span className="tag tag--sale">On sale</span>}
                 {product.inStock === false && <span className="tag tag--oos">Out of stock</span>}
+                <LeadTime text={product.leadText} />
               </div>
               {product.wasPrice != null && ours != null && (
                 <div className="small muted">
@@ -1104,7 +1176,7 @@ function ResultCard({ result, onRecheck }: { result: LookupResult; onRecheck: ()
         {(found.length > 0 || checking.length > 0) && (
           <div className="ctiles">
             {found.map((row) => (
-              <CompetitorTile key={row.slug} row={row} ours={ours} />
+              <CompetitorTile key={row.slug} row={row} ours={ours} ourLeadDays={product.leadDays ?? null} />
             ))}
             {checking.map((row) => (
               <article key={row.slug} className="ctile ctile--pending">

@@ -1905,3 +1905,18 @@ tr:hover .thumb { transform: scale(1.08); }
 .result__amount .tag { font-size: var(--text-sm); letter-spacing: 0.04em; }
 .ctile__head { flex-wrap: wrap; row-gap: 6px; }
 .ctile__head .tag { margin-left: 0; }
+
+/* Lead time: how soon a product arrives, beside its price. */
+.lead {
+  display: inline-block;
+  font-size: var(--text-xs, 12px);
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.lead::before { content: 'Delivery: '; font-weight: 400; }
+.lead--slower { color: #b45309; }
+.lead--slower::after { content: ' (slower)'; font-weight: 400; }
+.lead--quicker { color: #15803d; }
+.lead--quicker::after { content: ' (quicker)'; font-weight: 400; }
+.result__amount .lead { margin-left: 10px; vertical-align: middle; }

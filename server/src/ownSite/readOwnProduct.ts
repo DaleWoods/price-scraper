@@ -18,6 +18,8 @@ import { siteFetch } from '../scraping/httpClient.js';
  * publishes both — see adoptBarcode() in matching/discovery.ts.
  */
 
+import { leadFromPhrase } from '../scraping/leadTime.js';
+
 export interface OwnSite {
   fasciaCode: string;
   name: string;
@@ -42,6 +44,9 @@ export interface OwnProduct {
   /** The price before a reduction, when the page shows one. */
   wasPrice: number | null;
   inStock: boolean | null;
+  /** How soon it arrives, as our page states it ("Next day", "1-2 working days"), and that in days. */
+  leadText: string | null;
+  leadDays: number | null;
   mpn: string | null;
   url: string;
   imageUrl: string | null;
@@ -164,7 +169,21 @@ export async function readOwnProductPage(url: string): Promise<OwnProduct | null
   const canonical = html.match(/<link[^>]+rel="canonical"[^>]+href="([^"]+)"/)?.[1];
   const mpnFromState = typeof state?.mpn === 'string' ? state.mpn.trim() : '';
 
+  // Our pages carry the delivery message with the product's stock details:
+  // "Next Day Delivery", "1-2 Business Days". An out-of-stock product has none.
+  const stockState = (state?.stock ?? null) as Record<string, unknown> | null;
+  const lead = leadFromPhrase(
+    typeof stockState?.shortProductDeliveryMessage === 'string'
+      ? stockState.shortProductDeliveryMessage
+      : typeof stockState?.productDeliveryMessage === 'string'
+        ? stockState.productDeliveryMessage
+        : null,
+  );
+
+
   return {
+    leadText: lead?.text ?? null,
+    leadDays: lead?.days ?? null,
     fasciaCode: site.fasciaCode,
     siteName: site.name,
     sku,

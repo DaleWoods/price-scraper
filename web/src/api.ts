@@ -754,6 +754,9 @@ export interface LookupCompetitor {
   wasPrice: number | null;
   onSale: boolean;
   inStock: boolean | null;
+  /** How soon it arrives, as their page states it, and that in days. */
+  leadText?: string | null;
+  leadDays?: number | null;
   url: string | null;
   title: string | null;
   seenAt: string | null;
@@ -777,6 +780,9 @@ export interface LookupResult {
     onSale?: boolean;
     /** false: out of stock on our site. null: not known. */
     inStock?: boolean | null;
+    /** How soon it arrives, as our page states it, and that in days. */
+    leadText?: string | null;
+    leadDays?: number | null;
   };
   running: boolean;
   checkedAt: string | null;

@@ -5,6 +5,8 @@ import { identKey, looksLikeGtin } from '../matching/identifiers.js';
 import { ScrapeError } from './errors.js';
 import type { FetchedPage } from './fetcher.js';
 
+import { readLeadTime } from './leadTime.js';
+
 export interface ExtractedListing {
   title: string | null;
   price: number | null;
@@ -13,6 +15,9 @@ export interface ExtractedListing {
   promo: boolean;
   inStock: boolean | null;
   availabilityText: string | null;
+  /** How soon it arrives, as the page states it ("Next day", "1-2 weeks"), and that in days. */
+  leadText: string | null;
+  leadDays: number | null;
   /** The first of gtin, mpn or sku — kept for callers that predate the split below. */
   ean: string | null;
   /** The barcode, the manufacturer reference, and the retailer's own stock code. */
@@ -370,13 +375,18 @@ export function extractListing(competitor: Competitor, page: FetchedPage): Extra
   const mpn =
     labelled && (!structuredMpn || structuredIsStockCode) ? labelled : (structuredMpn ?? labelled);
 
+  const inStock = interpretAvailability(availabilityText);
+  const lead = readLeadTime(page.html, { inStock, availabilityText });
+
   return {
+    leadText: lead?.text ?? null,
+    leadDays: lead?.days ?? null,
     title: jsonLd?.title ?? firstText($, selectors.title) ?? ($('h1').first().text().trim() || null),
     price,
     wasPrice: wasPrice && wasPrice > price ? wasPrice : null,
     currency: jsonLd?.currency ?? 'GBP',
     promo: Boolean(promoBadge) || (wasPrice != null && wasPrice > price),
-    inStock: interpretAvailability(availabilityText),
+    inStock,
     availabilityText,
     ean: usableCode(jsonLd?.ean ?? selectorEan),
     // A configured selector is the fallback for a barcode only: it was written

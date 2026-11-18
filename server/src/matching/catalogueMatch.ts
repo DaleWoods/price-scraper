@@ -32,6 +32,8 @@ interface CatalogueRow {
   promo: boolean | null;
   in_stock: boolean | null;
   availability_text: string | null;
+  lead_text?: string | null;
+  lead_days?: number | null;
   attributes: SpecAttributes;
   rendered_with: string | null;
   fetched_at: string;
@@ -286,6 +288,8 @@ async function scoreAndStore(
           promo: Boolean(row.promo),
           inStock: row.in_stock,
           availabilityText: row.availability_text,
+          leadText: row.lead_text ?? null,
+          leadDays: row.lead_days ?? null,
         },
         { runId: options.runId ?? null, sourceUrl: row.url, renderedWith: row.rendered_with },
       );

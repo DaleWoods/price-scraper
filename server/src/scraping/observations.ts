@@ -15,6 +15,9 @@ export interface ObservedPrice {
   promo: boolean;
   inStock: boolean | null;
   availabilityText: string | null;
+  /** How soon it arrives, as the page states it, and that in days. */
+  leadText?: string | null;
+  leadDays?: number | null;
 }
 
 export interface ObservationTarget {
@@ -41,8 +44,8 @@ export async function recordPriceObservation(
   await query(
     `INSERT INTO price_observations
        (product_id, competitor_id, match_id, scrape_run_id, price, was_price, currency,
-        promo, in_stock, availability_text, source_url, rendered_with)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        promo, in_stock, availability_text, source_url, rendered_with, lead_text, lead_days)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
     [
       target.productId,
       target.competitorId,
@@ -58,6 +61,8 @@ export async function recordPriceObservation(
       // What actually produced this price, after any escalation — not what
       // the competitor is configured to prefer.
       context.renderedWith,
+      observed.leadText ?? null,
+      observed.leadDays ?? null,
     ],
   );
 

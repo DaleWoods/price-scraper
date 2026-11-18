@@ -87,8 +87,9 @@ export async function startLookup(input: string, preferredFasciaCode?: string | 
 export async function saveOwnProduct(own: OwnProduct, existingId: number | null): Promise<number> {
   const { rows } = await query<{ id: number }>(
     `INSERT INTO products
-       (internal_sku, brand, product_name, ean_mpn, mpn, category, our_product_url, image_url, specs, source)
-     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb, 'manual')
+       (internal_sku, brand, product_name, ean_mpn, mpn, category, our_product_url, image_url, specs, source,
+        our_lead_text, our_lead_days, our_lead_at)
+     VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8::jsonb, 'manual', $9, $10, now())
      ON CONFLICT (internal_sku) DO UPDATE SET
        brand           = EXCLUDED.brand,
        product_name    = EXCLUDED.product_name,
@@ -97,6 +98,9 @@ export async function saveOwnProduct(own: OwnProduct, existingId: number | null)
        category        = COALESCE(products.category, EXCLUDED.category),
        our_product_url = EXCLUDED.our_product_url,
        image_url       = EXCLUDED.image_url,
+       our_lead_text   = EXCLUDED.our_lead_text,
+       our_lead_days   = EXCLUDED.our_lead_days,
+       our_lead_at     = now(),
        updated_at      = now()
      RETURNING id`,
     [
@@ -108,6 +112,8 @@ export async function saveOwnProduct(own: OwnProduct, existingId: number | null)
       own.url,
       own.imageUrl,
       JSON.stringify(own.mpn ? { reference_number: own.mpn } : {}),
+      own.leadText ?? null,
+      own.leadDays ?? null,
     ],
   );
   const id = existingId ?? rows[0]!.id;
@@ -135,6 +141,9 @@ export interface LookupCompetitor {
   wasPrice: number | null;
   onSale: boolean;
   inStock: boolean | null;
+  /** How soon it arrives, as their page states it, and that in days. */
+  leadText: string | null;
+  leadDays: number | null;
   url: string | null;
   title: string | null;
   seenAt: string | null;
@@ -160,6 +169,9 @@ export interface LookupResult {
     onSale: boolean;
     /** false: out of stock on our site. null: not known. */
     inStock: boolean | null;
+    /** How soon it arrives, as our page states it, and that in days. */
+    leadText: string | null;
+    leadDays: number | null;
   };
   running: boolean;
   checkedAt: string | null;
@@ -220,6 +232,8 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
     oos_url: string | null;
     oos_site: string | null;
     oos_known: boolean;
+    our_lead_text: string | null;
+    our_lead_days: number | null;
   }>(
     `SELECT p.*, f.name AS site_name, fp.price, fp.regular_price, fp.on_sale, fp.product_url,
             fp.in_stock AS our_in_stock,
@@ -266,11 +280,14 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
     was_price: string | null;
     promo: boolean | null;
     in_stock: boolean | null;
+    lead_text: string | null;
+    lead_days: number | null;
     observed_at: string | null;
     source_url: string | null;
   }>(
     `SELECT m.product_id, m.competitor_id, m.competitor_url, m.competitor_title, m.evidence,
-            po.price, po.was_price, po.promo, po.in_stock, po.observed_at, po.source_url
+            po.price, po.was_price, po.promo, po.in_stock, po.lead_text, po.lead_days,
+            po.observed_at, po.source_url
      FROM product_matches m
      LEFT JOIN LATERAL (
        SELECT * FROM price_observations WHERE match_id = m.id ORDER BY observed_at DESC LIMIT 1
@@ -317,6 +334,8 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
         wasPrice: null,
         onSale: false,
         inStock: null,
+        leadText: null,
+        leadDays: null,
         url: null,
         title: null,
         seenAt: null,
@@ -334,6 +353,8 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
           wasPrice: match.was_price != null ? Number(match.was_price) : null,
           onSale: Boolean(match.promo),
           inStock: match.in_stock,
+          leadText: match.in_stock === false ? null : match.lead_text,
+          leadDays: match.in_stock === false ? null : match.lead_days,
           url: match.source_url ?? match.competitor_url,
           title: match.competitor_title,
           seenAt: match.observed_at,
@@ -371,6 +392,8 @@ export async function getLookups(productIds: number[], runId: number | null): Pr
         siteName:
           product.site_name ?? product.oos_site ?? siteFromUrl(product.product_url ?? product.our_product_url),
         inStock: outOfStock ? false : product.price != null ? (product.our_in_stock ?? true) : null,
+        leadText: product.our_lead_text,
+        leadDays: product.our_lead_days,
         price,
         // A "was" price is only a sale when it is above today's price.
         wasPrice: regular != null && price != null && regular > price ? regular : null,

@@ -20,6 +20,7 @@ import { listCompetitors } from './competitorRegistry.js';
 import { ScrapeError } from './errors.js';
 import { fetchAndExtract } from './fetchAndExtract.js';
 import { recordPriceObservation } from './observations.js';
+import { refreshOurLeadTimes } from '../services/ourLeadTime.js';
 import { UnblockerBudget, isUnblockerConfigured } from './unblocker.js';
 
 export type RunMode = 'prices' | 'discover' | 'both';
@@ -261,6 +262,10 @@ async function executeRun(
     ? all.filter((competitor) => competitor.id === options.competitorId)
     : all;
 
+  // A list: our own lead times are read from our pages while the competitors
+  // are being checked, so both sides of the comparison fill in together.
+  if (productIds != null && productIds.length > 0) void refreshOurLeadTimes(productIds);
+
   if (competitors.length === 0) {
     await query(
       `UPDATE scrape_runs
@@ -364,6 +369,8 @@ async function executeRun(
         [productIds],
       );
     }
+    // A full check: our lead time for every product a competitor also sells.
+    if (productIds == null && !options.competitorId) void refreshOurLeadTimes(null);
   } finally {
     finishRunProgress(runId, failed);
     runsInFlight -= 1;
